@@ -37,6 +37,8 @@ can be kept as a working bridge, but it should not be the long-term UI layer.
    - Toolbar search, view mode, density, sort, folder actions.
    - Grid/list/masonry browser.
    - Detail metadata panel and settings dialog.
+     - Current bridge state: settings opens an in-app Slint panel with tabs and local preference controls.
+     - Pending: settings persistence, slicer app chooser/dropdown, and full egui settings parity.
 
 4. **Embed visualization surfaces**
    - Reuse the existing wgpu offscreen thumbnail renderer.

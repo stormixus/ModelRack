@@ -63,6 +63,59 @@ slint::slint! {
         }
     }
 
+    component SettingsTabButton inherits Rectangle {
+        in property <string> label;
+        in property <string> key;
+        in property <bool> selected: false;
+        callback activated(string);
+
+        height: 30px;
+        background: selected ? #2a464c : #00000000;
+        border-radius: 6px;
+
+        Text {
+            x: 10px;
+            y: 7px;
+            text: label;
+            color: selected ? #f1f6f8 : #b9bec7;
+            font-size: 13px;
+        }
+
+        TouchArea {
+            width: parent.width;
+            height: parent.height;
+            clicked => { root.activated(key); }
+        }
+    }
+
+    component SettingsRow inherits Rectangle {
+        in property <string> label;
+        in property <string> value;
+
+        height: 34px;
+        background: #00000000;
+
+        Text {
+            x: 0;
+            y: 8px;
+            text: label;
+            color: #e0e5eb;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        Text {
+            x: 172px;
+            y: 9px;
+            width: parent.width - 172px;
+            text: value;
+            horizontal-alignment: right;
+            color: #9aa1ac;
+            font-size: 12px;
+            overflow: elide;
+        }
+    }
+
     export component ModelRackWindow inherits Window {
         in property <string> app-title;
         in property <string> library-label;
@@ -84,9 +137,25 @@ slint::slint! {
         in property <[SidebarItem]> folder-items;
         in property <[SidebarItem]> tag-items;
         in property <string> active-filter-key;
+        in property <bool> settings-open;
+        in property <string> settings-tab;
+        in property <string> settings-language-label;
+        in property <string> settings-theme-label;
+        in property <string> settings-folder-label;
+        in property <string> settings-density-label;
+        in property <string> settings-gpu-label;
+        in property <string> settings-workers-label;
+        in property <string> settings-slicer-label;
 
         callback open-folder();
         callback open-settings();
+        callback close-settings();
+        callback choose-settings-tab(string);
+        callback cycle-settings-language();
+        callback toggle-settings-theme();
+        callback cycle-settings-density();
+        callback toggle-settings-gpu();
+        callback cycle-settings-workers();
         callback apply-search(string);
         callback cycle-view-mode();
         callback cycle-density();
@@ -412,6 +481,148 @@ slint::slint! {
                     font-size: 11px;
                 }
             }
+
+            if settings-open: Rectangle {
+                x: 0;
+                y: 0;
+                width: parent.width;
+                height: parent.height;
+                background: #00000088;
+
+                Rectangle {
+                    x: (parent.width - 760px) / 2;
+                    y: (parent.height - 540px) / 2;
+                    width: 760px;
+                    height: 540px;
+                    background: #202226;
+                    border-color: #3b4048;
+                    border-width: 1px;
+                    border-radius: 8px;
+
+                    Rectangle {
+                        x: 0;
+                        y: 0;
+                        width: 188px;
+                        height: parent.height;
+                        background: #191b20;
+                        border-radius: 8px;
+
+                        VerticalLayout {
+                            x: 16px;
+                            y: 18px;
+                            width: parent.width - 32px;
+                            spacing: 8px;
+
+                            Text {
+                                text: "ModelRack";
+                                color: #f0f4f7;
+                                font-size: 15px;
+                                font-weight: 700;
+                            }
+
+                            Text {
+                                text: "v0.0.3";
+                                color: #8f96a3;
+                                font-family: "JetBrains Mono";
+                                font-size: 11px;
+                            }
+
+                            Rectangle { height: 8px; }
+
+                            SettingsTabButton { label: "General"; key: "general"; selected: settings-tab == "general"; activated(tab) => { choose-settings-tab(tab); } }
+                            SettingsTabButton { label: "Appearance"; key: "appearance"; selected: settings-tab == "appearance"; activated(tab) => { choose-settings-tab(tab); } }
+                            SettingsTabButton { label: "Library"; key: "library"; selected: settings-tab == "library"; activated(tab) => { choose-settings-tab(tab); } }
+                            SettingsTabButton { label: "Thumbnails"; key: "thumbnails"; selected: settings-tab == "thumbnails"; activated(tab) => { choose-settings-tab(tab); } }
+                            SettingsTabButton { label: "Slicer"; key: "slicer"; selected: settings-tab == "slicer"; activated(tab) => { choose-settings-tab(tab); } }
+                            SettingsTabButton { label: "Advanced"; key: "advanced"; selected: settings-tab == "advanced"; activated(tab) => { choose-settings-tab(tab); } }
+                            SettingsTabButton { label: "About"; key: "about"; selected: settings-tab == "about"; activated(tab) => { choose-settings-tab(tab); } }
+                        }
+                    }
+
+                    Rectangle {
+                        x: 188px;
+                        y: 0;
+                        width: parent.width - 188px;
+                        height: parent.height;
+                        background: #202226;
+
+                        HorizontalLayout {
+                            x: 24px;
+                            y: 18px;
+                            width: parent.width - 48px;
+                            height: 32px;
+                            alignment: center;
+
+                            Text {
+                                text: settings-tab == "general" ? "General" :
+                                      settings-tab == "appearance" ? "Appearance" :
+                                      settings-tab == "library" ? "Library" :
+                                      settings-tab == "thumbnails" ? "Thumbnails" :
+                                      settings-tab == "slicer" ? "Slicer" :
+                                      settings-tab == "advanced" ? "Advanced" : "About";
+                                color: #f0f4f7;
+                                font-size: 20px;
+                                font-weight: 700;
+                            }
+
+                            Rectangle { horizontal-stretch: 1; }
+
+                            Button {
+                                text: "Close";
+                                clicked => { close-settings(); }
+                            }
+                        }
+
+                        Rectangle {
+                            x: 24px;
+                            y: 62px;
+                            width: parent.width - 48px;
+                            height: 1px;
+                            background: #3b4048;
+                        }
+
+                        VerticalLayout {
+                            x: 24px;
+                            y: 82px;
+                            width: parent.width - 48px;
+                            spacing: 10px;
+
+                            if settings-tab == "general": SettingsRow { label: "Language"; value: settings-language-label; }
+                            if settings-tab == "general": SettingsRow { label: "Startup"; value: "Reopen last library folder"; }
+                            if settings-tab == "general": SettingsRow { label: "Shortcuts"; value: "Cmd-F search, Cmd-, settings"; }
+                            if settings-tab == "general": Button { text: "Cycle Language"; clicked => { cycle-settings-language(); } }
+
+                            if settings-tab == "appearance": SettingsRow { label: "Theme"; value: settings-theme-label; }
+                            if settings-tab == "appearance": SettingsRow { label: "Typography"; value: "Inter + Pretendard + JetBrains Mono"; }
+                            if settings-tab == "appearance": SettingsRow { label: "Accent"; value: "Teal"; }
+                            if settings-tab == "appearance": Button { text: "Toggle Theme"; clicked => { toggle-settings-theme(); } }
+
+                            if settings-tab == "library": SettingsRow { label: "Current folder"; value: settings-folder-label; }
+                            if settings-tab == "library": SettingsRow { label: "Recursive scan"; value: "Enabled"; }
+                            if settings-tab == "library": SettingsRow { label: "Metadata"; value: ".modelrack.json sidecars"; }
+
+                            if settings-tab == "thumbnails": SettingsRow { label: "Density"; value: settings-density-label; }
+                            if settings-tab == "thumbnails": SettingsRow { label: "Style"; value: "wgpu thumbnail bridge pending"; }
+                            if settings-tab == "thumbnails": SettingsRow { label: "Failures"; value: "ERR badge"; }
+                            if settings-tab == "thumbnails": Button { text: "Cycle Density"; clicked => { cycle-settings-density(); } }
+
+                            if settings-tab == "slicer": SettingsRow { label: "Default slicer"; value: settings-slicer-label; }
+                            if settings-tab == "slicer": SettingsRow { label: "Open behavior"; value: "Chooser/dropdown pending"; }
+
+                            if settings-tab == "advanced": SettingsRow { label: "GPU thumbnails"; value: settings-gpu-label; }
+                            if settings-tab == "advanced": SettingsRow { label: "Workers"; value: settings-workers-label; }
+                            if settings-tab == "advanced": SettingsRow { label: "Privacy"; value: "Local files stay local"; }
+                            if settings-tab == "advanced": Button { text: "Toggle GPU"; clicked => { toggle-settings-gpu(); } }
+                            if settings-tab == "advanced": Button { text: "Cycle Workers"; clicked => { cycle-settings-workers(); } }
+
+                            if settings-tab == "about": SettingsRow { label: "Version"; value: "v0.0.3 alpha"; }
+                            if settings-tab == "about": SettingsRow { label: "Stack"; value: "Rust + Slint bridge"; }
+                            if settings-tab == "about": SettingsRow { label: "Renderer"; value: "wgpu for 3D surfaces only"; }
+                            if settings-tab == "about": SettingsRow { label: "License"; value: "MIT"; }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -424,6 +635,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
     let snapshot = state.borrow().snapshot(ScanStatus::Idle);
 
     apply_snapshot(&ui, &snapshot);
+    apply_settings(&ui, &state.borrow());
 
     let weak = ui.as_weak();
     let open_state = state.clone();
@@ -438,6 +650,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                     state.scan_folder(&folder)
                 };
                 apply_snapshot(&ui, &snapshot);
+                apply_settings(&ui, &open_state.borrow());
             }
         }
     });
@@ -455,6 +668,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 })
             };
             apply_snapshot(&ui, &snapshot);
+            apply_settings(&ui, &search_state.borrow());
         }
     });
 
@@ -471,6 +685,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 })
             };
             apply_snapshot(&ui, &snapshot);
+            apply_settings(&ui, &view_state.borrow());
         }
     });
 
@@ -487,6 +702,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 })
             };
             apply_snapshot(&ui, &snapshot);
+            apply_settings(&ui, &density_state.borrow());
         }
     });
 
@@ -503,6 +719,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 })
             };
             apply_snapshot(&ui, &snapshot);
+            apply_settings(&ui, &sort_state.borrow());
         }
     });
 
@@ -521,13 +738,112 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 })
             };
             apply_snapshot(&ui, &snapshot);
+            apply_settings(&ui, &filter_state.borrow());
         }
     });
 
     let weak = ui.as_weak();
+    let settings_state = state.clone();
     ui.on_open_settings(move || {
         if let Some(ui) = weak.upgrade() {
-            ui.set_status_text("Settings panel wiring stays in the next slice".into());
+            {
+                let mut state = settings_state.borrow_mut();
+                state.settings_open = true;
+            }
+            apply_settings(&ui, &settings_state.borrow());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let settings_state = state.clone();
+    ui.on_close_settings(move || {
+        if let Some(ui) = weak.upgrade() {
+            {
+                let mut state = settings_state.borrow_mut();
+                state.settings_open = false;
+            }
+            apply_settings(&ui, &settings_state.borrow());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let settings_state = state.clone();
+    ui.on_choose_settings_tab(move |tab| {
+        if let Some(ui) = weak.upgrade() {
+            {
+                let mut state = settings_state.borrow_mut();
+                state.settings_tab = tab.to_string();
+            }
+            apply_settings(&ui, &settings_state.borrow());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let settings_state = state.clone();
+    ui.on_cycle_settings_language(move || {
+        if let Some(ui) = weak.upgrade() {
+            {
+                let mut state = settings_state.borrow_mut();
+                state.cycle_language();
+            }
+            apply_settings(&ui, &settings_state.borrow());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let settings_state = state.clone();
+    ui.on_toggle_settings_theme(move || {
+        if let Some(ui) = weak.upgrade() {
+            {
+                let mut state = settings_state.borrow_mut();
+                state.toggle_theme();
+            }
+            apply_settings(&ui, &settings_state.borrow());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let settings_state = state.clone();
+    ui.on_cycle_settings_density(move || {
+        if let Some(ui) = weak.upgrade() {
+            let snapshot = {
+                let mut state = settings_state.borrow_mut();
+                state.cycle_density();
+                state.snapshot(ScanStatus::Done {
+                    found: state.entries.len(),
+                    skipped: state.skipped,
+                })
+            };
+            apply_snapshot(&ui, &snapshot);
+            apply_settings(&ui, &settings_state.borrow());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let settings_state = state.clone();
+    ui.on_toggle_settings_gpu(move || {
+        if let Some(ui) = weak.upgrade() {
+            {
+                let mut state = settings_state.borrow_mut();
+                state.prefs.gpu_thumbnails_enabled = !state.prefs.gpu_thumbnails_enabled;
+            }
+            apply_settings(&ui, &settings_state.borrow());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let settings_state = state.clone();
+    ui.on_cycle_settings_workers(move || {
+        if let Some(ui) = weak.upgrade() {
+            {
+                let mut state = settings_state.borrow_mut();
+                state.prefs.thumbnail_workers = if state.prefs.thumbnail_workers >= 8 {
+                    1
+                } else {
+                    state.prefs.thumbnail_workers + 1
+                };
+            }
+            apply_settings(&ui, &settings_state.borrow());
         }
     });
 
@@ -544,6 +860,8 @@ struct ShellState {
     sort_by: SortBy,
     sort_ascending: bool,
     skipped: usize,
+    settings_open: bool,
+    settings_tab: String,
 }
 
 impl Default for ShellState {
@@ -557,6 +875,8 @@ impl Default for ShellState {
             sort_by: SortBy::Name,
             sort_ascending: true,
             skipped: 0,
+            settings_open: false,
+            settings_tab: "general".to_string(),
         }
     }
 }
@@ -604,6 +924,23 @@ impl ShellState {
             Density::Large => "small",
         }
         .to_string();
+    }
+
+    fn cycle_language(&mut self) {
+        self.prefs.language = match self.prefs.language.as_str() {
+            "en" => "ko",
+            "ko" => "ja",
+            _ => "en",
+        }
+        .to_string();
+    }
+
+    fn toggle_theme(&mut self) {
+        self.prefs.theme = if self.prefs.theme == "dark" {
+            "light".to_string()
+        } else {
+            "dark".to_string()
+        };
     }
 }
 
@@ -658,6 +995,55 @@ fn apply_snapshot(ui: &ModelRackWindow, snapshot: &AppViewSnapshot) {
         })
         .collect::<Vec<SidebarItem>>();
     ui.set_tag_items(slint::ModelRc::new(slint::VecModel::from(tags)));
+}
+
+fn apply_settings(ui: &ModelRackWindow, state: &ShellState) {
+    ui.set_settings_open(state.settings_open);
+    ui.set_settings_tab(state.settings_tab.clone().into());
+    ui.set_settings_language_label(language_label(&state.prefs.language).into());
+    ui.set_settings_theme_label(theme_label(&state.prefs.theme).into());
+    ui.set_settings_folder_label(
+        state
+            .current_folder
+            .as_ref()
+            .map(|folder| folder.display().to_string())
+            .unwrap_or_else(|| "No folder selected".to_string())
+            .into(),
+    );
+    ui.set_settings_density_label(Density::from_str(&state.prefs.density).as_str().into());
+    ui.set_settings_gpu_label(
+        if state.prefs.gpu_thumbnails_enabled {
+            "Enabled"
+        } else {
+            "Disabled"
+        }
+        .into(),
+    );
+    ui.set_settings_workers_label(format!("{} workers", state.prefs.thumbnail_workers).into());
+    ui.set_settings_slicer_label(
+        if state.prefs.slicer_path.trim().is_empty() {
+            "System default STL opener".to_string()
+        } else {
+            state.prefs.slicer_path.clone()
+        }
+        .into(),
+    );
+}
+
+fn language_label(language: &str) -> &'static str {
+    match language {
+        "ko" => "Korean",
+        "ja" => "Japanese",
+        _ => "English",
+    }
+}
+
+fn theme_label(theme: &str) -> &'static str {
+    if theme == "light" {
+        "Light"
+    } else {
+        "Dark"
+    }
 }
 
 fn scan_folder_entries(folder: &Path) -> (Vec<scanner::StlFileInfo>, usize) {
