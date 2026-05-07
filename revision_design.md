@@ -103,8 +103,8 @@ find the exact part immediately
 # Constraints
 
 - Desktop-native
-- Rust + egui + wgpu
-- GPU-first UI
+- Rust foundation + Slint UI + wgpu visualization subsystem
+- wgpu limited to 3D preview, thumbnail, and mesh-inspection surfaces
 - Dense workshop-style layout
 - No document-editor UI patterns
 - Solo-developer maintainable
@@ -123,12 +123,12 @@ find the exact part immediately
 
 4. Print history is what eventually transforms ModelRack from a file browser into a true workshop tool
 
-5. Rust + egui + wgpu is the right stack because ModelRack is fundamentally a GPU-first workshop tool, not a document-centric application. The UI should prioritize fast rendering, dense visual layouts, instant interaction, and GPU-accelerated previews over native typography. To avoid common GPU-UI pitfalls, ModelRack must:
-   - avoid excessive text wrapping
-   - prefer compact metadata
-   - truncate long filenames
+5. Rust remains the right foundation, but Slint should own the application UI because ModelRack is a dense typography-heavy workshop tool. wgpu should stay dedicated to STL previews, thumbnail rendering, offscreen rendering, orbit camera work, and future mesh inspection surfaces. To keep dense mixed-language UI high quality, ModelRack must:
+   - bundle and own UI fonts instead of relying on OS fallback chains
+   - prefer Inter for Latin and Pretendard for Korean fallback
+   - keep compact metadata and truncate long filenames
    - use tooltips for full paths
-   - eventually ship bundled CJK-capable fonts
+   - keep wgpu out of text-heavy application chrome
 
 ---
 
@@ -340,7 +340,7 @@ More than:
 
 # Text Rendering Rules
 
-Because egui uses GPU-rendered text:
+Because typography quality is part of the interface:
 
 ## DO
 
@@ -349,13 +349,16 @@ Because egui uses GPU-rendered text:
 - truncation
 - tooltips
 - compact metadata
+- bundled Latin and Korean fonts
+- Slint-owned text-heavy UI surfaces
 
 ## DO NOT
 
 - multiline wrapping everywhere
 - long flowing paragraphs
-- rich text layouts
-- typography-heavy UI
+- uncontrolled OS fallback chains
+- full-application GPU UI rendering for metadata-heavy surfaces
+- wgpu-owned toolbar/sidebar/settings text
 
 ---
 

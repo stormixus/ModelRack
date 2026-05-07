@@ -1,0 +1,203 @@
+# ModelRack — Ralph Progress Log
+## Session started: 2026-05-06
+
+### Iteration 1 — v0.0.2 async thumbnail workers (COMPLETE)
+
+**US-001 — Clean up dead code warnings** ✅
+- Removed MSG_GPU_FAILED, MSG_SCAN_DONE from strings.rs
+- Removed generate_colored_placeholder from thumbnail.rs
+- Removed ScanResult::empty() from scanner.rs
+- Result: 0 build warnings, 10 tests pass
+
+**US-002 — CPU wireframe thumbnail generator** ✅
+- Added generate_wireframe() to thumbnail.rs
+- Uses isometric projection (35° Y, 23° X rotation)
+- Bresenham line drawing for mesh edges
+- Dark background (35,35,40) with light wireframe (180,200,220)
+- Auto-scales to fit 160x112 canvas with 10px padding
+- Returns None for empty vertices or faces
+
+**US-003 — Async thumbnail worker infrastructure** ✅
+- Created src/worker.rs with ThumbnailJob, ThumbnailResult types
+- spawn_thumbnail_workers() launches N OS threads
+- Workers pull jobs from crossbeam bounded channel
+- Each job has blake3 hash + vertices + faces
+- Workers terminate when job_tx is dropped (channel closes)
+- Worker count capped at 4 (min of rayon thread count)
+
+**US-004 — Integrate async workers into AppState** ✅
+- Scanner now extracts MeshData alongside StlFileInfo
+- run_scan() creates channels, sends mesh jobs, spawns workers
+- AppState polls thumbnail_result_rx each frame via try_iter()
+- Success results: uploaded as new textures (replace placeholders)
+- Error results: generate_error_placeholder (red-tinted checkerboard)
+- Previous worker channels dropped before new scan starts
+
+**US-005 — Worker panic handling (TODO-01)** ✅
+- Worker logic wrapped in std::panic::catch_unwind(AssertUnwindSafe(|| {...}))
+- Panics extract message from downcast_ref<&str> or <String>
+- Panic result sent as ThumbnailResult::Error through channel
+- Error message logged to stderr in app.rs handler
+- Other workers continue unaffected after one worker panics
+
+**US-006 — Tests for thumbnail and worker infrastructure** ✅
+- 6 thumbnail unit tests: empty verts/faces, correct sizes, cube mesh, different dims
+- 3 worker integration tests: success path, empty mesh error, panic caught
+- Total: 19 tests (10 original + 9 new), all passing
+- Build: 0 warnings
+
+### Files changed
+- src/main.rs: added `mod worker;`
+- src/strings.rs: removed MSG_GPU_FAILED, MSG_SCAN_DONE
+- src/scanner.rs: added MeshData struct, modified parse_stl_file return type, collect meshes in scan_folder
+- src/thumbnail.rs: added generate_wireframe(), draw_line(), generate_error_placeholder(), test module
+- src/app.rs: added worker integration (channels, job dispatch, result polling)
+- src/worker.rs: new file — ThumbnailJob, ThumbnailResult, spawn_thumbnail_workers(), test module
+
+### Patterns established
+- crossbeam_channel::bounded for worker communication (capacity = job count)
+- drop(job_tx) signals workers to terminate after queue drains
+- try_iter() for non-blocking frame-by-frame result polling
+- catch_unwind + AssertUnwindSafe for worker panic isolation
+- ColorImage passed directly (no PNG encode/decode round-trip)
+
+## US-001, US-002, US-003 — 2026-05-06
+Implemented toolbar, list view, search, sort, and filter chips:
+- src/strings.rs: Added 9 new string constants (MSG_SEARCH_PLACEHOLDER, MSG_SORT_*, MSG_LIST_HEADER_*, MSG_FILTER_CHIP_SEARCH)
+- src/ui/mod.rs: Added pub mod toolbar and pub mod list
+- src/ui/toolbar.rs: Fixed search_id to "search_input" for Cmd-F, fixed mem.focused() API, removed unused imports, removed unused mut
+- src/ui/list.rs: Fixed field names (stl_type, size) to match actual StlFileInfo struct
+- src/scanner.rs: Added Clone derive to StlFileInfo, added modified field (Option<SystemTime>) for date sorting, fixed clippy single_match
+- src/app.rs: Wired toolbar, list, search filtering, sort logic, conditional Grid/List rendering, filter chip bar, Cmd-F handler
+
+Build: clean (0 errors, 0 warnings)
+Tests: 20/20 pass
+Clippy: 0 warnings
+
+## Iteration 2 — v0.1.0 keyboard + responsive + empty-state + sidecar (2026-05-07)
+
+**US-007 — Empty state with branded illustration** ✅
+- Created src/ui/empty_state.rs with EmptyState struct
+- Isometric cube icon: 3 convex_polygon rhombuses (top/left/right faces in teal tones)
+- "No models yet" headline (16px), subtext (12px), "Add Folder" teal button
+- Tip text about local folder reading below button
+- Empty state only shown when entries is empty AND not scanning
+- Wired into app.rs CentralPanel (dispatches folder picker on button click)
+
+**US-008 — Responsive layout** ✅
+- Window width < 1024px: detail panel auto-collapses (SidePanel::right hidden)
+- Window width < 800px: sidebar auto-collapses (currently just top bar)
+- Toggle buttons in toolbar: ☰ for sidebar, ◫ for detail panel
+- Toggle buttons only visible when corresponding panel is collapsed
+- collapsed_detail and collapsed_sidebar tracked in AppState
+
+**US-009 — Keyboard navigation** ✅
+- FocusZone enum: Search, Grid, Detail (tracked in AppState)
+- Tab cycles: Search → Grid → Detail → Search
+- Arrow keys navigate grid selection (Left/Right ±1 column, Up/Down ±1 row)
+- ArrowRight clamps, ArrowLeft/Up use saturating_sub, ArrowDown checks bounds
+- Enter confirms selection (moves focus to detail); Escape deselects
+- Grid: focused card gets 2px teal accent border (StrokeKind::Outside)
+- List: focused row gets 2px teal accent bar
+- Cmd/Ctrl-F focuses search input
+
+**US-010 — Sidecar JSON metadata system** ✅
+- Added serde + serde_json to Cargo.toml
+- SidecarMeta struct: tags, notes, favorite, printed, print_history, author, added
+- PrintRecord struct: date, material, success, notes
+- read_sidecar(stl_path): reads {stl}.modelrack.json, parses JSON, returns Option
+  - File not found → None (no error)
+  - Parse failure → eprintln warning + None (no crash)
+- write_sidecar(stl_path, meta): serializes to JSON, writes to temp file, renames (atomic)
+- meta: Option<SidecarMeta> field added to StlFileInfo
+- MetadataPanel updated:
+  - Favorite toggle (★/☆ selectable label)
+  - Author text edit
+  - Printed count display
+  - Tags as colored pills (derived from tag string via palette hash, click to remove)
+  - Add tag input (Enter to confirm, dedup check)
+  - Notes multiline text edit with hint text
+  - Print history read-only list (date, material, success/fail)
+- Debounced save: meta_dirty_since + meta_dirty_path in AppState
+  - 500ms debounce after last edit, then atomic write via write_sidecar
+- selected_entry_mut() added for mutable metadata access
+- All 21 tests pass, clean clippy, clean build
+
+## Iteration 3 — v0.1.0 mockup convergence + persistence (2026-05-07)
+
+**US-011 — Real library sidebar + smart filters** ✅
+- Added src/ui/sidebar.rs with Library, Folders, and Tags sections
+- Smart filters: All Models, Favorites, Printed, Unparseable
+- Tag rows are generated from sidecar metadata and update the main results
+- Active library/search filters render as removable toolbar chips
+
+**US-012 — Density + settings dialog** ✅
+- Added S/M/L density controls in toolbar and Settings → Thumbnails
+- Density maps to 130/168/220 px grid card widths
+- Added Settings dialog with General, Appearance, Library, Thumbnails, Slicer, Advanced, About tabs
+- Cmd-, and titlebar gear open Settings; Escape closes Settings first
+
+**US-013 — Persistent app preferences** ✅
+- Added JSON preferences under platform config location
+- Persists density, GPU thumbnails toggle, and last folder
+- Startup reloads last folder when it still exists
+- Added preference JSON roundtrip/default tests
+
+**US-014 — Detail orbit preview + stronger metadata QA** ✅
+- Detail preview supports drag-to-rotate wireframe affordance
+- App retains scanned mesh data by hash so detail preview can draw the selected model's actual wireframe
+- Open in Slicer now uses platform-specific opener (open/cmd start/xdg-open)
+- Added sidecar scan roundtrip test
+- Added mesh normalization and folder-count tests
+- Folder sidebar now lists nested folders from scanned STL parents and filters results by folder
+- Smart filters now include Recent and Duplicates, with duplicate detection based on blake3 hash groups
+- Smart filters now include Ready; sort menu includes Triangles
+- Grid cards show favorite / printed / tagged badges from sidecar metadata
+- List rows show favorite and printed metadata indicators
+- Settings → Appearance now switches and persists Dark/Light theme
+- Starting a new scan clears stale selection/filter/orbit state
+- Total tests: 28/28 pass
+
+Verification:
+- cargo check ✅
+- cargo clippy -- -D warnings ✅
+- cargo test ✅
+- cargo run smoke launch ✅
+
+## Iteration 4 — Autopilot pass: remaining 12 worklist closure (2026-05-07)
+
+**RALPLAN — 12-task plan artifacts** ✅
+- Added `.omx/context/modelrack-12-remaining-tasks-20260507T031607Z.md`
+- Added `.omx/plans/prd-modelrack-12-remaining-tasks.md`
+- Added `.omx/plans/test-spec-modelrack-12-remaining-tasks.md`
+- Scoped the pass to local, reversible implementation: Masonry view, functional settings, slicer path, worker count, tests, smoke, and review.
+
+**US-015 — Masonry browsing mode** ✅
+- Added `src/ui/masonry.rs`
+- Toolbar now supports Grid, List, and Masonry modes
+- Masonry reuses existing thumbnails, metadata indicators, selection, density, and keyboard focus state
+- View mode now has stable string roundtrip tests
+
+**US-016 — Functional settings completion** ✅
+- Preferences now persist view mode, language, worker count, slicer path, density, theme, GPU toggle, and last folder
+- Settings → General has language selection for English/Korean/Japanese preference
+- Settings → Slicer accepts a configured slicer executable/app path
+- Settings → Advanced controls thumbnail worker count from 1 to 8
+- Thumbnail generation now honors the configured worker count
+
+**US-017 — Slicer integration path** ✅
+- Detail panel `Open in Slicer` uses the configured slicer path first
+- macOS `.app` bundles launch through `open -a`
+- Falls back to the platform default opener when the configured path fails or is empty
+
+**US-018 — Remaining external work clarified** ✅
+- Added TODO-09 native visual QA harness
+- Added TODO-10 notify-based file watcher refresh
+- Added TODO-11 thumbnail disk cache
+- Added TODO-12 cross-platform release QA
+
+Verification:
+- cargo check ✅
+- cargo test ✅ 29/29 pass
+- cargo clippy -- -D warnings ✅
+- cargo run smoke launch ✅

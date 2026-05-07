@@ -4,6 +4,8 @@ use std::sync::Arc;
 use crossbeam_channel::{Receiver, Sender};
 use egui::ColorImage;
 
+use crate::renderer::OffscreenRenderer;
+
 pub struct ThumbnailJob {
     pub hash: [u8; 32],
     pub vertices: Vec<[f32; 3]>,
@@ -21,52 +23,59 @@ impl From<crate::scanner::MeshData> for ThumbnailJob {
 }
 
 pub enum ThumbnailResult {
-    Success {
-        hash: [u8; 32],
-        image: ColorImage,
-    },
-    Error {
-        hash: [u8; 32],
-        message: String,
-    },
+    Success { hash: [u8; 32], image: ColorImage },
+    Error { hash: [u8; 32], message: String },
 }
 
 /// Spawn N worker threads for thumbnail generation.
-/// Each worker checks `cancel_token` before processing a job — when set,
-/// workers drain remaining jobs as no-ops and exit.
+/// Uses wgpu renderer when available, falls back to CPU wireframe.
 pub fn spawn_thumbnail_workers(
     job_rx: Receiver<ThumbnailJob>,
     result_tx: Sender<ThumbnailResult>,
     num_workers: usize,
     cancel_token: Arc<AtomicBool>,
+    renderer: Option<Arc<OffscreenRenderer>>,
 ) {
     for _ in 0..num_workers {
         let rx = job_rx.clone();
         let tx = result_tx.clone();
         let token = cancel_token.clone();
+        let gpu = renderer.clone();
         std::thread::spawn(move || {
             while let Ok(job) = rx.recv() {
                 if token.load(Ordering::SeqCst) {
-                    // Drain remaining jobs without processing
                     while rx.recv().is_ok() {}
                     break;
                 }
 
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    match crate::thumbnail::generate_wireframe(
-                        &job.vertices,
-                        &job.faces,
-                        160,
-                        112,
-                    ) {
-                        Some(image) => ThumbnailResult::Success {
-                            hash: job.hash,
-                            image,
-                        },
-                        None => ThumbnailResult::Error {
-                            hash: job.hash,
-                            message: "Empty mesh data".to_string(),
-                        },
+                    if let Some(ref r) = gpu {
+                        match r.render(&job.vertices, &job.faces) {
+                            Ok(image) => ThumbnailResult::Success {
+                                hash: job.hash,
+                                image,
+                            },
+                            Err(message) => ThumbnailResult::Error {
+                                hash: job.hash,
+                                message,
+                            },
+                        }
+                    } else {
+                        match crate::thumbnail::generate_wireframe(
+                            &job.vertices,
+                            &job.faces,
+                            160,
+                            112,
+                        ) {
+                            Some(image) => ThumbnailResult::Success {
+                                hash: job.hash,
+                                image,
+                            },
+                            None => ThumbnailResult::Error {
+                                hash: job.hash,
+                                message: "Empty mesh data".to_string(),
+                            },
+                        }
                     }
                 }));
 
@@ -105,7 +114,7 @@ mod tests {
         let (result_tx, result_rx) = crossbeam_channel::bounded::<ThumbnailResult>(1);
         let cancel_token = Arc::new(AtomicBool::new(false));
 
-        spawn_thumbnail_workers(job_rx, result_tx, 1, cancel_token);
+        spawn_thumbnail_workers(job_rx, result_tx, 1, cancel_token, None);
 
         let verts = vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
         let faces = vec![[0, 1, 2]];
@@ -136,7 +145,7 @@ mod tests {
         let (result_tx, result_rx) = crossbeam_channel::bounded::<ThumbnailResult>(1);
         let cancel_token = Arc::new(AtomicBool::new(false));
 
-        spawn_thumbnail_workers(job_rx, result_tx, 1, cancel_token);
+        spawn_thumbnail_workers(job_rx, result_tx, 1, cancel_token, None);
 
         job_tx
             .send(ThumbnailJob {
@@ -158,7 +167,7 @@ mod tests {
         let (job_tx, job_rx) = crossbeam_channel::bounded::<ThumbnailJob>(2);
         let (result_tx, result_rx) = crossbeam_channel::bounded::<ThumbnailResult>(2);
 
-        spawn_thumbnail_workers(job_rx, result_tx, 1, cancel_token);
+        spawn_thumbnail_workers(job_rx, result_tx, 1, cancel_token, None);
 
         let verts = vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
         let faces = vec![[0, 1, 2]];
@@ -188,7 +197,7 @@ mod tests {
         let (result_tx, result_rx) = crossbeam_channel::bounded::<ThumbnailResult>(1);
         let cancel_token = Arc::new(AtomicBool::new(false));
 
-        spawn_thumbnail_workers(job_rx, result_tx, 1, cancel_token);
+        spawn_thumbnail_workers(job_rx, result_tx, 1, cancel_token, None);
 
         // Invalid mesh (empty vertices with face indices): generates error, not panic.
         // The catch_unwind Err arm requires unsafe/panic!() to exercise directly.

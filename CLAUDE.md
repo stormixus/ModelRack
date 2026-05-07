@@ -1,6 +1,6 @@
 # ModelRack
 
-Desktop-native 3D model library manager for makers. Rust + egui + wgpu.
+Desktop-native 3D model library manager for makers. Rust foundation, Slint UI direction, wgpu visualization subsystem.
 
 ## Skill routing
 

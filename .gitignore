@@ -1,1 +1,5 @@
 /target
+/build
+.omx/
+.omc/
+.claude/settings.local.json

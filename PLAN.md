@@ -44,17 +44,46 @@ The app should answer:
 | Layer | Tech |
 |---|---|
 | Language | Rust |
-| GUI | egui + eframe |
+| GUI | Slint |
 | DB | SQLite |
 | ORM | rusqlite |
-| Renderer | wgpu |
-| 3D Viewer | custom viewer or egui_wgpu |
+| GPU Renderer | wgpu |
+| 3D Viewer | custom wgpu viewer embedded as visualization surface |
 | File Watcher | notify |
 | File Scanner | walkdir |
 | Hashing | blake3 |
 | Image/Thumbnail | image |
 | STL Parser | stl_io |
 | Config | serde + toml |
+
+## UI Stack Direction
+
+The Slint migration plan in `docs/slint-migration.md` supersedes the original
+full-application `egui + wgpu` direction.
+
+ModelRack is a dense desktop workshop tool where typography is part of the interface:
+filenames, mixed Korean/English metadata, tags, print history, path text, and compact rows
+must render consistently. The long-term UI layer should therefore be Slint, with bundled
+fonts and explicit typography ownership.
+
+Current egui/eframe code is a working prototype shell. It should be treated as a bridge,
+not the final UI architecture. New UI-heavy work should be planned for Slint unless it is
+strictly needed to keep the prototype usable.
+
+Rendering ownership:
+
+- Slint owns menus, sidebar, toolbar, settings, metadata panels, search, filenames, tags,
+  dialogs, and print-history UI.
+- wgpu owns STL preview viewports, thumbnail rendering, offscreen rendering, orbit camera,
+  and future mesh inspection surfaces.
+- Rust remains the application foundation and owns scanner, sidecar metadata, slicer launch,
+  thumbnail cache, file watching, and domain logic.
+
+Typography direction:
+
+- Bundle UI fonts instead of relying on uncontrolled OS fallback chains.
+- Prefer Inter for Latin UI text and Pretendard for Korean fallback.
+- Keep monospace values for paths, hashes, sizes, counts, and timestamps.
 
 ---
 
@@ -395,9 +424,7 @@ Polish + packaging
 # Initial Cargo Crates
 
 ```toml
-eframe
-egui
-egui_extras
+slint
 wgpu
 notify
 walkdir
@@ -414,6 +441,31 @@ tokio
 ```
 
 ---
+
+# Design Decisions (from /plan-design-review 2026-05-06)
+
+Reference: `Mockups/design.md` (narrative + rationale), `DESIGN.md` (canonical tokens + components).
+Stack direction: `docs/slint-migration.md` (Slint UI + wgpu visualization subsystem).
+
+Key decisions:
+- **3-pane layout**: sidebar 220px + grid + detail 320px, resizable
+- **Sidebar hierarchy**: smart filters primary weight, folders/tags secondary
+- **Incremental rollout**: toolbar (search + view toggle + filter chips) ships v0.0.3, sidebar v0.0.4
+- **Metadata storage**: sidecar JSON (`my_model.stl.modelrack.json`), portable, human-readable
+- **Multi-select**: Cmd-click disjoint, Shift-click contiguous range
+- **Tag taxonomy**: flat string list
+- **3D preview**: orbit-only for v0.1.0 (drag to rotate, no zoom/pan)
+- **Empty state**: centered illustration + "Add Folder" CTA
+- **Scanning UX**: pulse dot + running counters, no progress bar
+- **Onboarding**: subtle dismissible tip banner, no guided tour
+- **Keyboard nav**: full spec in DESIGN.md (Tab, arrows, Enter, Escape, Cmd shortcuts)
+- **Window resize**: collapse detail panel < 1024px, sidebar < 800px
+
+## Approved Mockups
+
+| Screen | Mockup | Direction | Notes |
+|--------|--------|-----------|-------|
+| Main grid | `Mockups/design.md` | Dark workshop tool, 3-pane, teal accent, Inter + CJK | Build toolbar first (v0.0.3), sidebar second (v0.0.4) |
 
 # Long-Term Vision
 

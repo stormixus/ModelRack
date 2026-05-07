@@ -1,5 +1,77 @@
 use egui::{Color32, ColorImage};
 
+use crate::scanner::StlType;
+
+pub fn thumbnail_cache_dir() -> Option<std::path::PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        std::env::var_os("HOME").map(|home| {
+            std::path::PathBuf::from(home)
+                .join("Library")
+                .join("Caches")
+                .join("ModelRack")
+                .join("Thumbnails")
+        })
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::env::var_os("LOCALAPPDATA").map(|base| {
+            std::path::PathBuf::from(base)
+                .join("ModelRack")
+                .join("Thumbnails")
+        })
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        std::env::var_os("XDG_CACHE_HOME")
+            .map(std::path::PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("HOME").map(|home| std::path::PathBuf::from(home).join(".cache"))
+            })
+            .map(|base| base.join("ModelRack").join("Thumbnails"))
+    }
+}
+
+pub fn cache_path_for_hash(hash: &[u8; 32]) -> Option<std::path::PathBuf> {
+    thumbnail_cache_dir().map(|dir| dir.join(format!("{}.png", hash_hex(hash))))
+}
+
+pub fn load_cached_thumbnail(hash: &[u8; 32]) -> Option<ColorImage> {
+    let path = cache_path_for_hash(hash)?;
+    let image = image::open(path).ok()?.to_rgba8();
+    let size = [image.width() as usize, image.height() as usize];
+    let pixels = image
+        .pixels()
+        .map(|p| Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3]))
+        .collect();
+    Some(ColorImage { size, pixels })
+}
+
+pub fn save_cached_thumbnail(hash: &[u8; 32], image: &ColorImage) -> std::io::Result<()> {
+    let Some(path) = cache_path_for_hash(hash) else {
+        return Ok(());
+    };
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut rgba = image::RgbaImage::new(image.size[0] as u32, image.size[1] as u32);
+    for (idx, pixel) in image.pixels.iter().enumerate() {
+        let x = (idx % image.size[0]) as u32;
+        let y = (idx / image.size[0]) as u32;
+        rgba.put_pixel(x, y, image::Rgba(pixel.to_array()));
+    }
+    rgba.save(&path).map_err(std::io::Error::other)
+}
+
+pub fn hash_hex(hash: &[u8; 32]) -> String {
+    let mut out = String::with_capacity(64);
+    for byte in hash {
+        use std::fmt::Write as _;
+        let _ = write!(&mut out, "{:02x}", byte);
+    }
+    out
+}
+
 pub fn generate_error_placeholder(width: usize, height: usize) -> ColorImage {
     let size = [width, height];
     let pixels: Vec<Color32> = (0..(width * height))
@@ -19,17 +91,39 @@ pub fn generate_error_placeholder(width: usize, height: usize) -> ColorImage {
 }
 
 pub fn generate_placeholder(width: usize, height: usize) -> ColorImage {
+    generate_tinted_placeholder(width, height, Color32::from_rgb(60, 60, 65), "mesh")
+}
+
+pub fn generate_file_placeholder(stl_type: StlType, width: usize, height: usize) -> ColorImage {
+    let base = match stl_type {
+        StlType::Binary | StlType::Ascii => Color32::from_rgb(35, 64, 72),
+        StlType::ThreeMf => Color32::from_rgb(56, 71, 48),
+        StlType::Obj => Color32::from_rgb(68, 57, 42),
+        StlType::Step => Color32::from_rgb(54, 57, 78),
+        StlType::LargeStl => Color32::from_rgb(72, 56, 49),
+        StlType::Unknown => Color32::from_rgb(65, 40, 40),
+    };
+    generate_tinted_placeholder(width, height, base, "file")
+}
+
+fn generate_tinted_placeholder(
+    width: usize,
+    height: usize,
+    base: Color32,
+    _kind: &str,
+) -> ColorImage {
     let size = [width, height];
     let pixels: Vec<Color32> = (0..(width * height))
         .map(|i| {
             let x = (i % width) as f32 / width as f32;
             let y = (i / width) as f32 / height as f32;
             let checker = ((x * 16.0) as usize ^ (y * 16.0) as usize) & 1;
-            if checker == 0 {
-                Color32::from_rgb(60, 60, 65)
-            } else {
-                Color32::from_rgb(50, 50, 55)
-            }
+            let shade = if checker == 0 { 1.0 } else { 0.82 };
+            Color32::from_rgb(
+                (base.r() as f32 * shade) as u8,
+                (base.g() as f32 * shade) as u8,
+                (base.b() as f32 * shade) as u8,
+            )
         })
         .collect();
 
@@ -108,7 +202,14 @@ pub fn generate_wireframe(
             let ai = face[a as usize] as usize;
             let bi = face[b as usize] as usize;
             if ai < screen.len() && bi < screen.len() {
-                draw_line(&mut pixels, width, height, screen[ai], screen[bi], line_color);
+                draw_line(
+                    &mut pixels,
+                    width,
+                    height,
+                    screen[ai],
+                    screen[bi],
+                    line_color,
+                );
             }
         }
     }
@@ -237,5 +338,16 @@ mod tests {
         assert_eq!(img.size, [160, 112]);
         assert_eq!(img.pixels.len(), 160 * 112);
     }
-}
 
+    #[test]
+    fn hash_hex_is_stable_lowercase() {
+        let mut hash = [0u8; 32];
+        hash[0] = 0xab;
+        hash[31] = 0x7f;
+
+        assert_eq!(
+            hash_hex(&hash),
+            "ab0000000000000000000000000000000000000000000000000000000000007f"
+        );
+    }
+}

@@ -2,7 +2,7 @@
 
 ## Active
 
-### TODO-01: Worker panic handling for thumbnail generation
+### TODO-01: Worker panic handling for thumbnail generation ✅
 **Added:** 2026-05-06 (via /plan-eng-review)
 **Target:** v0.0.2
 **What:** Wrap rayon thumbnail worker logic in `std::panic::catch_unwind(AssertUnwindSafe(|| { ... }))`. On panic, send an error result through crossbeam-channel so the UI can show "thumbnail generation failed" instead of silently stopping.
@@ -10,7 +10,7 @@
 **Depends on:** v0.0.1 completion (the channel infrastructure)
 **Context:** The channel arch is: UI spawns generation tasks → workers send RGBA buffers back → UI replaces placeholders. The panic path in this flow is untested and has no error message.
 
-### TODO-02: GPU readback performance baseline
+### TODO-02: GPU readback performance baseline ✅
 **Added:** 2026-05-06 (via /plan-eng-review)
 **Target:** Before v0.0.3 (real wgpu renderer)
 **What:** Benchmark GPU→CPU texture readback latency on target hardware (macOS Metal). Measure: 256x256 RGBA readback time, 512x512 readback time, impact on frame rate when reading back N textures per frame.
@@ -20,6 +20,84 @@
 ### TODO-03: Cross-platform GPU surface testing
 **Added:** 2026-05-06 (via /plan-eng-review)
 **Target:** v0.1.0
-**What:** Test egui + wgpu window creation and basic rendering on Windows (DX12/Vulkan) and Linux (Vulkan). Verify no driver-specific rendering artifacts, window resize behavior, and HiDPI scaling.
-**Why:** The design commits to cross-platform distribution but Phase 1 is macOS-only. GPU surface creation has platform-specific failure modes (adapter enumeration, swapchain creation, present modes). Finding these at v0.1.0 instead of v1.0 avoids a "works on my machine" launch.
-**Depends on:** v0.0.3 (real renderer working on macOS)
+**What:** Test Slint shell launch plus wgpu visualization surfaces on Windows (DX12/Vulkan) and Linux (Vulkan). Verify no driver-specific thumbnail/preview artifacts, window resize behavior, and HiDPI scaling.
+**Why:** The design now treats wgpu as a visualization subsystem, not the full UI. Cross-platform QA must cover both Slint typography/layout behavior and GPU preview/thumbnail paths.
+**Depends on:** Slint migration slice and current wgpu thumbnail renderer.
+
+### TODO-04: Keyboard navigation ✅
+**Added:** 2026-05-06 (via /plan-design-review)
+**Target:** v0.1.0
+**What:** Implement full keyboard navigation: Tab through zones (sidebar → search → grid → detail), arrow keys for 2D grid navigation, Enter to open detail, Space to toggle selection, Escape to close dialogs/deselect, Cmd-F for search focus, Cmd-, for Settings. Spec in DESIGN.md.
+**Why:** Desktop apps without keyboard nav feel broken to keyboard-heavy users. Grid browsing without arrow keys forces mouse-only interaction.
+**Depends on:** Grid widget, filter system, settings dialog
+
+### TODO-05: Window resize / responsive behavior ✅
+**Added:** 2026-05-06 (via /plan-design-review)
+**Target:** v0.1.0
+**What:** Detail panel collapses below 1024px window width, sidebar collapses below 800px. Collapsed panes toggleable via toolbar overlay buttons. Grid always remains visible.
+**Why:** The 3-pane layout (220px + grid + 320px) needs 1100px+ to breathe. On 13" MacBook screens or windowed mode, panes must collapse gracefully.
+**Depends on:** 3-pane layout implementation
+
+### TODO-06: Empty state with illustration ✅
+**Added:** 2026-05-06 (via /plan-design-review)
+**Target:** v0.1.0
+**What:** Centered 96px app icon cubes illustration + "No models yet" headline + "Add a folder to start browsing your STL collection" subtext + prominent "Add Folder" teal button + tip: "ModelRack reads STL files directly from your folders — no uploads, no cloud."
+**Why:** The empty state is the first thing new users see. A warm, branded empty state sets the tone; "No items found" erodes trust immediately.
+**Depends on:** App icon asset
+
+### TODO-07: Sidecar JSON metadata system ✅
+**Added:** 2026-05-06 (via /plan-design-review)
+**Target:** v0.2.0
+**What:** Read/write `.modelrack.json` sidecar files next to each STL. Fields: tags (flat string list), notes, favorite (bool), printed (count), printHistory, author, added (first-seen timestamp). Portable, human-readable, survives app uninstall.
+**Why:** Without metadata persistence, ModelRack is just a thumbnail viewer. Tags and notes are what make it a library manager. Sidecar JSON chosen over central DB for portability and user trust.
+**Depends on:** v0.1.0 (solid STL browsing experience)
+
+### TODO-08: 3D orbit controls for detail preview ✅
+**Added:** 2026-05-06 (via /plan-design-review)
+**Target:** v0.1.0
+**What:** Left-click drag to orbit-rotate the detail panel's 3D preview around mesh center. Show "Orbit: drag to rotate" hint. No zoom or pan in v0.1.0.
+**Why:** A static wireframe doesn't let users inspect geometry. Orbit is the minimum viable 3D interaction — lets users see the model from different angles without opening a slicer.
+**Depends on:** Real wgpu renderer (v0.0.3)
+**Status:** Implemented as an interactive detail-panel wireframe preview using the selected model's scanned mesh geometry when available.
+
+### TODO-09: Native visual QA harness ✅
+**Added:** 2026-05-07 (via /autopilot)
+**Target:** v0.1.0 polish
+**What:** Add a reproducible screenshot capture path for the native desktop app and compare primary states against Mockups/ModelRack.html / future Slint screens.
+**Why:** Current smoke testing proves startup and tests prove behavior, but mockup convergence still needs pixel-level evidence for grid, list, masonry, settings, empty state, and metadata panels.
+**Status:** Local smoke harness added via `scripts/capture-smoke.sh`; it launches the signed app bundle and writes reproducible screenshots under `.omx/artifacts/runtime`. Pixel-diff comparison against `Mockups/ModelRack.html` remains a later refinement.
+
+### TODO-10: File watcher refresh ✅
+**Added:** 2026-05-07 (via /autopilot)
+**Target:** v0.2.0
+**What:** Add notify-based watching for the selected library folder and debounce rescans when STL or sidecar files change.
+**Why:** A model library manager should notice new downloads/exports without forcing manual Refresh.
+**Status:** Implemented with `notify` recursive watching for model files and `.modelrack.json` sidecars, plus a 750ms debounce before automatic rescan. Manual Refresh remains available.
+
+### TODO-11: Thumbnail disk cache ✅
+**Added:** 2026-05-07 (via /autopilot)
+**Target:** v0.2.0
+**What:** Persist generated thumbnails by hash under the platform cache directory and invalidate when file hash changes.
+**Why:** Large libraries should not regenerate every thumbnail on each app launch.
+**Status:** Implemented as hash-addressed PNG files under the platform cache directory. Scans reuse cached thumbnails when the file hash matches and only render missing cache entries.
+
+### TODO-12: Cross-platform release QA
+**Added:** 2026-05-07 (via /autopilot)
+**Target:** v0.1.0 release gate
+**What:** Verify Slint UI launch, wgpu thumbnail/preview rendering, HiDPI scaling, folder picker, sidecar writes, and slicer launch on Windows and Linux.
+**Why:** The app is intended to be cross-platform; current local verification is macOS-only.
+**Status:** External-only from this macOS session.
+
+### TODO-13: Slint UI migration
+**Added:** 2026-05-07 (via Slint migration direction)
+**Target:** v0.2.0 architecture
+**What:** Migrate the application UI shell from egui/eframe to Slint while keeping Rust domain logic, scanner, sidecar metadata, file watcher, thumbnail cache, slicer integration, and wgpu rendering modules reusable. Start with a thin Slint shell that reproduces the 3-pane layout, then port sidebar, toolbar/search, grid/list/masonry, settings, and detail metadata panels.
+**Why:** The Slint migration direction identifies typography and mixed Korean/English rendering as product-critical. Slint should own text-heavy desktop UI while wgpu remains limited to STL preview and thumbnail visualization surfaces.
+**Status:** In progress. First migration slice started by extracting framework-neutral view model types and filtering/sorting logic into `src/view_model.rs`, so the current egui shell and the future Slint shell can share the same app state contract. A feature-gated `slint-shell` bridge now compiles a minimal Slint titlebar/body/status layout while keeping the egui app as the default runnable shell. Shared snapshot data now covers sidebar counts, folder/tag summaries, browser card rows, browser totals, status text, and sort labels. The Slint shell's Open Folder path now calls the existing scanner and refreshes its snapshot-backed counts/cards. The Slint toolbar now has snapshot-backed search, view-mode cycling, density cycling, and sort-direction toggling. The Slint sidebar now applies smart filters plus folder/tag filters through shared `LibraryFilter` keys.
+
+### TODO-14: Bundled typography system
+**Added:** 2026-05-07 (via Slint migration direction)
+**Target:** v0.2.0 architecture
+**What:** Bundle and load explicit UI fonts, using Inter for Latin and Pretendard for Korean fallback, with a documented monospace choice for paths/hashes/counts. Remove dependency on uncontrolled OS fallback chains.
+**Why:** Typography is the interface for dense maker/library workflows. Mixed San Francisco + Apple SD Gothic Neo fallback creates spacing and weight mismatches on Korean macOS systems.
+**Status:** Implemented for the current bridge. Inter Variable, Pretendard Variable, and JetBrains Mono Regular are now bundled under `assets/fonts`, with license files kept beside the font assets. The default egui shell loads those bundled fonts instead of reading user/system font paths, and the feature-gated Slint shell registers the same bundled fonts with Hangul fallback. JetBrains Mono is used for dense count/path/hash-style text surfaces.
