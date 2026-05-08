@@ -4,6 +4,8 @@ import { Theme } from "theme.slint";
 // ─── Data structs ────────────────────────────────────────
 
 export struct BrowserCard {
+    stable-key: string,
+    slot-index: int,
     title: string,
     subtitle: string,
     author: string,
@@ -21,6 +23,22 @@ export struct SidebarItem {
     label: string,
     count: int,
     depth: int,
+}
+
+export struct PrintHistoryRow {
+    date: string,
+    material: string,
+    printer: string,
+    profile: string,
+    nozzle: string,
+    layer-height: string,
+    duration: string,
+    notes: string,
+    success: bool,
+}
+
+export struct TagChip {
+    label: string,
 }
 
 // ─── Reusable components ─────────────────────────────────
@@ -81,6 +99,9 @@ component SidebarLine inherits Rectangle {
     in property <image> icon;
     in property <int> count;
     in property <int> depth: 0;
+    in property <bool> reserve-leading: false;
+    in property <bool> expandable: false;
+    in property <bool> expanded: false;
     in property <bool> selected: false;
     callback activated();
 
@@ -98,8 +119,19 @@ component SidebarLine inherits Rectangle {
         background: Theme.accent;
     }
 
-    SvgIcon {
+    if reserve-leading: SvgIcon {
         x: 8px + depth * 14px;
+        y: (parent.height - 10px) / 2;
+        width: 10px;
+        height: 10px;
+        icon: @image-url("../assets/icons/chevron-right.svg");
+        tint: expandable ? Theme.fg-3 : transparent;
+        transform-origin: { x: 5px, y: 5px };
+        transform-rotation: expanded ? 90deg : 0deg;
+    }
+
+    SvgIcon {
+        x: 8px + depth * 14px + (reserve-leading ? 14px : 0px);
         y: (parent.height - 14px) / 2;
         width: 14px;
         height: 14px;
@@ -108,7 +140,7 @@ component SidebarLine inherits Rectangle {
     }
 
     Text {
-        x: 30px + depth * 14px;
+        x: 30px + depth * 14px + (reserve-leading ? 14px : 0px);
         y: (parent.height - self.height) / 2;
         width: parent.width - self.x - 42px;
         text: label;
@@ -135,16 +167,38 @@ component SidebarLine inherits Rectangle {
 
 component SectionHeader inherits Rectangle {
     in property <string> label;
+    in property <bool> inset: false;
+    in property <bool> show-add: false;
     height: 24px;
 
     Text {
-        x: 0;
+        x: inset || show-add ? 8px : 0px;
         y: (parent.height - self.height) / 2;
         text: label;
         color: Theme.fg-2;
         font-size: Theme.font-overline;
         font-weight: 600;
         letter-spacing: 0.8px;
+    }
+
+    if show-add: Rectangle {
+        x: parent.width - 24px;
+        y: (parent.height - 16px) / 2;
+        width: 16px;
+        height: 16px;
+        border-radius: 3px;
+        background: plus-touch.has-hover ? Theme.bg-3 : transparent;
+
+        SvgIcon {
+            x: (parent.width - 12px) / 2;
+            y: (parent.height - 12px) / 2;
+            width: 12px;
+            height: 12px;
+            icon: @image-url("../assets/icons/plus.svg");
+            tint: plus-touch.has-hover ? Theme.fg-0 : Theme.fg-2;
+        }
+
+        plus-touch := TouchArea {}
     }
 }
 
@@ -187,6 +241,7 @@ component FilterChip inherits Rectangle {
 component ModelCard inherits Rectangle {
     in property <BrowserCard> card;
     in property <bool> selected: false;
+    in property <bool> layout-motion: true;
     in property <int> card-index;
     callback clicked(int);
 
@@ -195,6 +250,12 @@ component ModelCard inherits Rectangle {
                   selected ? Theme.accent-line : Theme.line;
     border-width: 1px;
     border-radius: Theme.radius-card;
+    animate x { duration: layout-motion ? 220ms : 0ms; easing: ease-in-out; }
+    animate y { duration: layout-motion ? 220ms : 0ms; easing: ease-in-out; }
+    animate width { duration: layout-motion ? 200ms : 0ms; easing: ease-in-out; }
+    animate height { duration: layout-motion ? 200ms : 0ms; easing: ease-in-out; }
+    animate background { duration: 120ms; easing: ease-in-out; }
+    animate border-color { duration: 120ms; easing: ease-in-out; }
 
     VerticalLayout {
         // Thumbnail area
@@ -420,6 +481,36 @@ component DetailKV inherits Rectangle {
     }
 }
 
+component TrafficLightButton inherits Rectangle {
+    in property <brush> fill;
+    in property <image> glyph;
+    in property <brush> glyph-tint;
+    in property <bool> controls-hover;
+    out property <bool> hovered: ta-button.has-hover;
+    callback activated();
+
+    width: 12px;
+    height: 12px;
+    border-radius: 6px;
+    background: fill;
+    border-color: #00000033;
+    border-width: 1px;
+
+    SvgIcon {
+        x: 2px;
+        y: 2px;
+        width: 8px;
+        height: 8px;
+        icon: glyph;
+        tint: glyph-tint;
+        visible: controls-hover || ta-button.has-hover;
+    }
+
+    ta-button := TouchArea {
+        clicked => { activated(); }
+    }
+}
+
 // ─── Main window ─────────────────────────────────────────
 
 export component ModelRackWindow inherits Window {
@@ -428,6 +519,7 @@ export component ModelRackWindow inherits Window {
     in property <string> app-version: "v0.1.0";
     in property <string> library-label: "~/Library/3d";
     in property <int> selected-card-index: -1;
+    in property <string> selected-thumb-key: "rack";
     in property <string> status-text: "Ready";
     in property <string> density-label: "M";
     in property <string> view-mode-label: "Grid";
@@ -465,8 +557,11 @@ export component ModelRackWindow inherits Window {
     in property <string> detail-added;
     in property <string> detail-author;
     in property <string> detail-tags-label;
+    in property <string> detail-tags-input;
+    in property <[TagChip]> detail-tag-chips;
     in property <string> detail-notes;
     in property <int> detail-printed-count;
+    in property <[PrintHistoryRow]> detail-print-history;
     in property <int> detail-health-score;
     in property <bool> detail-manifold;
     in property <bool> detail-watertight;
@@ -494,29 +589,37 @@ export component ModelRackWindow inherits Window {
     callback cycle-settings-language();
     callback toggle-settings-theme();
     callback cycle-settings-density();
+    callback choose-slicer();
     callback apply-search(string);
+    callback choose-view-mode(string);
+    callback choose-density(string);
     callback cycle-view-mode();
     callback cycle-density();
     callback toggle-sort();
     callback choose-filter(string);
     callback select-model(int);
     callback toggle-favorite();
+    callback save-metadata(string, string, string);
+    callback add-tags(string);
+    callback remove-tag(int);
+    callback adjust-printed-count(int);
+    callback add-print-record(string, string, string, string, string, string, string);
+    callback remove-print-record(int);
     callback open-in-slicer();
     callback window-close();
     callback window-minimize();
-    callback window-zoom();
+    callback window-fullscreen();
     callback titlebar-drag(length, length);
 
     title: "";
-    width: 1480px;
-    height: 920px;
+    preferred-width: 1480px;
+    preferred-height: 920px;
     default-font-family: "Inter";
-    no-frame: true;
     background: Theme.bg-0;
 
     // ─── Root layout ───
     VerticalLayout {
-        // ─── Custom titlebar (native frame is disabled with no-frame) ───
+        // ─── Custom titlebar ───
         Rectangle {
             height: Theme.titlebar-height;
             background: Theme.bg-1;
@@ -537,37 +640,40 @@ export component ModelRackWindow inherits Window {
                 background: Theme.line;
             }
 
-            HorizontalLayout {
+            traffic-hover := TouchArea {
+                x: 6px;
+                y: (parent.height - 24px) / 2;
+                width: 66px;
+                height: 24px;
+            }
+
+            traffic-lights := HorizontalLayout {
                 x: 12px;
                 y: (parent.height - 12px) / 2;
                 spacing: 8px;
 
-                Rectangle {
-                    width: 12px;
-                    height: 12px;
-                    border-radius: 6px;
-                    background: #ff5f56;
-                    border-color: #00000033;
-                    border-width: 1px;
-                    TouchArea { clicked => { window-close(); } }
+                close-light := TrafficLightButton {
+                    fill: #ff5f56;
+                    glyph: @image-url("../assets/icons/close.svg");
+                    glyph-tint: #7a1210;
+                    controls-hover: traffic-hover.has-hover || close-light.hovered || minimize-light.hovered || fullscreen-light.hovered;
+                    activated => { window-close(); }
                 }
-                Rectangle {
-                    width: 12px;
-                    height: 12px;
-                    border-radius: 6px;
-                    background: #ffbd2e;
-                    border-color: #00000033;
-                    border-width: 1px;
-                    TouchArea { clicked => { window-minimize(); } }
+
+                minimize-light := TrafficLightButton {
+                    fill: #ffbd2e;
+                    glyph: @image-url("../assets/icons/minus.svg");
+                    glyph-tint: #8a5a00;
+                    controls-hover: traffic-hover.has-hover || close-light.hovered || minimize-light.hovered || fullscreen-light.hovered;
+                    activated => { window-minimize(); }
                 }
-                Rectangle {
-                    width: 12px;
-                    height: 12px;
-                    border-radius: 6px;
-                    background: #27c93f;
-                    border-color: #00000033;
-                    border-width: 1px;
-                    TouchArea { clicked => { window-zoom(); } }
+
+                fullscreen-light := TrafficLightButton {
+                    fill: #27c93f;
+                    glyph: @image-url("../assets/icons/fullscreen.svg");
+                    glyph-tint: #0b6d1a;
+                    controls-hover: traffic-hover.has-hover || close-light.hovered || minimize-light.hovered || fullscreen-light.hovered;
+                    activated => { window-fullscreen(); }
                 }
             }
 
@@ -654,7 +760,7 @@ export component ModelRackWindow inherits Window {
                         padding-top: 10px;
                         spacing: 1px;
 
-                        SectionHeader { label: "LIBRARY"; }
+                        SectionHeader { label: "LIBRARY"; inset: true; }
 
                         SidebarLine { icon: @image-url("../assets/icons/layers.svg"); label: "All Models"; count: all-count; selected: active-filter-key == "all"; activated => { choose-filter("all"); } }
                         SidebarLine { icon: @image-url("../assets/icons/clock.svg"); label: "Recent"; count: recent-count; selected: active-filter-key == "recent"; activated => { choose-filter("recent"); } }
@@ -669,18 +775,21 @@ export component ModelRackWindow inherits Window {
                             background: Theme.line;
                         }
 
-                        if folder-items.length > 0: SectionHeader { label: "FOLDERS"; }
+                        if folder-items.length > 0: SectionHeader { label: "FOLDERS"; show-add: true; }
 
                         for folder in folder-items: SidebarLine {
-                            icon: @image-url("../assets/icons/folder.svg");
+                            icon: folder.depth == 0 ? @image-url("../assets/icons/folder-open.svg") : @image-url("../assets/icons/folder.svg");
                             label: folder.label;
                             count: folder.count;
                             depth: folder.depth;
+                            reserve-leading: true;
+                            expandable: folder.depth == 0;
+                            expanded: folder.depth == 0;
                             selected: active-filter-key == folder.key;
                             activated => { choose-filter(folder.key); }
                         }
 
-                        if tag-items.length > 0: SectionHeader { label: "TAGS"; }
+                        if tag-items.length > 0: SectionHeader { label: "TAGS"; show-add: true; }
 
                         for tag in tag-items: SidebarLine {
                             icon: @image-url("../assets/icons/tag.svg");
@@ -709,6 +818,10 @@ export component ModelRackWindow inherits Window {
                     }
 
                     HorizontalLayout {
+                        x: 0;
+                        y: 0;
+                        width: parent.width;
+                        height: parent.height;
                         padding: 8px;
                         padding-left: 12px;
                         padding-right: 12px;
@@ -717,7 +830,23 @@ export component ModelRackWindow inherits Window {
 
                         // Search
                         Rectangle {
-                            max-width: 360px;
+                            width: 30px;
+                            height: 28px;
+                            background: Theme.bg-1;
+                            border-radius: Theme.radius-btn;
+
+                            SvgIcon {
+                                x: (parent.width - 14px) / 2;
+                                y: (parent.height - 14px) / 2;
+                                width: 14px;
+                                height: 14px;
+                                icon: @image-url("../assets/icons/search.svg");
+                                tint: Theme.fg-2;
+                            }
+                        }
+
+                        Rectangle {
+                            max-width: 320px;
                             horizontal-stretch: 1;
                             height: 28px;
                             background: Theme.bg-1;
@@ -731,143 +860,193 @@ export component ModelRackWindow inherits Window {
                                 spacing: 6px;
                                 alignment: center;
 
-                                SvgIcon {
-                                    width: 14px;
-                                    height: 14px;
-                                    icon: @image-url("../assets/icons/search.svg");
-                                    tint: Theme.fg-2;
-                                }
-
                                 search-field := LineEdit {
                                     horizontal-stretch: 1;
                                     placeholder-text: "Search filename, tag, notes…";
                                     text <=> search-text;
                                     accepted(text) => { apply-search(text); }
                                 }
+                            }
+                        }
 
-                                Rectangle {
-                                    width: 28px;
-                                    height: 18px;
-                                    background: Theme.bg-2;
-                                    border-color: Theme.line;
-                                    border-width: 1px;
-                                    border-radius: 3px;
+                        Rectangle {
+                            width: 32px;
+                            height: 28px;
+                            background: Theme.bg-1;
+                            border-color: Theme.line;
+                            border-width: 1px;
+                            border-radius: Theme.radius-btn;
 
-                                    Text {
-                                        x: (parent.width - self.width) / 2;
-                                        y: (parent.height - self.height) / 2;
-                                        text: "⌘K";
-                                        color: Theme.fg-3;
-                                        font-family: "JetBrains Mono";
-                                        font-size: 10px;
-                                    }
-                                }
+                            Text {
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                                text: "⌘K";
+                                color: Theme.fg-3;
+                                font-family: "JetBrains Mono";
+                                font-size: 10px;
                             }
                         }
 
                         // View segmented control
-                        HorizontalLayout {
+                        Rectangle {
+                            width: 202px;
                             height: 28px;
-                            spacing: 1px;
+                            background: Theme.bg-1;
+                            border-color: Theme.line;
+                            border-width: 1px;
+                            border-radius: Theme.radius-btn;
 
                             Rectangle {
+                                x: view-mode-label == "Masonry" ? 62px : view-mode-label == "List" ? 146px : 2px;
+                                y: 2px;
+                                width: view-mode-label == "Masonry" ? 82px : view-mode-label == "List" ? 54px : 58px;
+                                height: 24px;
+                                background: Theme.bg-3;
+                                border-radius: 4px;
+                                animate x { duration: 180ms; easing: ease-in-out; }
+                                animate width { duration: 180ms; easing: ease-in-out; }
+                            }
+
+                            Rectangle {
+                                x: 2px;
+                                y: 2px;
                                 width: 58px;
-                                height: 28px;
-                                background: view-mode-label == "Grid" ? Theme.bg-3 : Theme.bg-1;
-                                border-color: Theme.line;
-                                border-width: 1px;
-                                border-radius: Theme.radius-btn;
+                                height: 24px;
+                                background: transparent;
 
-                                HorizontalLayout {
-                                    x: (parent.width - self.width) / 2;
+                                grid-label := Text {
+                                    x: (parent.width - 16px - self.width) / 2 + 16px;
                                     y: 0;
                                     height: parent.height;
-                                    spacing: 4px;
-                                    alignment: center;
-                                    SvgIcon { width: 12px; height: 12px; icon: @image-url("../assets/icons/grid.svg"); tint: view-mode-label == "Grid" ? Theme.fg-0 : Theme.fg-1; }
-                                    Text { text: "Grid"; color: view-mode-label == "Grid" ? Theme.fg-0 : Theme.fg-1; font-size: 12px; }
+                                    text: "Grid";
+                                    color: view-mode-label == "Grid" ? Theme.fg-0 : Theme.fg-1;
+                                    font-size: 12px;
+                                    vertical-alignment: center;
                                 }
 
-                                TouchArea { clicked => { cycle-view-mode(); } }
+                                SvgIcon {
+                                    x: grid-label.x - 16px;
+                                    y: (parent.height - 12px) / 2;
+                                    width: 12px;
+                                    height: 12px;
+                                    icon: @image-url("../assets/icons/grid.svg");
+                                    tint: view-mode-label == "Grid" ? Theme.fg-0 : Theme.fg-1;
+                                }
+
+                                TouchArea { clicked => { choose-view-mode("grid"); } }
                             }
 
-                            Rectangle {
-                                width: 86px;
-                                height: 28px;
-                                background: view-mode-label == "Masonry" ? Theme.bg-3 : Theme.bg-1;
-                                border-color: Theme.line;
-                                border-width: 1px;
-                                border-radius: Theme.radius-btn;
+                            Rectangle { x: 61px; y: 5px; width: 1px; height: 18px; background: Theme.line; }
 
-                                HorizontalLayout {
-                                    x: (parent.width - self.width) / 2;
+                            Rectangle {
+                                x: 62px;
+                                y: 2px;
+                                width: 82px;
+                                height: 24px;
+                                background: transparent;
+
+                                masonry-label := Text {
+                                    x: (parent.width - 16px - self.width) / 2 + 16px;
                                     y: 0;
                                     height: parent.height;
-                                    spacing: 4px;
-                                    alignment: center;
-                                    SvgIcon { width: 12px; height: 12px; icon: @image-url("../assets/icons/masonry.svg"); tint: view-mode-label == "Masonry" ? Theme.fg-0 : Theme.fg-1; }
-                                    Text { text: "Masonry"; color: view-mode-label == "Masonry" ? Theme.fg-0 : Theme.fg-1; font-size: 12px; }
+                                    text: "Masonry";
+                                    color: view-mode-label == "Masonry" ? Theme.fg-0 : Theme.fg-1;
+                                    font-size: 12px;
+                                    vertical-alignment: center;
                                 }
 
-                                TouchArea { clicked => { cycle-view-mode(); } }
+                                SvgIcon {
+                                    x: masonry-label.x - 16px;
+                                    y: (parent.height - 12px) / 2;
+                                    width: 12px;
+                                    height: 12px;
+                                    icon: @image-url("../assets/icons/masonry.svg");
+                                    tint: view-mode-label == "Masonry" ? Theme.fg-0 : Theme.fg-1;
+                                }
+
+                                TouchArea { clicked => { choose-view-mode("masonry"); } }
                             }
 
-                            Rectangle {
-                                width: 56px;
-                                height: 28px;
-                                background: view-mode-label == "List" ? Theme.bg-3 : Theme.bg-1;
-                                border-color: Theme.line;
-                                border-width: 1px;
-                                border-radius: Theme.radius-btn;
+                            Rectangle { x: 145px; y: 5px; width: 1px; height: 18px; background: Theme.line; }
 
-                                HorizontalLayout {
-                                    x: (parent.width - self.width) / 2;
+                            Rectangle {
+                                x: 146px;
+                                y: 2px;
+                                width: 54px;
+                                height: 24px;
+                                background: transparent;
+
+                                list-label := Text {
+                                    x: (parent.width - 16px - self.width) / 2 + 16px;
                                     y: 0;
                                     height: parent.height;
-                                    spacing: 4px;
-                                    alignment: center;
-                                    SvgIcon { width: 12px; height: 12px; icon: @image-url("../assets/icons/list.svg"); tint: view-mode-label == "List" ? Theme.fg-0 : Theme.fg-1; }
-                                    Text { text: "List"; color: view-mode-label == "List" ? Theme.fg-0 : Theme.fg-1; font-size: 12px; }
+                                    text: "List";
+                                    color: view-mode-label == "List" ? Theme.fg-0 : Theme.fg-1;
+                                    font-size: 12px;
+                                    vertical-alignment: center;
                                 }
 
-                                TouchArea { clicked => { cycle-view-mode(); } }
+                                SvgIcon {
+                                    x: list-label.x - 16px;
+                                    y: (parent.height - 12px) / 2;
+                                    width: 12px;
+                                    height: 12px;
+                                    icon: @image-url("../assets/icons/list.svg");
+                                    tint: view-mode-label == "List" ? Theme.fg-0 : Theme.fg-1;
+                                }
+
+                                TouchArea { clicked => { choose-view-mode("list"); } }
                             }
                         }
 
                         // Density segmented control
-                        HorizontalLayout {
+                        Rectangle {
+                            width: 84px;
                             height: 28px;
-                            spacing: 1px;
+                            background: Theme.bg-1;
+                            border-color: Theme.line;
+                            border-width: 1px;
+                            border-radius: Theme.radius-btn;
 
                             Rectangle {
-                                width: 28px;
-                                height: 28px;
-                                background: density-label == "S" ? Theme.bg-3 : Theme.bg-1;
-                                border-color: Theme.line;
-                                border-width: 1px;
-                                border-radius: Theme.radius-btn;
-                                Text { x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; text: "S"; color: density-label == "S" ? Theme.fg-0 : Theme.fg-1; font-size: 12px; }
-                                TouchArea { clicked => { cycle-density(); } }
+                                x: density-label == "M" ? 30px : density-label == "L" ? 56px : 2px;
+                                y: 2px;
+                                width: density-label == "M" ? 24px : 26px;
+                                height: 24px;
+                                background: Theme.bg-3;
+                                border-radius: 4px;
+                                animate x { duration: 180ms; easing: ease-in-out; }
+                                animate width { duration: 180ms; easing: ease-in-out; }
                             }
+
                             Rectangle {
-                                width: 28px;
-                                height: 28px;
-                                background: density-label == "M" ? Theme.bg-3 : Theme.bg-1;
-                                border-color: Theme.line;
-                                border-width: 1px;
-                                border-radius: Theme.radius-btn;
-                                Text { x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; text: "M"; color: density-label == "M" ? Theme.fg-0 : Theme.fg-1; font-size: 12px; }
-                                TouchArea { clicked => { cycle-density(); } }
+                                x: 2px;
+                                y: 2px;
+                                width: 26px;
+                                height: 24px;
+                                background: transparent;
+                                Text { x: (parent.width - self.width) / 2; y: 0; height: parent.height; text: "S"; color: density-label == "S" ? Theme.fg-0 : Theme.fg-1; font-size: 12px; vertical-alignment: center; }
+                                TouchArea { clicked => { choose-density("small"); } }
                             }
+                            Rectangle { x: 29px; y: 5px; width: 1px; height: 18px; background: Theme.line; }
                             Rectangle {
-                                width: 28px;
-                                height: 28px;
-                                background: density-label == "L" ? Theme.bg-3 : Theme.bg-1;
-                                border-color: Theme.line;
-                                border-width: 1px;
-                                border-radius: Theme.radius-btn;
-                                Text { x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; text: "L"; color: density-label == "L" ? Theme.fg-0 : Theme.fg-1; font-size: 12px; }
-                                TouchArea { clicked => { cycle-density(); } }
+                                x: 30px;
+                                y: 2px;
+                                width: 24px;
+                                height: 24px;
+                                background: transparent;
+                                Text { x: (parent.width - self.width) / 2; y: 0; height: parent.height; text: "M"; color: density-label == "M" ? Theme.fg-0 : Theme.fg-1; font-size: 12px; vertical-alignment: center; }
+                                TouchArea { clicked => { choose-density("medium"); } }
+                            }
+                            Rectangle { x: 55px; y: 5px; width: 1px; height: 18px; background: Theme.line; }
+                            Rectangle {
+                                x: 56px;
+                                y: 2px;
+                                width: 26px;
+                                height: 24px;
+                                background: transparent;
+                                Text { x: (parent.width - self.width) / 2; y: 0; height: parent.height; text: "L"; color: density-label == "L" ? Theme.fg-0 : Theme.fg-1; font-size: 12px; vertical-alignment: center; }
+                                TouchArea { clicked => { choose-density("large"); } }
                             }
                         }
 
@@ -879,12 +1058,14 @@ export component ModelRackWindow inherits Window {
 
                         // Sort
                         Rectangle {
-                            width: sort-btn-text.width + 28px;
+                            width: sort-btn-text.width + 40px;
                             height: 28px;
                             background: ta-sort.has-hover ? Theme.bg-3 : Theme.bg-1;
                             border-color: Theme.line;
                             border-width: 1px;
                             border-radius: Theme.radius-btn;
+                            animate background { duration: 120ms; easing: ease-in-out; }
+                            animate width { duration: 180ms; easing: ease-in-out; }
 
                             SvgIcon {
                                 x: 9px;
@@ -896,7 +1077,7 @@ export component ModelRackWindow inherits Window {
                             }
 
                             sort-btn-text := Text {
-                                x: (parent.width - self.width) / 2;
+                                x: 28px;
                                 y: (parent.height - self.height) / 2;
                                 text: sort-label;
                                 color: Theme.fg-1;
@@ -929,13 +1110,13 @@ export component ModelRackWindow inherits Window {
 
                         // Add Folder
                         Rectangle {
-                            width: add-text.width + 30px;
+                            width: add-text.width + 42px;
                             height: 28px;
                             background: ta-add.has-hover ? #6fc8e0 : Theme.accent;
                             border-radius: Theme.radius-btn;
 
                             SvgIcon {
-                                x: 9px;
+                                x: 10px;
                                 y: (parent.height - 13px) / 2;
                                 width: 13px;
                                 height: 13px;
@@ -944,7 +1125,7 @@ export component ModelRackWindow inherits Window {
                             }
 
                             add-text := Text {
-                                x: 22px;
+                                x: 29px;
                                 y: (parent.height - self.height) / 2;
                                 text: "Add Folder";
                                 color: #0e2a32;
@@ -971,9 +1152,13 @@ export component ModelRackWindow inherits Window {
                     }
 
                     HorizontalLayout {
+                        x: 0;
+                        y: 0;
+                        width: parent.width;
+                        height: parent.height;
                         padding-left: 12px;
                         padding-right: 12px;
-                        spacing: 8px;
+                        spacing: 16px;
                         alignment: center;
 
                         Text {
@@ -988,8 +1173,6 @@ export component ModelRackWindow inherits Window {
                             active: true;
                             dismiss => { choose-filter("all"); }
                         }
-
-                        Rectangle { horizontal-stretch: 1; }
 
                         Text {
                             text: browser-count-label;
@@ -1035,26 +1218,38 @@ export component ModelRackWindow inherits Window {
                         }
                     }
 
-                    if model-cards.length > 0: Flickable {
+                    if model-cards.length > 0: grid-flick := Flickable {
                         x: 14px;
                         y: 14px;
                         width: parent.width - 28px;
                         height: parent.height - 28px;
 
-                        property <length> card-w: density-label == "S" ? 156px : density-label == "L" ? 244px : 208px;
+                        property <length> target-card-w: density-label == "S" ? 156px : density-label == "L" ? 244px : 208px;
+                        property <length> card-w: target-card-w;
                         property <length> gap: 12px;
-                        property <int> cols: max(1, floor((self.width + gap) / (card-w + gap)));
+                        property <bool> full-layout-motion: model-cards.length <= 96;
+                        property <length> render-buffer: full-layout-motion ? 1400px : 520px;
+                        property <int> cols: max(1, floor((self.width + gap) / (target-card-w + gap)));
                         property <int> rows: ceil(model-cards.length / max(1, cols));
+                        property <length> card-h: card-w + 52px;
 
-                        viewport-height: rows * (card-w + 52px + gap);
+                        viewport-height: rows * (card-h + gap);
+                        animate card-w { duration: full-layout-motion ? 260ms : 120ms; easing: ease-in-out; }
 
                         for card[index] in model-cards: ModelCard {
-                            x: mod(index, cols) * (card-w + gap);
-                            y: floor(index / cols) * (card-w + 52px + gap);
+                            property <length> target-y: floor(card.slot-index / cols) * (grid-flick.card-h + grid-flick.gap);
+                            x: mod(card.slot-index, cols) * (card-w + gap);
+                            y: target-y;
                             width: card-w;
+                            height: grid-flick.card-h;
+                            visible: target-y + grid-flick.card-h >= grid-flick.viewport-y - grid-flick.render-buffer
+                                && target-y <= grid-flick.viewport-y + grid-flick.height + grid-flick.render-buffer;
+                            layout-motion: grid-flick.full-layout-motion
+                                || (target-y + grid-flick.card-h >= grid-flick.viewport-y - grid-flick.render-buffer
+                                    && target-y <= grid-flick.viewport-y + grid-flick.height + grid-flick.render-buffer);
                             card: card;
-                            card-index: index;
-                            selected: index == selected-card-index;
+                            card-index: card.slot-index;
+                            selected: card.slot-index == selected-card-index;
                             clicked(idx) => { select-model(idx); }
                         }
                     }
@@ -1182,7 +1377,7 @@ export component ModelRackWindow inherits Window {
                             y: 0;
                             width: parent.width;
                             height: parent.height;
-                            thumb-key: selected-card-index >= 0 && model-cards.length > selected-card-index ? model-cards[selected-card-index].thumb-key : "rack";
+                            thumb-key: selected-thumb-key;
                         }
 
                         HorizontalLayout {
@@ -1250,7 +1445,7 @@ export component ModelRackWindow inherits Window {
                             padding: 16px;
                             padding-top: 14px;
                             padding-bottom: 20px;
-                            spacing: 0px;
+                            spacing: 2px;
 
                             // Title + path
                             Text {
@@ -1412,105 +1607,420 @@ export component ModelRackWindow inherits Window {
 
                             SectionHeader { label: "TAGS"; }
                             Rectangle {
-                                height: 28px;
+                                height: detail-tag-chips.length == 0 ? 28px : detail-tag-chips.length * 30px;
 
-                                Rectangle {
+                                if detail-tag-chips.length == 0: Text {
                                     x: 0;
-                                    y: 2px;
-                                    width: tags-text.width + 14px;
-                                    height: 20px;
-                                    background: Theme.bg-3;
-                                    border-color: Theme.line;
-                                    border-width: 1px;
-                                    border-radius: 3px;
-
-                                    tags-text := Text {
-                                        x: 7px;
-                                        y: (parent.height - self.height) / 2;
-                                        text: detail-tags-label;
-                                        color: Theme.fg-1;
-                                        font-size: 11px;
-                                        overflow: elide;
-                                    }
+                                    y: 5px;
+                                    text: "No tags";
+                                    color: Theme.fg-2;
+                                    font-size: 11.5px;
                                 }
 
-                                Rectangle {
-                                    x: tags-text.width + 20px;
-                                    y: 2px;
-                                    width: 44px;
-                                    height: 20px;
-                                    background: transparent;
-                                    border-color: Theme.line;
-                                    border-width: 1px;
-                                    border-radius: 3px;
+                                VerticalLayout {
+                                    spacing: 6px;
 
-                                    Text {
-                                        x: (parent.width - self.width) / 2;
-                                        y: (parent.height - self.height) / 2;
-                                        text: "+ add";
-                                        color: Theme.fg-2;
-                                        font-size: 11px;
+                                    for tag[index] in detail-tag-chips: Rectangle {
+                                        height: 24px;
+                                        background: Theme.bg-3;
+                                        border-color: Theme.line;
+                                        border-width: 1px;
+                                        border-radius: 12px;
+
+                                        Text {
+                                            x: 10px;
+                                            y: (parent.height - self.height) / 2;
+                                            width: parent.width - 34px;
+                                            text: tag.label;
+                                            color: Theme.fg-1;
+                                            font-size: 11.5px;
+                                            font-family: "JetBrains Mono";
+                                            overflow: elide;
+                                        }
+
+                                        Rectangle {
+                                            x: parent.width - 24px;
+                                            y: 2px;
+                                            width: 20px;
+                                            height: 20px;
+                                            background: remove-tag-touch.has-hover ? Theme.bg-4 : Theme.bg-3;
+                                            border-radius: 10px;
+
+                                            Text {
+                                                x: (parent.width - self.width) / 2;
+                                                y: (parent.height - self.height) / 2;
+                                                text: "×";
+                                                color: Theme.fg-2;
+                                                font-size: 12px;
+                                            }
+
+                                            remove-tag-touch := TouchArea { clicked => { remove-tag(index); } }
+                                        }
                                     }
                                 }
                             }
 
-                            if detail-printed-count > 0: SectionHeader { label: "PRINT HISTORY"; }
-                            if detail-printed-count > 0: Rectangle {
-                                height: 42px;
+                            Rectangle {
+                                height: 30px;
+
+                                add-tag-edit := LineEdit {
+                                    x: 0;
+                                    y: 0;
+                                    width: parent.width - 58px;
+                                    height: 28px;
+                                    placeholder-text: "Add tag";
+                                    font-size: 12px;
+                                    accepted(text) => {
+                                        add-tags(text);
+                                        self.text = "";
+                                    }
+                                }
+
+                                Rectangle {
+                                    x: parent.width - 50px;
+                                    y: 1px;
+                                    width: 50px;
+                                    height: 26px;
+                                    background: add-tag-touch.has-hover ? Theme.accent : Theme.bg-4;
+                                    border-color: Theme.line;
+                                    border-width: 1px;
+                                    border-radius: Theme.radius-btn;
+
+                                    Text {
+                                        x: (parent.width - self.width) / 2;
+                                        y: (parent.height - self.height) / 2;
+                                        text: "Add";
+                                        color: Theme.fg-0;
+                                        font-size: 12px;
+                                        font-weight: 600;
+                                    }
+
+                                    add-tag-touch := TouchArea {
+                                        clicked => {
+                                            add-tags(add-tag-edit.text);
+                                            add-tag-edit.text = "";
+                                        }
+                                    }
+                                }
+                            }
+
+                            tags-edit := LineEdit {
+                                height: 30px;
+                                text: detail-tags-input;
+                                placeholder-text: "Bulk edit: rackmount, printer, jig";
+                                font-size: 12px;
+                                accepted(text) => { save-metadata(text, author-edit.text, notes-edit.text); }
+                            }
+
+                            SectionHeader { label: "PRINTS"; }
+                            Rectangle {
+                                height: 30px;
 
                                 Text {
                                     x: 0;
-                                    y: 8px;
-                                    width: 64px;
-                                    text: "recent";
+                                    y: (parent.height - self.height) / 2;
+                                    text: "Printed " + detail-printed-count + " times";
+                                    color: Theme.fg-1;
+                                    font-size: 12px;
+                                }
+
+                                Rectangle {
+                                    x: parent.width - 64px;
+                                    y: 3px;
+                                    width: 28px;
+                                    height: 24px;
+                                    background: minus-print.has-hover ? Theme.bg-4 : Theme.bg-3;
+                                    border-color: Theme.line;
+                                    border-width: 1px;
+                                    border-radius: Theme.radius-btn;
+
+                                    Text {
+                                        x: (parent.width - self.width) / 2;
+                                        y: (parent.height - self.height) / 2;
+                                        text: "−";
+                                        color: Theme.fg-1;
+                                        font-size: 14px;
+                                    }
+
+                                    minus-print := TouchArea { clicked => { adjust-printed-count(-1); } }
+                                }
+
+                                Rectangle {
+                                    x: parent.width - 30px;
+                                    y: 3px;
+                                    width: 28px;
+                                    height: 24px;
+                                    background: plus-print.has-hover ? Theme.bg-4 : Theme.bg-3;
+                                    border-color: Theme.line;
+                                    border-width: 1px;
+                                    border-radius: Theme.radius-btn;
+
+                                    Text {
+                                        x: (parent.width - self.width) / 2;
+                                        y: (parent.height - self.height) / 2;
+                                        text: "+";
+                                        color: Theme.fg-1;
+                                        font-size: 14px;
+                                    }
+
+                                    plus-print := TouchArea { clicked => { adjust-printed-count(1); } }
+                                }
+                            }
+
+                            if detail-printed-count > 0: Rectangle {
+                                height: 30px;
+
+                                Text {
+                                    x: 0;
+                                    y: (parent.height - self.height) / 2;
+                                    width: 82px;
+                                    text: "history";
                                     color: Theme.fg-2;
                                     font-family: "JetBrains Mono";
                                     font-size: 10.5px;
                                 }
 
-                                Rectangle {
-                                    x: 74px;
-                                    y: 13px;
-                                    width: 6px;
-                                    height: 6px;
-                                    border-radius: 3px;
-                                    background: Theme.success;
-                                }
-
                                 Text {
-                                    x: 90px;
-                                    y: 5px;
-                                    text: "Printed " + detail-printed-count + " times";
+                                    x: 92px;
+                                    y: (parent.height - self.height) / 2;
+                                    text: detail-print-history.length + " records";
                                     color: Theme.fg-0;
                                     font-size: 11.5px;
                                 }
+                            }
 
-                                Text {
-                                    x: 90px;
-                                    y: 22px;
-                                    text: "PLA · 0.20mm profile";
+                            Rectangle {
+                                height: detail-print-history.length == 0 ? 28px : detail-print-history.length * 62px;
+
+                                if detail-print-history.length == 0: Text {
+                                    x: 0;
+                                    y: 5px;
+                                    text: "No print records";
                                     color: Theme.fg-2;
-                                    font-family: "JetBrains Mono";
-                                    font-size: 10px;
+                                    font-size: 11.5px;
+                                }
+
+                                VerticalLayout {
+                                    spacing: 6px;
+
+                                    for record[index] in detail-print-history: Rectangle {
+                                        height: 56px;
+                                        background: Theme.bg-2;
+                                        border-color: Theme.line;
+                                        border-width: 1px;
+                                        border-radius: 6px;
+
+                                        Rectangle {
+                                            x: 10px;
+                                            y: 18px;
+                                            width: 7px;
+                                            height: 7px;
+                                            border-radius: 4px;
+                                            background: record.success ? Theme.success : Theme.warn;
+                                        }
+
+                                        Text {
+                                            x: 26px;
+                                            y: 7px;
+                                            width: parent.width - 62px;
+                                            text: record.date + " · " + (record.material == "" ? "material unknown" : record.material);
+                                            color: Theme.fg-0;
+                                            font-size: 11.5px;
+                                            font-family: "JetBrains Mono";
+                                            overflow: elide;
+                                        }
+
+                                        Text {
+                                            x: 26px;
+                                            y: 24px;
+                                            width: parent.width - 62px;
+                                            text: (record.printer == "" ? "printer unknown" : record.printer) + " · "
+                                                + (record.profile == "" ? "profile unknown" : record.profile) + " · "
+                                                + (record.nozzle == "" ? "nozzle ?" : record.nozzle) + " · "
+                                                + (record.layer-height == "" ? "layer ?" : record.layer-height)
+                                                + (record.duration == "" ? "" : " · " + record.duration);
+                                            color: Theme.fg-1;
+                                            font-size: 10.5px;
+                                            overflow: elide;
+                                        }
+
+                                        Text {
+                                            x: 26px;
+                                            y: 39px;
+                                            width: parent.width - 62px;
+                                            text: record.notes == "" ? "No notes" : record.notes;
+                                            color: Theme.fg-2;
+                                            font-size: 10.5px;
+                                            overflow: elide;
+                                        }
+
+                                        Rectangle {
+                                            x: parent.width - 28px;
+                                            y: 9px;
+                                            width: 22px;
+                                            height: 24px;
+                                            background: remove-print.has-hover ? Theme.bg-4 : Theme.bg-2;
+                                            border-radius: Theme.radius-btn;
+
+                                            Text {
+                                                x: (parent.width - self.width) / 2;
+                                                y: (parent.height - self.height) / 2;
+                                                text: "×";
+                                                color: Theme.fg-2;
+                                                font-size: 14px;
+                                            }
+
+                                            remove-print := TouchArea { clicked => { remove-print-record(index); } }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                height: 94px;
+
+                                material-edit := LineEdit {
+                                    x: 0;
+                                    y: 0;
+                                    width: 82px;
+                                    height: 28px;
+                                    placeholder-text: "PLA";
+                                    font-size: 12px;
+                                }
+
+                                printer-edit := LineEdit {
+                                    x: 90px;
+                                    y: 0;
+                                    width: parent.width - 150px;
+                                    height: 28px;
+                                    placeholder-text: "Printer";
+                                    font-size: 12px;
+                                }
+
+                                Rectangle {
+                                    x: parent.width - 60px;
+                                    y: 1px;
+                                    width: 60px;
+                                    height: 26px;
+                                    background: add-print.has-hover ? Theme.accent : Theme.bg-4;
+                                    border-color: Theme.line;
+                                    border-width: 1px;
+                                    border-radius: Theme.radius-btn;
+
+                                    Text {
+                                        x: (parent.width - self.width) / 2;
+                                        y: (parent.height - self.height) / 2;
+                                        text: "Add";
+                                        color: Theme.fg-0;
+                                        font-size: 12px;
+                                        font-weight: 600;
+                                    }
+
+                                    add-print := TouchArea {
+                                        clicked => {
+                                            add-print-record(material-edit.text, printer-edit.text, profile-edit.text, nozzle-edit.text, layer-edit.text, duration-edit.text, print-note-edit.text);
+                                            material-edit.text = "";
+                                            printer-edit.text = "";
+                                            profile-edit.text = "";
+                                            nozzle-edit.text = "";
+                                            layer-edit.text = "";
+                                            duration-edit.text = "";
+                                            print-note-edit.text = "";
+                                        }
+                                    }
+                                }
+
+                                profile-edit := LineEdit {
+                                    x: 0;
+                                    y: 32px;
+                                    width: parent.width - 186px;
+                                    height: 28px;
+                                    placeholder-text: "Profile";
+                                    font-size: 12px;
+                                }
+
+                                nozzle-edit := LineEdit {
+                                    x: parent.width - 178px;
+                                    y: 32px;
+                                    width: 54px;
+                                    height: 28px;
+                                    placeholder-text: "0.4";
+                                    font-size: 12px;
+                                }
+
+                                layer-edit := LineEdit {
+                                    x: parent.width - 116px;
+                                    y: 32px;
+                                    width: 54px;
+                                    height: 28px;
+                                    placeholder-text: "0.2";
+                                    font-size: 12px;
+                                }
+
+                                duration-edit := LineEdit {
+                                    x: parent.width - 54px;
+                                    y: 32px;
+                                    width: 54px;
+                                    height: 28px;
+                                    placeholder-text: "2h";
+                                    font-size: 12px;
+                                }
+
+                                print-note-edit := LineEdit {
+                                    x: 0;
+                                    y: 64px;
+                                    width: parent.width;
+                                    height: 28px;
+                                    placeholder-text: "Result notes";
+                                    font-size: 12px;
                                 }
                             }
 
                             SectionHeader { label: "NOTES"; }
-                            Rectangle {
-                                height: 62px;
-                                background: Theme.bg-2;
-                                border-color: Theme.line;
-                                border-width: 1px;
-                                border-radius: Theme.radius-btn;
+                            notes-edit := TextEdit {
+                                height: 72px;
+                                text: detail-notes == "Add notes..." ? "" : detail-notes;
+                                placeholder-text: "Add notes...";
+                                font-size: 12px;
+                                wrap: word-wrap;
+                            }
 
-                                Text {
-                                    x: 10px;
-                                    y: 8px;
-                                    width: parent.width - 20px;
-                                    text: detail-notes;
-                                    color: detail-notes == "Add notes..." ? Theme.fg-3 : Theme.fg-1;
-                                    font-size: 12px;
-                                    wrap: word-wrap;
+                            SectionHeader { label: "AUTHOR"; }
+                            author-edit := LineEdit {
+                                height: 30px;
+                                text: detail-author;
+                                placeholder-text: "Author or source";
+                                font-size: 12px;
+                                accepted(text) => { save-metadata(tags-edit.text, text, notes-edit.text); }
+                            }
+
+                            Rectangle {
+                                height: 30px;
+
+                                Rectangle {
+                                    x: parent.width - 66px;
+                                    y: 2px;
+                                    width: 66px;
+                                    height: 26px;
+                                    background: save-meta.has-hover ? Theme.accent : Theme.bg-4;
+                                    border-color: Theme.line;
+                                    border-width: 1px;
+                                    border-radius: Theme.radius-btn;
+
+                                    Text {
+                                        x: (parent.width - self.width) / 2;
+                                        y: (parent.height - self.height) / 2;
+                                        text: "Save";
+                                        color: Theme.fg-0;
+                                        font-size: 12px;
+                                        font-weight: 600;
+                                    }
+
+                                    save-meta := TouchArea {
+                                        clicked => {
+                                            save-metadata(tags-edit.text, author-edit.text, notes-edit.text);
+                                        }
+                                    }
                                 }
                             }
 
@@ -1742,6 +2252,22 @@ export component ModelRackWindow inherits Window {
 
                             if settings-tab == "slicer": SettingsRow { label: "Default slicer"; value: settings-slicer-label; }
                             if settings-tab == "slicer": SettingsRow { label: "After export"; value: "Open in slicer"; }
+                            if settings-tab == "slicer": Rectangle {
+                                height: 36px;
+                                background: Theme.bg-2;
+                                border-color: Theme.line;
+                                border-width: 1px;
+                                border-radius: Theme.radius-btn;
+
+                                slicer-choose-text := Text {
+                                    x: (parent.width - self.width) / 2;
+                                    y: (parent.height - self.height) / 2;
+                                    text: "Choose Slicer";
+                                    color: Theme.fg-0;
+                                    font-size: 12px;
+                                }
+                                ta-slicer-choose := TouchArea { clicked => { choose-slicer(); } }
+                            }
 
                             if settings-tab == "hotkeys": SettingsRow { label: "⌘F"; value: "Focus search"; }
                             if settings-tab == "hotkeys": SettingsRow { label: "⌘,"; value: "Open settings"; }
@@ -1786,4 +2312,5 @@ export component ModelRackWindow inherits Window {
             }
         }
     }
+
 }

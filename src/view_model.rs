@@ -195,6 +195,8 @@ pub struct BrowserSummary {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BrowserCard {
+    pub stable_key: String,
+    pub slot_index: usize,
     pub title: String,
     pub subtitle: String,
     pub author: String,
@@ -257,13 +259,16 @@ impl AppViewSnapshot {
 }
 
 pub fn browser_cards(entries: &[scanner::StlFileInfo]) -> Vec<BrowserCard> {
-    entries
+    let mut cards = entries
         .iter()
-        .map(|entry| {
+        .enumerate()
+        .map(|(slot_index, entry)| {
             let favorite = entry.meta.as_ref().is_some_and(|meta| meta.favorite);
             let printed_count = entry.meta.as_ref().map_or(0, |meta| meta.printed);
             let printed = printed_count > 0;
             BrowserCard {
+                stable_key: entry.path.display().to_string(),
+                slot_index,
                 title: entry.filename.clone(),
                 subtitle: format!(
                     "{} · {}",
@@ -287,7 +292,9 @@ pub fn browser_cards(entries: &[scanner::StlFileInfo]) -> Vec<BrowserCard> {
                 error: entry.stl_type == scanner::StlType::Unknown,
             }
         })
-        .collect()
+        .collect::<Vec<_>>();
+    cards.sort_by(|a, b| a.stable_key.cmp(&b.stable_key));
+    cards
 }
 
 pub fn sidebar_summary(entries: &[scanner::StlFileInfo]) -> SidebarSummary {
@@ -721,10 +728,7 @@ pub fn filtered_sorted_entries(
     sorted.into_iter().cloned().collect()
 }
 
-fn entry_is_ready_to_print(
-    entries: &[scanner::StlFileInfo],
-    entry: &scanner::StlFileInfo,
-) -> bool {
+fn entry_is_ready_to_print(entries: &[scanner::StlFileInfo], entry: &scanner::StlFileInfo) -> bool {
     let uses_explicit_ready_status = entries.iter().any(has_ready_status);
     if uses_explicit_ready_status {
         return has_ready_status(entry);
@@ -741,7 +745,7 @@ fn has_ready_status(entry: &scanner::StlFileInfo) -> bool {
     })
 }
 
-fn thumbnail_key(filename: &str) -> &'static str {
+pub(crate) fn thumbnail_key(filename: &str) -> &'static str {
     match filename {
         "raspberry_pi_5_poe_rackmount_v2_final.stl" => "rack",
         "pi5_heatsink_clip.stl" => "clip",
@@ -958,6 +962,8 @@ mod tests {
         assert_eq!(
             cards,
             vec![BrowserCard {
+                stable_key: "/tmp/models/bracket.stl".to_string(),
+                slot_index: 0,
                 title: "bracket.stl".to_string(),
                 subtitle: "2.0 MB · 12.4K tris".to_string(),
                 author: "You".to_string(),

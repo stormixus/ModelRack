@@ -32,6 +32,16 @@ pub struct PrintRecord {
     pub date: String,
     #[serde(default)]
     pub material: String,
+    #[serde(default)]
+    pub printer: String,
+    #[serde(default)]
+    pub profile: String,
+    #[serde(default)]
+    pub nozzle: String,
+    #[serde(default)]
+    pub layer_height: String,
+    #[serde(default)]
+    pub duration: String,
     #[serde(default = "default_success")]
     pub success: bool,
     #[serde(default)]

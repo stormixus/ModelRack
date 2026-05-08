@@ -3,7 +3,6 @@
 #[cfg(target_os = "macos")]
 mod imp {
     use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::Mutex;
     use std::sync::OnceLock;
 
     use objc::declare::ClassDecl;
@@ -14,28 +13,6 @@ mod imp {
     static OPEN_LIBRARY_REQUESTED: AtomicBool = AtomicBool::new(false);
     static MENU_INSTALLED: AtomicBool = AtomicBool::new(false);
     static MENU_TARGET: OnceLock<usize> = OnceLock::new();
-    static RESTORE_FRAME: Mutex<Option<NSRect>> = Mutex::new(None);
-
-    #[repr(C)]
-    #[derive(Clone, Copy)]
-    struct NSPoint {
-        x: f64,
-        y: f64,
-    }
-
-    #[repr(C)]
-    #[derive(Clone, Copy)]
-    struct NSSize {
-        width: f64,
-        height: f64,
-    }
-
-    #[repr(C)]
-    #[derive(Clone, Copy)]
-    struct NSRect {
-        origin: NSPoint,
-        size: NSSize,
-    }
 
     pub fn install_app_menu() {
         if MENU_INSTALLED.swap(true, Ordering::AcqRel) {
@@ -256,10 +233,17 @@ mod imp {
         }
     }
 
-    pub fn zoom_window() {
+    pub fn fullscreen_window() {
         unsafe {
             if let Some(window) = front_window() {
-                toggle_window_zoom(window);
+                let full_screen_primary = 1usize << 7;
+                let collection_behavior: usize = msg_send![window, collectionBehavior];
+                let _: () = msg_send![
+                    window,
+                    setCollectionBehavior: collection_behavior | full_screen_primary
+                ];
+                let _: () = msg_send![window, makeKeyAndOrderFront: std::ptr::null_mut::<Object>()];
+                let _: () = msg_send![window, toggleFullScreen: std::ptr::null_mut::<Object>()];
             }
         }
     }
@@ -294,12 +278,38 @@ mod imp {
                 // Let Slint draw into the native titlebar area so we don't get
                 // a separate macOS titlebar stacked above the custom one.
                 let style_mask: usize = msg_send![window, styleMask];
-                let full_size_content_view = 1usize << 15;
+                let titled = 1usize << 0;
+                let closable = 1usize << 1;
+                let miniaturizable = 1usize << 2;
                 let resizable = 1usize << 3;
-                let _: () = msg_send![window, setStyleMask: style_mask | full_size_content_view | resizable];
+                let full_size_content_view = 1usize << 15;
+                let full_screen_primary = 1usize << 7;
+                let _: () = msg_send![
+                    window,
+                    setStyleMask: style_mask
+                        | titled
+                        | closable
+                        | miniaturizable
+                        | resizable
+                        | full_size_content_view
+                ];
+                let collection_behavior: usize = msg_send![window, collectionBehavior];
+                let _: () = msg_send![
+                    window,
+                    setCollectionBehavior: collection_behavior | full_screen_primary
+                ];
+
+                for button in 0usize..=2 {
+                    let standard_button: *mut Object =
+                        msg_send![window, standardWindowButton: button];
+                    if !standard_button.is_null() {
+                        let _: () = msg_send![standard_button, setHidden: true];
+                    }
+                }
 
                 // bg-1 = #26282e exactly
-                let _: () = msg_send![window, setBackgroundColor: ns_color(0.149, 0.157, 0.180, 1.0)];
+                let _: () =
+                    msg_send![window, setBackgroundColor: ns_color(0.149, 0.157, 0.180, 1.0)];
             }
         }
     }
@@ -342,43 +352,6 @@ mod imp {
             let _: () = msg_send![window, orderFrontRegardless];
         }
         let _: () = msg_send![app, activateIgnoringOtherApps: true];
-    }
-
-    unsafe fn toggle_window_zoom(window: *mut Object) {
-        let frame: NSRect = msg_send![window, frame];
-        let screen: *mut Object = msg_send![window, screen];
-        let screen = if screen.is_null() {
-            msg_send![class!(NSScreen), mainScreen]
-        } else {
-            screen
-        };
-        if screen.is_null() {
-            let _: () = msg_send![window, performZoom: std::ptr::null_mut::<Object>()];
-            return;
-        }
-
-        let visible_frame: NSRect = msg_send![screen, visibleFrame];
-        if frame_matches(frame, visible_frame) {
-            if let Some(restore_frame) = RESTORE_FRAME.lock().ok().and_then(|mut frame| frame.take()) {
-                let _: () = msg_send![window, setFrame: restore_frame display: true animate: false];
-                let _: () = msg_send![window, displayIfNeeded];
-            }
-            return;
-        }
-
-        if let Ok(mut restore_frame) = RESTORE_FRAME.lock() {
-            *restore_frame = Some(frame);
-        }
-        let _: () = msg_send![window, setFrame: visible_frame display: true animate: false];
-        let _: () = msg_send![window, displayIfNeeded];
-    }
-
-    fn frame_matches(a: NSRect, b: NSRect) -> bool {
-        const TOLERANCE: f64 = 2.0;
-        (a.origin.x - b.origin.x).abs() < TOLERANCE
-            && (a.origin.y - b.origin.y).abs() < TOLERANCE
-            && (a.size.width - b.size.width).abs() < TOLERANCE
-            && (a.size.height - b.size.height).abs() < TOLERANCE
     }
 
     unsafe fn add_item(
@@ -501,9 +474,9 @@ mod imp {
 
 #[cfg(target_os = "macos")]
 pub use imp::{
-    configure_transparent_titlebar, configure_window_appearance, hide_application, hide_window,
-    install_app_menu, minimize_window, take_open_library_request, take_settings_request,
-    show_windows, zoom_window,
+    configure_transparent_titlebar, configure_window_appearance, fullscreen_window,
+    hide_application, hide_window, install_app_menu, minimize_window, show_windows,
+    take_open_library_request, take_settings_request,
 };
 
 #[cfg(not(target_os = "macos"))]
@@ -535,7 +508,7 @@ pub fn hide_window() {}
 pub fn minimize_window() {}
 
 #[cfg(not(target_os = "macos"))]
-pub fn show_windows() {}
+pub fn fullscreen_window() {}
 
 #[cfg(not(target_os = "macos"))]
-pub fn zoom_window() {}
+pub fn show_windows() {}

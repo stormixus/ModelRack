@@ -1,5 +1,8 @@
 use std::cell::RefCell;
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::rc::Rc;
 
 use crate::scanner;
@@ -9,17 +12,20 @@ use crate::view_model::{
     DisplayQuery, LibraryFilter, ScanStatus, SortBy, ViewMode,
 };
 
-use slint::winit_030::winit::dpi::{PhysicalPosition, PhysicalSize};
+use slint::winit_030::winit::dpi::PhysicalSize;
 use slint::winit_030::WinitWindowAccessor;
+use slint::Model;
 
 slint::include_modules!();
+
+const DEMO_ROOT: &str = "/Users/hwankishin/Library/3d";
 
 pub fn run() -> Result<(), slint::PlatformError> {
     crate::macos::install_app_menu();
 
     let ui = ModelRackWindow::new()?;
     crate::fonts::install_slint_fonts();
-    let state = Rc::new(RefCell::new(ShellState::default()));
+    let state = Rc::new(RefCell::new(ShellState::load()));
     let snapshot = state.borrow_mut().snapshot_idle();
 
     apply_snapshot(&ui, &snapshot);
@@ -40,6 +46,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 };
                 apply_snapshot(&ui, &snapshot);
                 apply_settings(&ui, &open_state.borrow());
+                save_prefs_status(&ui, &open_state.borrow());
             }
         }
     });
@@ -62,6 +69,21 @@ pub fn run() -> Result<(), slint::PlatformError> {
 
     let weak = ui.as_weak();
     let view_state = state.clone();
+    ui.on_choose_view_mode(move |mode| {
+        if let Some(ui) = weak.upgrade() {
+            let snapshot = {
+                let mut state = view_state.borrow_mut();
+                state.choose_view_mode(mode.as_str());
+                state.snapshot_done()
+            };
+            apply_snapshot(&ui, &snapshot);
+            apply_settings(&ui, &view_state.borrow());
+            save_prefs_status(&ui, &view_state.borrow());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let view_state = state.clone();
     ui.on_cycle_view_mode(move || {
         if let Some(ui) = weak.upgrade() {
             let snapshot = {
@@ -71,6 +93,22 @@ pub fn run() -> Result<(), slint::PlatformError> {
             };
             apply_snapshot(&ui, &snapshot);
             apply_settings(&ui, &view_state.borrow());
+            save_prefs_status(&ui, &view_state.borrow());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let density_state = state.clone();
+    ui.on_choose_density(move |density| {
+        if let Some(ui) = weak.upgrade() {
+            let snapshot = {
+                let mut state = density_state.borrow_mut();
+                state.choose_density(density.as_str());
+                state.snapshot_done()
+            };
+            apply_snapshot(&ui, &snapshot);
+            apply_settings(&ui, &density_state.borrow());
+            save_prefs_status(&ui, &density_state.borrow());
         }
     });
 
@@ -85,6 +123,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
             };
             apply_snapshot(&ui, &snapshot);
             apply_settings(&ui, &density_state.borrow());
+            save_prefs_status(&ui, &density_state.borrow());
         }
     });
 
@@ -167,6 +206,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 state.cycle_language();
             }
             apply_settings(&ui, &settings_state.borrow());
+            save_prefs_status(&ui, &settings_state.borrow());
         }
     });
 
@@ -179,6 +219,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 state.toggle_theme();
             }
             apply_settings(&ui, &settings_state.borrow());
+            save_prefs_status(&ui, &settings_state.borrow());
         }
     });
 
@@ -193,6 +234,30 @@ pub fn run() -> Result<(), slint::PlatformError> {
             };
             apply_snapshot(&ui, &snapshot);
             apply_settings(&ui, &settings_state.borrow());
+            save_prefs_status(&ui, &settings_state.borrow());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let settings_state = state.clone();
+    ui.on_choose_slicer(move || {
+        if let Some(ui) = weak.upgrade() {
+            let selected = rfd::FileDialog::new()
+                .set_title("Choose slicer")
+                .pick_file()
+                .or_else(|| {
+                    rfd::FileDialog::new()
+                        .set_title("Choose slicer app bundle")
+                        .pick_folder()
+                });
+            if let Some(path) = selected {
+                {
+                    let mut state = settings_state.borrow_mut();
+                    state.prefs.slicer_path = path.display().to_string();
+                }
+                apply_settings(&ui, &settings_state.borrow());
+                save_prefs_status(&ui, &settings_state.borrow());
+            }
         }
     });
 
@@ -212,11 +277,19 @@ pub fn run() -> Result<(), slint::PlatformError> {
         if let Some(ui) = weak.upgrade() {
             let mut state = fav_state.borrow_mut();
             if let Some(idx) = state.selected_index {
-                if let Some(entry) = state.displayed.get(idx) {
-                    let path = entry.path.clone();
-                    if let Some(real) = state.entries.iter_mut().find(|e| e.path == path) {
-                        let meta = real.meta.get_or_insert_with(Default::default);
-                        meta.favorite = !meta.favorite;
+                let selected_path = state.displayed.get(idx).map(|entry| entry.path.clone());
+                if let Some(path) = selected_path {
+                    let allow_sidecar_writes = state.sidecar_writes_enabled;
+                    match persist_favorite_toggle(&mut state.entries, &path, allow_sidecar_writes) {
+                        Ok(Some(_)) if allow_sidecar_writes => {
+                            ui.set_status_text("Favorite saved".into())
+                        }
+                        Ok(Some(_)) => ui.set_status_text("Favorite updated for demo model".into()),
+                        Ok(None) => {}
+                        Err(err) => {
+                            ui.set_status_text(format!("Could not save favorite: {}", err).into());
+                            return;
+                        }
                     }
                 }
                 let snapshot = state.snapshot_done();
@@ -226,8 +299,246 @@ pub fn run() -> Result<(), slint::PlatformError> {
         }
     });
 
+    let weak = ui.as_weak();
+    let metadata_state = state.clone();
+    ui.on_save_metadata(move |tags, author, notes| {
+        if let Some(ui) = weak.upgrade() {
+            let mut state = metadata_state.borrow_mut();
+            let Some(path) = state.selected_model_path() else {
+                ui.set_status_text("Select a model before saving metadata".into());
+                return;
+            };
+
+            let allow_sidecar_writes = state.sidecar_writes_enabled;
+            match persist_metadata_fields(
+                &mut state.entries,
+                &path,
+                allow_sidecar_writes,
+                tags.as_str(),
+                author.as_str(),
+                notes.as_str(),
+            ) {
+                Ok(Some(_)) if allow_sidecar_writes => ui.set_status_text("Metadata saved".into()),
+                Ok(Some(_)) => ui.set_status_text("Metadata updated for demo model".into()),
+                Ok(None) => ui.set_status_text("Selected model is no longer available".into()),
+                Err(err) => {
+                    ui.set_status_text(format!("Could not save metadata: {}", err).into());
+                    return;
+                }
+            }
+
+            let snapshot = state.snapshot_done();
+            state.reselect_path(&path);
+            apply_snapshot(&ui, &snapshot);
+            apply_detail(&ui, &state);
+            apply_settings(&ui, &state);
+        }
+    });
+
+    let weak = ui.as_weak();
+    let tag_state = state.clone();
+    ui.on_add_tags(move |tags| {
+        if let Some(ui) = weak.upgrade() {
+            let mut state = tag_state.borrow_mut();
+            let Some(path) = state.selected_model_path() else {
+                ui.set_status_text("Select a model before adding tags".into());
+                return;
+            };
+
+            let allow_sidecar_writes = state.sidecar_writes_enabled;
+            match persist_add_tags(
+                &mut state.entries,
+                &path,
+                allow_sidecar_writes,
+                tags.as_str(),
+            ) {
+                Ok(Some(count)) if allow_sidecar_writes => {
+                    ui.set_status_text(format!("Tags saved: {}", count).into())
+                }
+                Ok(Some(count)) => {
+                    ui.set_status_text(format!("Demo tags updated: {}", count).into())
+                }
+                Ok(None) => ui.set_status_text("Selected model is no longer available".into()),
+                Err(err) => {
+                    ui.set_status_text(format!("Could not add tags: {}", err).into());
+                    return;
+                }
+            }
+
+            let snapshot = state.snapshot_done();
+            state.reselect_path(&path);
+            apply_snapshot(&ui, &snapshot);
+            apply_detail(&ui, &state);
+            apply_settings(&ui, &state);
+        }
+    });
+
+    let weak = ui.as_weak();
+    let tag_state = state.clone();
+    ui.on_remove_tag(move |index| {
+        if let Some(ui) = weak.upgrade() {
+            let mut state = tag_state.borrow_mut();
+            let Some(path) = state.selected_model_path() else {
+                ui.set_status_text("Select a model before removing tags".into());
+                return;
+            };
+
+            let allow_sidecar_writes = state.sidecar_writes_enabled;
+            match persist_remove_tag(&mut state.entries, &path, allow_sidecar_writes, index) {
+                Ok(Some(count)) if allow_sidecar_writes => {
+                    ui.set_status_text(format!("Tag removed: {}", count).into())
+                }
+                Ok(Some(count)) => {
+                    ui.set_status_text(format!("Demo tag removed: {}", count).into())
+                }
+                Ok(None) => ui.set_status_text("Tag is no longer available".into()),
+                Err(err) => {
+                    ui.set_status_text(format!("Could not remove tag: {}", err).into());
+                    return;
+                }
+            }
+
+            let snapshot = state.snapshot_done();
+            state.reselect_path(&path);
+            apply_snapshot(&ui, &snapshot);
+            apply_detail(&ui, &state);
+            apply_settings(&ui, &state);
+        }
+    });
+
+    let weak = ui.as_weak();
+    let print_state = state.clone();
+    ui.on_adjust_printed_count(move |delta| {
+        if let Some(ui) = weak.upgrade() {
+            let mut state = print_state.borrow_mut();
+            let Some(path) = state.selected_model_path() else {
+                ui.set_status_text("Select a model before updating print count".into());
+                return;
+            };
+
+            let allow_sidecar_writes = state.sidecar_writes_enabled;
+            match persist_print_count_delta(&mut state.entries, &path, allow_sidecar_writes, delta)
+            {
+                Ok(Some(count)) if allow_sidecar_writes => {
+                    ui.set_status_text(format!("Print count saved: {}", count).into())
+                }
+                Ok(Some(count)) => {
+                    ui.set_status_text(format!("Demo print count updated: {}", count).into())
+                }
+                Ok(None) => ui.set_status_text("Selected model is no longer available".into()),
+                Err(err) => {
+                    ui.set_status_text(format!("Could not update print count: {}", err).into());
+                    return;
+                }
+            }
+
+            let snapshot = state.snapshot_done();
+            state.reselect_path(&path);
+            apply_snapshot(&ui, &snapshot);
+            apply_detail(&ui, &state);
+            apply_settings(&ui, &state);
+        }
+    });
+
+    let weak = ui.as_weak();
+    let print_history_state = state.clone();
+    ui.on_add_print_record(
+        move |material, printer, profile, nozzle, layer_height, duration, notes| {
+            if let Some(ui) = weak.upgrade() {
+                let mut state = print_history_state.borrow_mut();
+                let Some(path) = state.selected_model_path() else {
+                    ui.set_status_text("Select a model before adding print history".into());
+                    return;
+                };
+
+                let allow_sidecar_writes = state.sidecar_writes_enabled;
+                match persist_add_print_record(
+                    &mut state.entries,
+                    &path,
+                    allow_sidecar_writes,
+                    material.as_str(),
+                    printer.as_str(),
+                    profile.as_str(),
+                    nozzle.as_str(),
+                    layer_height.as_str(),
+                    duration.as_str(),
+                    notes.as_str(),
+                    &today_date_utc(),
+                ) {
+                    Ok(Some(count)) if allow_sidecar_writes => {
+                        ui.set_status_text(format!("Print record saved: {}", count).into())
+                    }
+                    Ok(Some(count)) => {
+                        ui.set_status_text(format!("Demo print record added: {}", count).into())
+                    }
+                    Ok(None) => ui.set_status_text("Selected model is no longer available".into()),
+                    Err(err) => {
+                        ui.set_status_text(format!("Could not add print record: {}", err).into());
+                        return;
+                    }
+                }
+
+                let snapshot = state.snapshot_done();
+                state.reselect_path(&path);
+                apply_snapshot(&ui, &snapshot);
+                apply_detail(&ui, &state);
+                apply_settings(&ui, &state);
+            }
+        },
+    );
+
+    let weak = ui.as_weak();
+    let print_history_state = state.clone();
+    ui.on_remove_print_record(move |index| {
+        if let Some(ui) = weak.upgrade() {
+            let mut state = print_history_state.borrow_mut();
+            let Some(path) = state.selected_model_path() else {
+                ui.set_status_text("Select a model before removing print history".into());
+                return;
+            };
+
+            let allow_sidecar_writes = state.sidecar_writes_enabled;
+            match persist_remove_print_record(
+                &mut state.entries,
+                &path,
+                allow_sidecar_writes,
+                index,
+            ) {
+                Ok(Some(count)) if allow_sidecar_writes => {
+                    ui.set_status_text(format!("Print record removed: {}", count).into())
+                }
+                Ok(Some(count)) => {
+                    ui.set_status_text(format!("Demo print record removed: {}", count).into())
+                }
+                Ok(None) => ui.set_status_text("Print record is no longer available".into()),
+                Err(err) => {
+                    ui.set_status_text(format!("Could not remove print record: {}", err).into());
+                    return;
+                }
+            }
+
+            let snapshot = state.snapshot_done();
+            state.reselect_path(&path);
+            apply_snapshot(&ui, &snapshot);
+            apply_detail(&ui, &state);
+            apply_settings(&ui, &state);
+        }
+    });
+
+    let weak = ui.as_weak();
+    let slicer_state = state.clone();
     ui.on_open_in_slicer(move || {
-        // placeholder — will launch slicer in future
+        if let Some(ui) = weak.upgrade() {
+            let state = slicer_state.borrow();
+            let Some(path) = state.selected_model_path() else {
+                ui.set_status_text("Select a model before opening a slicer".into());
+                return;
+            };
+            match launch_model(&path, &state.prefs.slicer_path) {
+                Ok(()) => ui.set_status_text(format!("Opening {}", path.display()).into()),
+                Err(err) => ui.set_status_text(format!("Could not open slicer: {}", err).into()),
+            }
+        }
     });
 
     ui.on_window_close(move || {
@@ -238,38 +549,8 @@ pub fn run() -> Result<(), slint::PlatformError> {
         crate::macos::minimize_window();
     });
 
-    let weak = ui.as_weak();
-    let zoom_restore = Rc::new(RefCell::new(None::<(PhysicalPosition<i32>, PhysicalSize<u32>)>));
-    ui.on_window_zoom(move || {
-        let mut handled = false;
-        if let Some(ui) = weak.upgrade() {
-            let restore = zoom_restore.clone();
-            handled = ui
-                .window()
-                .with_winit_window(|window| {
-                    if let Some((position, size)) = restore.borrow_mut().take() {
-                        window.set_outer_position(position);
-                        let _ = window.request_inner_size(size);
-                        window.request_redraw();
-                        return;
-                    }
-
-                    if let Some(monitor) = window.current_monitor() {
-                        let position = window.outer_position().unwrap_or(PhysicalPosition::new(0, 0));
-                        let size = window.outer_size();
-                        *restore.borrow_mut() = Some((position, size));
-                        window.set_outer_position(monitor.position());
-                        let _ = window.request_inner_size(monitor.size());
-                        window.request_redraw();
-                    } else {
-                        crate::macos::zoom_window();
-                    }
-                })
-                .is_some();
-        }
-        if !handled {
-            crate::macos::zoom_window();
-        }
+    ui.on_window_fullscreen(move || {
+        crate::macos::fullscreen_window();
     });
 
     let weak = ui.as_weak();
@@ -281,7 +562,16 @@ pub fn run() -> Result<(), slint::PlatformError> {
 
     ui.show()?;
 
-    // Delay NSWindow config so Slint has finished setting up the window
+    let _ = ui.window().with_winit_window(|window| {
+        window.set_resizable(true);
+        window.set_min_inner_size(Some(PhysicalSize::new(960, 640)));
+        window.set_max_inner_size(None::<PhysicalSize<u32>>);
+    });
+
+    crate::macos::configure_transparent_titlebar();
+
+    // Re-apply after the first macOS layout pass so restored/reopened windows
+    // keep the native rounded frame while the custom titlebar stays in place.
     slint::Timer::single_shot(std::time::Duration::from_millis(50), move || {
         crate::macos::configure_transparent_titlebar();
         crate::macos::show_windows();
@@ -296,6 +586,7 @@ fn apply_detail(ui: &ModelRackWindow, state: &ShellState) {
     if let Some(idx) = state.selected_index {
         if let Some(entry) = state.displayed.get(idx) {
             ui.set_has_selection(true);
+            ui.set_selected_thumb_key(crate::view_model::thumbnail_key(&entry.filename).into());
             ui.set_detail_name(entry.filename.clone().into());
             ui.set_detail_path(
                 entry
@@ -403,6 +694,20 @@ fn apply_detail(ui: &ModelRackWindow, state: &ShellState) {
                     .unwrap_or_else(|| "No tags".to_string())
                     .into(),
             );
+            ui.set_detail_tags_input(
+                entry
+                    .meta
+                    .as_ref()
+                    .map(|m| m.tags.join(", "))
+                    .unwrap_or_default()
+                    .into(),
+            );
+            let tag_chips = entry
+                .meta
+                .as_ref()
+                .map(|meta| meta.tags.iter().map(tag_chip).collect::<Vec<TagChip>>())
+                .unwrap_or_default();
+            ui.set_detail_tag_chips(slint::ModelRc::new(slint::VecModel::from(tag_chips)));
             ui.set_detail_notes(
                 entry
                     .meta
@@ -412,13 +717,19 @@ fn apply_detail(ui: &ModelRackWindow, state: &ShellState) {
                     .into(),
             );
             ui.set_detail_printed_count(entry.meta.as_ref().map_or(0, |m| m.printed as i32));
-            ui.set_detail_fav(
-                entry
-                    .meta
-                    .as_ref()
-                    .map(|m| m.favorite)
-                    .unwrap_or(false),
-            );
+            let print_history = entry
+                .meta
+                .as_ref()
+                .map(|meta| {
+                    meta.print_history
+                        .iter()
+                        .rev()
+                        .map(print_history_row)
+                        .collect::<Vec<PrintHistoryRow>>()
+                })
+                .unwrap_or_default();
+            ui.set_detail_print_history(slint::ModelRc::new(slint::VecModel::from(print_history)));
+            ui.set_detail_fav(entry.meta.as_ref().map(|m| m.favorite).unwrap_or(false));
 
             // Mesh health (deterministic from triangle count)
             let manifold = entry.stl_type != scanner::StlType::Unknown;
@@ -460,10 +771,28 @@ fn apply_detail(ui: &ModelRackWindow, state: &ShellState) {
             }
         } else {
             ui.set_has_selection(false);
+            ui.set_selected_thumb_key("rack".into());
+            clear_detail_tag_chips(ui);
+            clear_detail_print_history(ui);
         }
     } else {
         ui.set_has_selection(false);
+        ui.set_selected_thumb_key("rack".into());
+        clear_detail_tag_chips(ui);
+        clear_detail_print_history(ui);
     }
+}
+
+fn clear_detail_tag_chips(ui: &ModelRackWindow) {
+    ui.set_detail_tag_chips(slint::ModelRc::new(slint::VecModel::from(
+        Vec::<TagChip>::new(),
+    )));
+}
+
+fn clear_detail_print_history(ui: &ModelRackWindow) {
+    ui.set_detail_print_history(slint::ModelRc::new(slint::VecModel::from(Vec::<
+        PrintHistoryRow,
+    >::new())));
 }
 
 fn format_size(bytes: u64) -> String {
@@ -474,6 +803,414 @@ fn format_size(bytes: u64) -> String {
     } else {
         format!("{} B", bytes)
     }
+}
+
+fn today_date_utc() -> String {
+    let days = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| (duration.as_secs() / 86_400) as i64)
+        .unwrap_or(0);
+    let (year, month, day) = civil_from_days(days);
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
+fn civil_from_days(days_since_epoch: i64) -> (i32, u32, u32) {
+    let z = days_since_epoch + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = mp + if mp < 10 { 3 } else { -9 };
+    let year = y + if month <= 2 { 1 } else { 0 };
+    (year as i32, month as u32, day as u32)
+}
+
+fn app_prefs_path() -> PathBuf {
+    if let Some(path) = std::env::var_os("MODELRACK_PREFS_PATH") {
+        return PathBuf::from(path);
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."));
+        return home
+            .join("Library")
+            .join("Application Support")
+            .join("ModelRack")
+            .join("prefs.json");
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let root = std::env::var_os("APPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."));
+        return root.join("ModelRack").join("prefs.json");
+    }
+
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        let root = std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
+            .unwrap_or_else(|| PathBuf::from("."));
+        root.join("modelrack").join("prefs.json")
+    }
+}
+
+fn load_app_prefs_from_path(path: &Path) -> io::Result<AppPrefs> {
+    match fs::read_to_string(path) {
+        Ok(data) => serde_json::from_str::<AppPrefs>(&data)
+            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err)),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(AppPrefs::default()),
+        Err(err) => Err(err),
+    }
+}
+
+fn save_app_prefs(prefs: &AppPrefs) -> io::Result<()> {
+    save_app_prefs_to_path(&app_prefs_path(), prefs)
+}
+
+fn save_app_prefs_to_path(path: &Path, prefs: &AppPrefs) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let json = serde_json::to_string_pretty(prefs)
+        .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
+    let tmp_path = path.with_extension("tmp");
+    fs::write(&tmp_path, json)?;
+    fs::rename(tmp_path, path)?;
+    Ok(())
+}
+
+fn save_prefs_status(ui: &ModelRackWindow, state: &ShellState) {
+    if let Err(err) = save_app_prefs(&state.prefs) {
+        ui.set_status_text(format!("Could not save settings: {}", err).into());
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct LaunchCommand {
+    program: String,
+    args: Vec<String>,
+    wait_for_exit: bool,
+}
+
+fn launcher_command(model_path: &Path, slicer_path: &str) -> LaunchCommand {
+    let model = model_path.display().to_string();
+    let slicer = slicer_path.trim();
+
+    if slicer.is_empty() {
+        return default_open_command(model);
+    }
+
+    #[cfg(target_os = "macos")]
+    if Path::new(slicer)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("app"))
+    {
+        return LaunchCommand {
+            program: "open".to_string(),
+            args: vec!["-a".to_string(), slicer.to_string(), model],
+            wait_for_exit: true,
+        };
+    }
+
+    LaunchCommand {
+        program: slicer.to_string(),
+        args: vec![model],
+        wait_for_exit: false,
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn default_open_command(model: String) -> LaunchCommand {
+    LaunchCommand {
+        program: "open".to_string(),
+        args: vec![model],
+        wait_for_exit: true,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn default_open_command(model: String) -> LaunchCommand {
+    LaunchCommand {
+        program: "cmd".to_string(),
+        args: vec!["/C".to_string(), "start".to_string(), "".to_string(), model],
+        wait_for_exit: true,
+    }
+}
+
+#[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+fn default_open_command(model: String) -> LaunchCommand {
+    LaunchCommand {
+        program: "xdg-open".to_string(),
+        args: vec![model],
+        wait_for_exit: true,
+    }
+}
+
+fn launch_model(model_path: &Path, slicer_path: &str) -> io::Result<()> {
+    validate_launch_request(model_path, slicer_path)?;
+    let command = launcher_command(model_path, slicer_path);
+    run_launch_command(command)?;
+    Ok(())
+}
+
+fn validate_launch_request(model_path: &Path, slicer_path: &str) -> io::Result<()> {
+    if !model_path.exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("model does not exist: {}", model_path.display()),
+        ));
+    }
+
+    let slicer = slicer_path.trim();
+    if !slicer.is_empty() {
+        let slicer = Path::new(slicer);
+        if !slicer.exists() {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("slicer does not exist: {}", slicer.display()),
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+fn run_launch_command(command: LaunchCommand) -> io::Result<()> {
+    let mut child = Command::new(&command.program).args(&command.args).spawn()?;
+
+    if command.wait_for_exit {
+        let status = child.wait()?;
+        if !status.success() {
+            return Err(io::Error::other(format!(
+                "{} exited with status {}",
+                command.program, status
+            )));
+        }
+    } else {
+        for _ in 0..10 {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            if let Some(status) = child.try_wait()? {
+                if !status.success() {
+                    return Err(io::Error::other(format!(
+                        "{} exited with status {}",
+                        command.program, status
+                    )));
+                }
+                return Ok(());
+            }
+        }
+
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+    }
+
+    Ok(())
+}
+
+fn persist_favorite_toggle(
+    entries: &mut [scanner::StlFileInfo],
+    path: &Path,
+    allow_sidecar_writes: bool,
+) -> anyhow::Result<Option<bool>> {
+    let Some(entry) = entries.iter_mut().find(|entry| entry.path == path) else {
+        return Ok(None);
+    };
+
+    let mut meta = entry.meta.clone().unwrap_or_default();
+    meta.favorite = !meta.favorite;
+    if allow_sidecar_writes {
+        if !path.exists() {
+            anyhow::bail!("model does not exist: {}", path.display());
+        }
+        scanner::write_sidecar(path, &meta)?;
+    }
+    entry.meta = Some(meta.clone());
+    Ok(Some(meta.favorite))
+}
+
+fn parse_tag_input(input: &str) -> Vec<String> {
+    let mut tags = Vec::new();
+    for tag in input
+        .split(',')
+        .map(str::trim)
+        .filter(|tag| !tag.is_empty())
+    {
+        if !tags.iter().any(|existing| existing == tag) {
+            tags.push(tag.to_string());
+        }
+    }
+    tags
+}
+
+fn persist_metadata_fields(
+    entries: &mut [scanner::StlFileInfo],
+    path: &Path,
+    allow_sidecar_writes: bool,
+    tags: &str,
+    author: &str,
+    notes: &str,
+) -> anyhow::Result<Option<scanner::SidecarMeta>> {
+    update_model_meta(entries, path, allow_sidecar_writes, |meta| {
+        meta.tags = parse_tag_input(tags);
+        meta.author = author.trim().to_string();
+        meta.notes = notes.to_string();
+    })
+}
+
+fn persist_add_tags(
+    entries: &mut [scanner::StlFileInfo],
+    path: &Path,
+    allow_sidecar_writes: bool,
+    input: &str,
+) -> anyhow::Result<Option<usize>> {
+    let additions = parse_tag_input(input);
+    if additions.is_empty() {
+        return Ok(entries
+            .iter()
+            .find(|entry| entry.path == path)
+            .map(|entry| entry.meta.as_ref().map_or(0, |meta| meta.tags.len())));
+    }
+
+    let updated = update_model_meta(entries, path, allow_sidecar_writes, |meta| {
+        for tag in additions {
+            if !meta.tags.iter().any(|existing| existing == &tag) {
+                meta.tags.push(tag);
+            }
+        }
+    })?;
+    Ok(updated.map(|meta| meta.tags.len()))
+}
+
+fn persist_remove_tag(
+    entries: &mut [scanner::StlFileInfo],
+    path: &Path,
+    allow_sidecar_writes: bool,
+    tag_index: i32,
+) -> anyhow::Result<Option<usize>> {
+    let Some(entry) = entries.iter().find(|entry| entry.path == path) else {
+        return Ok(None);
+    };
+    let Some(tag_index) = usize::try_from(tag_index).ok().filter(|index| {
+        entry
+            .meta
+            .as_ref()
+            .is_some_and(|meta| *index < meta.tags.len())
+    }) else {
+        return Ok(None);
+    };
+
+    let updated = update_model_meta(entries, path, allow_sidecar_writes, |meta| {
+        meta.tags.remove(tag_index);
+    })?;
+    Ok(updated.map(|meta| meta.tags.len()))
+}
+
+fn persist_print_count_delta(
+    entries: &mut [scanner::StlFileInfo],
+    path: &Path,
+    allow_sidecar_writes: bool,
+    delta: i32,
+) -> anyhow::Result<Option<u32>> {
+    let updated = update_model_meta(entries, path, allow_sidecar_writes, |meta| {
+        let next = meta.printed as i64 + delta as i64;
+        meta.printed = next.max(0).min(u32::MAX as i64) as u32;
+    })?;
+    Ok(updated.map(|meta| meta.printed))
+}
+
+fn persist_add_print_record(
+    entries: &mut [scanner::StlFileInfo],
+    path: &Path,
+    allow_sidecar_writes: bool,
+    material: &str,
+    printer: &str,
+    profile: &str,
+    nozzle: &str,
+    layer_height: &str,
+    duration: &str,
+    notes: &str,
+    date: &str,
+) -> anyhow::Result<Option<u32>> {
+    let updated = update_model_meta(entries, path, allow_sidecar_writes, |meta| {
+        meta.print_history.push(scanner::PrintRecord {
+            date: date.to_string(),
+            material: material.trim().to_string(),
+            printer: printer.trim().to_string(),
+            profile: profile.trim().to_string(),
+            nozzle: nozzle.trim().to_string(),
+            layer_height: layer_height.trim().to_string(),
+            duration: duration.trim().to_string(),
+            success: true,
+            notes: notes.trim().to_string(),
+        });
+        meta.printed = meta.printed.saturating_add(1);
+    })?;
+    Ok(updated.map(|meta| meta.printed))
+}
+
+fn persist_remove_print_record(
+    entries: &mut [scanner::StlFileInfo],
+    path: &Path,
+    allow_sidecar_writes: bool,
+    display_index: i32,
+) -> anyhow::Result<Option<u32>> {
+    let Some(entry) = entries.iter().find(|entry| entry.path == path) else {
+        return Ok(None);
+    };
+    let Some(history_index) =
+        history_storage_index(entry.meta.as_ref(), display_index).filter(|_| display_index >= 0)
+    else {
+        return Ok(None);
+    };
+
+    let updated = update_model_meta(entries, path, allow_sidecar_writes, |meta| {
+        meta.print_history.remove(history_index);
+        meta.printed = meta.printed.saturating_sub(1);
+    })?;
+    Ok(updated.map(|meta| meta.printed))
+}
+
+fn history_storage_index(meta: Option<&scanner::SidecarMeta>, display_index: i32) -> Option<usize> {
+    let len = meta?.print_history.len();
+    let display_index = usize::try_from(display_index).ok()?;
+    if display_index >= len {
+        None
+    } else {
+        Some(len - 1 - display_index)
+    }
+}
+
+fn update_model_meta(
+    entries: &mut [scanner::StlFileInfo],
+    path: &Path,
+    allow_sidecar_writes: bool,
+    update: impl FnOnce(&mut scanner::SidecarMeta),
+) -> anyhow::Result<Option<scanner::SidecarMeta>> {
+    let Some(entry) = entries.iter_mut().find(|entry| entry.path == path) else {
+        return Ok(None);
+    };
+
+    let mut meta = entry.meta.clone().unwrap_or_default();
+    update(&mut meta);
+    if allow_sidecar_writes {
+        if !path.exists() {
+            anyhow::bail!("model does not exist: {}", path.display());
+        }
+        scanner::write_sidecar(path, &meta)?;
+    }
+    entry.meta = Some(meta.clone());
+    Ok(Some(meta))
 }
 
 #[derive(Clone)]
@@ -490,16 +1227,41 @@ struct ShellState {
     settings_open: bool,
     settings_tab: String,
     selected_index: Option<usize>,
+    sidecar_writes_enabled: bool,
 }
 
 impl Default for ShellState {
     fn default() -> Self {
+        Self::with_prefs(AppPrefs::default())
+    }
+}
+
+impl ShellState {
+    fn load() -> Self {
+        Self::load_from_path(&app_prefs_path())
+    }
+
+    fn load_from_path(path: &Path) -> Self {
+        let prefs = load_app_prefs_from_path(path).unwrap_or_default();
+        Self::from_loaded_prefs(prefs)
+    }
+
+    fn from_loaded_prefs(prefs: AppPrefs) -> Self {
+        let last_folder = prefs.last_folder.clone();
+        let mut state = Self::with_prefs(prefs);
+        if let Some(folder) = last_folder.filter(|folder| folder.is_dir()) {
+            state.scan_folder(&folder);
+        }
+        state
+    }
+
+    fn with_prefs(prefs: AppPrefs) -> Self {
         let entries = demo_entries();
         Self {
             entries,
             displayed: Vec::new(),
-            current_folder: Some(PathBuf::from("/Users/hwankishin/Library/3d")),
-            prefs: AppPrefs::default(),
+            current_folder: Some(PathBuf::from(DEMO_ROOT)),
+            prefs,
             search_query: String::new(),
             filter: LibraryFilter::All,
             sort_by: SortBy::Name,
@@ -508,6 +1270,7 @@ impl Default for ShellState {
             settings_open: false,
             settings_tab: "general".to_string(),
             selected_index: Some(0),
+            sidecar_writes_enabled: false,
         }
     }
 }
@@ -526,7 +1289,7 @@ struct DemoModel {
 }
 
 fn demo_entries() -> Vec<scanner::StlFileInfo> {
-    let root = PathBuf::from("/Users/hwankishin/Library/3d");
+    let root = PathBuf::from(DEMO_ROOT);
     demo_models()
         .into_iter()
         .enumerate()
@@ -548,6 +1311,7 @@ fn demo_entry(root: &Path, index: usize, model: DemoModel) -> scanner::StlFileIn
         meta: Some(scanner::SidecarMeta {
             tags: model.tags.iter().map(|tag| (*tag).to_string()).collect(),
             printed: model.printed,
+            print_history: demo_print_history(model.printed),
             favorite: model.favorite,
             author: model.author.to_string(),
             notes: if index == 0 {
@@ -558,6 +1322,40 @@ fn demo_entry(root: &Path, index: usize, model: DemoModel) -> scanner::StlFileIn
             ..scanner::SidecarMeta::default()
         }),
     }
+}
+
+fn demo_print_history(count: u32) -> Vec<scanner::PrintRecord> {
+    let visible_count = count.min(3);
+    (0..visible_count)
+        .map(|index| scanner::PrintRecord {
+            date: format!(
+                "2026-05-{:02}",
+                8_u32.saturating_sub(visible_count - 1 - index)
+            ),
+            material: if index % 2 == 0 { "PLA" } else { "PETG" }.to_string(),
+            printer: if index % 2 == 0 {
+                "Bambu P1S"
+            } else {
+                "Prusa MK4"
+            }
+            .to_string(),
+            profile: if index % 2 == 0 {
+                "0.20 Standard"
+            } else {
+                "0.15 Quality"
+            }
+            .to_string(),
+            nozzle: "0.4 mm".to_string(),
+            layer_height: if index % 2 == 0 { "0.20 mm" } else { "0.15 mm" }.to_string(),
+            duration: if index % 2 == 0 { "2h 10m" } else { "3h 05m" }.to_string(),
+            success: true,
+            notes: if index == 0 {
+                "0.20mm profile".to_string()
+            } else {
+                String::new()
+            },
+        })
+        .collect()
 }
 
 fn demo_hash(index: usize) -> [u8; 32] {
@@ -584,42 +1382,438 @@ fn demo_models() -> Vec<DemoModel> {
     use scanner::StlType::{Ascii, Binary, Unknown};
 
     vec![
-        DemoModel { name: "raspberry_pi_5_poe_rackmount_v2_final.stl", folder: "homelab/rackmount", size: 2_840_000, tris: Some(48_230), dims: Some([120.4, 88.0, 25.5]), stl_type: Binary, tags: &["rackmount", "raspberry-pi", "poe", "homelab"], printed: 3, favorite: true, author: "makerworld" },
-        DemoModel { name: "pi5_heatsink_clip.stl", folder: "homelab/rackmount", size: 142_000, tris: Some(1_820), dims: Some([42.0, 32.0, 12.0]), stl_type: Binary, tags: &["raspberry-pi", "cooling"], printed: 2, favorite: false, author: "printables" },
-        DemoModel { name: "1U_blank_panel_19in.stl", folder: "homelab/rackmount", size: 380_400, tris: Some(240), dims: Some([482.6, 44.4, 2.0]), stl_type: Binary, tags: &["rackmount", "19inch"], printed: 1, favorite: false, author: "thingiverse" },
-        DemoModel { name: "gmktec_nucbox_mount.stl", folder: "homelab/mini-pc", size: 1_120_000, tris: Some(18_920), dims: Some([128.0, 128.0, 18.0]), stl_type: Binary, tags: &["mini-pc", "gmktec", "mount"], printed: 1, favorite: false, author: "鈴木一郎" },
-        DemoModel { name: "switch_8port_bracket.stl", folder: "homelab/network", size: 920_000, tris: Some(14_820), dims: Some([220.0, 70.0, 32.0]), stl_type: Binary, tags: &["network", "switch", "bracket", "queued"], printed: 0, favorite: false, author: "김지훈" },
-        DemoModel { name: "ssd_2_5in_caddy_x4.stl", folder: "homelab/storage", size: 1_840_000, tris: Some(28_100), dims: Some([110.0, 105.0, 50.0]), stl_type: Binary, tags: &["storage", "ssd", "cage"], printed: 2, favorite: true, author: "github/cnc" },
-        DemoModel { name: "spool_holder_universal.stl", folder: "printer/upgrades", size: 2_240_000, tris: Some(32_400), dims: Some([180.0, 95.0, 110.0]), stl_type: Binary, tags: &["printer", "spool", "functional"], printed: 5, favorite: true, author: "You" },
-        DemoModel { name: "bambu_p1s_chamber_thermometer.stl", folder: "printer/upgrades", size: 480_000, tris: Some(6_200), dims: Some([60.0, 40.0, 18.0]), stl_type: Binary, tags: &["bambulab", "printer", "upgrade"], printed: 1, favorite: false, author: "makerworld" },
-        DemoModel { name: "cable_chain_15x10.stl", folder: "printer/upgrades", size: 320_000, tris: Some(4_400), dims: Some([220.0, 15.0, 10.0]), stl_type: Binary, tags: &["cable", "functional"], printed: 4, favorite: false, author: "You" },
-        DemoModel { name: "snapmaker_a350_drag_chain_link.stl", folder: "printer/upgrades", size: 220_000, tris: Some(1_840), dims: Some([38.0, 22.0, 10.0]), stl_type: Binary, tags: &["snapmaker", "cable"], printed: 8, favorite: false, author: "printables" },
-        DemoModel { name: "라즈베리파이_5_케이스_v3.stl", folder: "한국어_프로젝트", size: 1_640_000, tris: Some(22_300), dims: Some([95.0, 65.0, 28.0]), stl_type: Binary, tags: &["raspberry-pi", "case"], printed: 2, favorite: true, author: "makerworld" },
-        DemoModel { name: "책상정리_케이블_홀더.stl", folder: "한국어_프로젝트", size: 280_000, tris: Some(3_120), dims: Some([60.0, 40.0, 25.0]), stl_type: Binary, tags: &["desk", "cable"], printed: 6, favorite: false, author: "You" },
-        DemoModel { name: "키캡_oem_r4_blank.stl", folder: "한국어_프로젝트/keycaps", size: 88_000, tris: Some(920), dims: Some([18.0, 18.0, 11.0]), stl_type: Binary, tags: &["keycap", "keyboard"], printed: 12, favorite: true, author: "You" },
-        DemoModel { name: "low_poly_fox.stl", folder: "decorative", size: 4_200_000, tris: Some(78_400), dims: Some([85.0, 110.0, 60.0]), stl_type: Binary, tags: &["decorative", "lowpoly"], printed: 1, favorite: false, author: "thingiverse" },
-        DemoModel { name: "voronoi_planter_120mm.stl", folder: "decorative", size: 6_800_000, tris: Some(124_000), dims: Some([120.0, 120.0, 95.0]), stl_type: Binary, tags: &["decorative", "planter", "voronoi", "ready-to-print"], printed: 0, favorite: true, author: "makerworld" },
-        DemoModel { name: "geometric_vase_twisted.stl", folder: "decorative", size: 3_400_000, tris: Some(56_000), dims: Some([80.0, 80.0, 180.0]), stl_type: Binary, tags: &["decorative", "vase"], printed: 2, favorite: false, author: "You" },
-        DemoModel { name: "articulated_dragon_v4.stl", folder: "decorative/articulated", size: 18_400_000, tris: Some(320_000), dims: Some([240.0, 80.0, 65.0]), stl_type: Binary, tags: &["decorative", "articulated", "ready-to-print"], printed: 0, favorite: false, author: "printables" },
-        DemoModel { name: "benchy_3dbenchy.stl", folder: "test_prints", size: 1_540_000, tris: Some(22_500), dims: Some([60.0, 31.0, 48.0]), stl_type: Binary, tags: &["test", "benchmark", "favorite"], printed: 4, favorite: true, author: "You" },
-        DemoModel { name: "calibration_cube_20mm.stl", folder: "test_prints", size: 12_400, tris: Some(12), dims: Some([20.0, 20.0, 20.0]), stl_type: Binary, tags: &["test", "calibration"], printed: 14, favorite: false, author: "You" },
-        DemoModel { name: "all_in_one_test_v2.stl", folder: "test_prints", size: 880_000, tris: Some(14_200), dims: Some([60.0, 60.0, 30.0]), stl_type: Binary, tags: &["test", "calibration"], printed: 3, favorite: false, author: "You" },
-        DemoModel { name: "broken_export_garbage.stl", folder: "downloads", size: 184_000, tris: None, dims: None, stl_type: Unknown, tags: &[], printed: 0, favorite: false, author: "unknown" },
-        DemoModel { name: "weird_ascii_export.stl", folder: "downloads", size: 4_200_000, tris: Some(8_400), dims: Some([42.0, 42.0, 42.0]), stl_type: Ascii, tags: &["ready-to-print"], printed: 0, favorite: false, author: "You" },
-        DemoModel { name: "hdd_3_5in_vibration_dampener.stl", folder: "homelab/storage", size: 240_000, tris: Some(2_800), dims: Some([102.0, 14.0, 26.0]), stl_type: Binary, tags: &["storage", "hdd", "damper"], printed: 4, favorite: false, author: "You" },
-        DemoModel { name: "ups_battery_holder_18650_x8.stl", folder: "homelab/power", size: 1_280_000, tris: Some(18_400), dims: Some([180.0, 78.0, 22.0]), stl_type: Binary, tags: &["power", "battery", "18650"], printed: 1, favorite: false, author: "makerworld" },
-        DemoModel { name: "fan_grill_120mm_honeycomb.stl", folder: "homelab/cooling", size: 480_000, tris: Some(12_200), dims: Some([120.0, 120.0, 4.0]), stl_type: Binary, tags: &["fan", "grill", "cooling"], printed: 6, favorite: true, author: "You" },
-        DemoModel { name: "noctua_fan_shroud_140mm.stl", folder: "homelab/cooling", size: 620_000, tris: Some(9_800), dims: Some([140.0, 140.0, 30.0]), stl_type: Binary, tags: &["fan", "shroud", "cooling"], printed: 0, favorite: false, author: "printables" },
-        DemoModel { name: "vesa_75_to_100_adapter.stl", folder: "mounts", size: 320_000, tris: Some(4_800), dims: Some([120.0, 120.0, 6.0]), stl_type: Binary, tags: &["vesa", "mount", "adapter"], printed: 0, favorite: false, author: "You" },
-        DemoModel { name: "monitor_arm_cable_clip.stl", folder: "mounts", size: 88_000, tris: Some(1_200), dims: Some([42.0, 28.0, 18.0]), stl_type: Binary, tags: &["cable", "clip", "desk"], printed: 0, favorite: false, author: "You" },
-        DemoModel { name: "wall_anchor_drywall_kit.stl", folder: "mounts", size: 64_000, tris: Some(600), dims: Some([25.0, 12.0, 12.0]), stl_type: Binary, tags: &["wall", "anchor"], printed: 16, favorite: false, author: "printables" },
-        DemoModel { name: "stringing_test_tower.stl", folder: "test_prints", size: 180_000, tris: Some(1_800), dims: Some([60.0, 30.0, 50.0]), stl_type: Binary, tags: &["test", "calibration", "stringing"], printed: 2, favorite: false, author: "You" },
-        DemoModel { name: "overhang_test_45_60_75.stl", folder: "test_prints", size: 220_000, tris: Some(2_400), dims: Some([80.0, 30.0, 40.0]), stl_type: Binary, tags: &["test", "calibration", "overhang"], printed: 1, favorite: false, author: "You" },
-        DemoModel { name: "temp_tower_pla_180_220.stl", folder: "test_prints", size: 280_000, tris: Some(3_600), dims: Some([50.0, 30.0, 100.0]), stl_type: Binary, tags: &["test", "calibration", "temp"], printed: 2, favorite: false, author: "You" },
-        DemoModel { name: "celtic_knot_coaster_set.stl", folder: "decorative", size: 920_000, tris: Some(14_800), dims: Some([95.0, 95.0, 6.0]), stl_type: Binary, tags: &["decorative", "coaster"], printed: 4, favorite: false, author: "makerworld" },
-        DemoModel { name: "hex_organizer_drawer_module.stl", folder: "organization", size: 720_000, tris: Some(8_400), dims: Some([120.0, 120.0, 25.0]), stl_type: Binary, tags: &["organizer", "modular", "gridfinity"], printed: 9, favorite: false, author: "You" },
-        DemoModel { name: "gridfinity_baseplate_4x4.stl", folder: "organization/gridfinity", size: 1_800_000, tris: Some(24_000), dims: Some([168.0, 168.0, 5.0]), stl_type: Binary, tags: &["organizer", "gridfinity", "modular"], printed: 12, favorite: true, author: "printables" },
-        DemoModel { name: "gridfinity_bin_2x2x4_solid.stl", folder: "organization/gridfinity", size: 480_000, tris: Some(8_200), dims: Some([84.0, 84.0, 32.0]), stl_type: Binary, tags: &["organizer", "gridfinity"], printed: 24, favorite: false, author: "You" },
+        DemoModel {
+            name: "raspberry_pi_5_poe_rackmount_v2_final.stl",
+            folder: "homelab/rackmount",
+            size: 2_840_000,
+            tris: Some(48_230),
+            dims: Some([120.4, 88.0, 25.5]),
+            stl_type: Binary,
+            tags: &["rackmount", "raspberry-pi", "poe", "homelab"],
+            printed: 3,
+            favorite: true,
+            author: "makerworld",
+        },
+        DemoModel {
+            name: "pi5_heatsink_clip.stl",
+            folder: "homelab/rackmount",
+            size: 142_000,
+            tris: Some(1_820),
+            dims: Some([42.0, 32.0, 12.0]),
+            stl_type: Binary,
+            tags: &["raspberry-pi", "cooling"],
+            printed: 2,
+            favorite: false,
+            author: "printables",
+        },
+        DemoModel {
+            name: "1U_blank_panel_19in.stl",
+            folder: "homelab/rackmount",
+            size: 380_400,
+            tris: Some(240),
+            dims: Some([482.6, 44.4, 2.0]),
+            stl_type: Binary,
+            tags: &["rackmount", "19inch"],
+            printed: 1,
+            favorite: false,
+            author: "thingiverse",
+        },
+        DemoModel {
+            name: "gmktec_nucbox_mount.stl",
+            folder: "homelab/mini-pc",
+            size: 1_120_000,
+            tris: Some(18_920),
+            dims: Some([128.0, 128.0, 18.0]),
+            stl_type: Binary,
+            tags: &["mini-pc", "gmktec", "mount"],
+            printed: 1,
+            favorite: false,
+            author: "鈴木一郎",
+        },
+        DemoModel {
+            name: "switch_8port_bracket.stl",
+            folder: "homelab/network",
+            size: 920_000,
+            tris: Some(14_820),
+            dims: Some([220.0, 70.0, 32.0]),
+            stl_type: Binary,
+            tags: &["network", "switch", "bracket", "queued"],
+            printed: 0,
+            favorite: false,
+            author: "김지훈",
+        },
+        DemoModel {
+            name: "ssd_2_5in_caddy_x4.stl",
+            folder: "homelab/storage",
+            size: 1_840_000,
+            tris: Some(28_100),
+            dims: Some([110.0, 105.0, 50.0]),
+            stl_type: Binary,
+            tags: &["storage", "ssd", "cage"],
+            printed: 2,
+            favorite: true,
+            author: "github/cnc",
+        },
+        DemoModel {
+            name: "spool_holder_universal.stl",
+            folder: "printer/upgrades",
+            size: 2_240_000,
+            tris: Some(32_400),
+            dims: Some([180.0, 95.0, 110.0]),
+            stl_type: Binary,
+            tags: &["printer", "spool", "functional"],
+            printed: 5,
+            favorite: true,
+            author: "You",
+        },
+        DemoModel {
+            name: "bambu_p1s_chamber_thermometer.stl",
+            folder: "printer/upgrades",
+            size: 480_000,
+            tris: Some(6_200),
+            dims: Some([60.0, 40.0, 18.0]),
+            stl_type: Binary,
+            tags: &["bambulab", "printer", "upgrade"],
+            printed: 1,
+            favorite: false,
+            author: "makerworld",
+        },
+        DemoModel {
+            name: "cable_chain_15x10.stl",
+            folder: "printer/upgrades",
+            size: 320_000,
+            tris: Some(4_400),
+            dims: Some([220.0, 15.0, 10.0]),
+            stl_type: Binary,
+            tags: &["cable", "functional"],
+            printed: 4,
+            favorite: false,
+            author: "You",
+        },
+        DemoModel {
+            name: "snapmaker_a350_drag_chain_link.stl",
+            folder: "printer/upgrades",
+            size: 220_000,
+            tris: Some(1_840),
+            dims: Some([38.0, 22.0, 10.0]),
+            stl_type: Binary,
+            tags: &["snapmaker", "cable"],
+            printed: 8,
+            favorite: false,
+            author: "printables",
+        },
+        DemoModel {
+            name: "라즈베리파이_5_케이스_v3.stl",
+            folder: "한국어_프로젝트",
+            size: 1_640_000,
+            tris: Some(22_300),
+            dims: Some([95.0, 65.0, 28.0]),
+            stl_type: Binary,
+            tags: &["raspberry-pi", "case"],
+            printed: 2,
+            favorite: true,
+            author: "makerworld",
+        },
+        DemoModel {
+            name: "책상정리_케이블_홀더.stl",
+            folder: "한국어_프로젝트",
+            size: 280_000,
+            tris: Some(3_120),
+            dims: Some([60.0, 40.0, 25.0]),
+            stl_type: Binary,
+            tags: &["desk", "cable"],
+            printed: 6,
+            favorite: false,
+            author: "You",
+        },
+        DemoModel {
+            name: "키캡_oem_r4_blank.stl",
+            folder: "한국어_프로젝트/keycaps",
+            size: 88_000,
+            tris: Some(920),
+            dims: Some([18.0, 18.0, 11.0]),
+            stl_type: Binary,
+            tags: &["keycap", "keyboard"],
+            printed: 12,
+            favorite: true,
+            author: "You",
+        },
+        DemoModel {
+            name: "low_poly_fox.stl",
+            folder: "decorative",
+            size: 4_200_000,
+            tris: Some(78_400),
+            dims: Some([85.0, 110.0, 60.0]),
+            stl_type: Binary,
+            tags: &["decorative", "lowpoly"],
+            printed: 1,
+            favorite: false,
+            author: "thingiverse",
+        },
+        DemoModel {
+            name: "voronoi_planter_120mm.stl",
+            folder: "decorative",
+            size: 6_800_000,
+            tris: Some(124_000),
+            dims: Some([120.0, 120.0, 95.0]),
+            stl_type: Binary,
+            tags: &["decorative", "planter", "voronoi", "ready-to-print"],
+            printed: 0,
+            favorite: true,
+            author: "makerworld",
+        },
+        DemoModel {
+            name: "geometric_vase_twisted.stl",
+            folder: "decorative",
+            size: 3_400_000,
+            tris: Some(56_000),
+            dims: Some([80.0, 80.0, 180.0]),
+            stl_type: Binary,
+            tags: &["decorative", "vase"],
+            printed: 2,
+            favorite: false,
+            author: "You",
+        },
+        DemoModel {
+            name: "articulated_dragon_v4.stl",
+            folder: "decorative/articulated",
+            size: 18_400_000,
+            tris: Some(320_000),
+            dims: Some([240.0, 80.0, 65.0]),
+            stl_type: Binary,
+            tags: &["decorative", "articulated", "ready-to-print"],
+            printed: 0,
+            favorite: false,
+            author: "printables",
+        },
+        DemoModel {
+            name: "benchy_3dbenchy.stl",
+            folder: "test_prints",
+            size: 1_540_000,
+            tris: Some(22_500),
+            dims: Some([60.0, 31.0, 48.0]),
+            stl_type: Binary,
+            tags: &["test", "benchmark", "favorite"],
+            printed: 4,
+            favorite: true,
+            author: "You",
+        },
+        DemoModel {
+            name: "calibration_cube_20mm.stl",
+            folder: "test_prints",
+            size: 12_400,
+            tris: Some(12),
+            dims: Some([20.0, 20.0, 20.0]),
+            stl_type: Binary,
+            tags: &["test", "calibration"],
+            printed: 14,
+            favorite: false,
+            author: "You",
+        },
+        DemoModel {
+            name: "all_in_one_test_v2.stl",
+            folder: "test_prints",
+            size: 880_000,
+            tris: Some(14_200),
+            dims: Some([60.0, 60.0, 30.0]),
+            stl_type: Binary,
+            tags: &["test", "calibration"],
+            printed: 3,
+            favorite: false,
+            author: "You",
+        },
+        DemoModel {
+            name: "broken_export_garbage.stl",
+            folder: "downloads",
+            size: 184_000,
+            tris: None,
+            dims: None,
+            stl_type: Unknown,
+            tags: &[],
+            printed: 0,
+            favorite: false,
+            author: "unknown",
+        },
+        DemoModel {
+            name: "weird_ascii_export.stl",
+            folder: "downloads",
+            size: 4_200_000,
+            tris: Some(8_400),
+            dims: Some([42.0, 42.0, 42.0]),
+            stl_type: Ascii,
+            tags: &["ready-to-print"],
+            printed: 0,
+            favorite: false,
+            author: "You",
+        },
+        DemoModel {
+            name: "hdd_3_5in_vibration_dampener.stl",
+            folder: "homelab/storage",
+            size: 240_000,
+            tris: Some(2_800),
+            dims: Some([102.0, 14.0, 26.0]),
+            stl_type: Binary,
+            tags: &["storage", "hdd", "damper"],
+            printed: 4,
+            favorite: false,
+            author: "You",
+        },
+        DemoModel {
+            name: "ups_battery_holder_18650_x8.stl",
+            folder: "homelab/power",
+            size: 1_280_000,
+            tris: Some(18_400),
+            dims: Some([180.0, 78.0, 22.0]),
+            stl_type: Binary,
+            tags: &["power", "battery", "18650"],
+            printed: 1,
+            favorite: false,
+            author: "makerworld",
+        },
+        DemoModel {
+            name: "fan_grill_120mm_honeycomb.stl",
+            folder: "homelab/cooling",
+            size: 480_000,
+            tris: Some(12_200),
+            dims: Some([120.0, 120.0, 4.0]),
+            stl_type: Binary,
+            tags: &["fan", "grill", "cooling"],
+            printed: 6,
+            favorite: true,
+            author: "You",
+        },
+        DemoModel {
+            name: "noctua_fan_shroud_140mm.stl",
+            folder: "homelab/cooling",
+            size: 620_000,
+            tris: Some(9_800),
+            dims: Some([140.0, 140.0, 30.0]),
+            stl_type: Binary,
+            tags: &["fan", "shroud", "cooling"],
+            printed: 0,
+            favorite: false,
+            author: "printables",
+        },
+        DemoModel {
+            name: "vesa_75_to_100_adapter.stl",
+            folder: "mounts",
+            size: 320_000,
+            tris: Some(4_800),
+            dims: Some([120.0, 120.0, 6.0]),
+            stl_type: Binary,
+            tags: &["vesa", "mount", "adapter"],
+            printed: 0,
+            favorite: false,
+            author: "You",
+        },
+        DemoModel {
+            name: "monitor_arm_cable_clip.stl",
+            folder: "mounts",
+            size: 88_000,
+            tris: Some(1_200),
+            dims: Some([42.0, 28.0, 18.0]),
+            stl_type: Binary,
+            tags: &["cable", "clip", "desk"],
+            printed: 0,
+            favorite: false,
+            author: "You",
+        },
+        DemoModel {
+            name: "wall_anchor_drywall_kit.stl",
+            folder: "mounts",
+            size: 64_000,
+            tris: Some(600),
+            dims: Some([25.0, 12.0, 12.0]),
+            stl_type: Binary,
+            tags: &["wall", "anchor"],
+            printed: 16,
+            favorite: false,
+            author: "printables",
+        },
+        DemoModel {
+            name: "stringing_test_tower.stl",
+            folder: "test_prints",
+            size: 180_000,
+            tris: Some(1_800),
+            dims: Some([60.0, 30.0, 50.0]),
+            stl_type: Binary,
+            tags: &["test", "calibration", "stringing"],
+            printed: 2,
+            favorite: false,
+            author: "You",
+        },
+        DemoModel {
+            name: "overhang_test_45_60_75.stl",
+            folder: "test_prints",
+            size: 220_000,
+            tris: Some(2_400),
+            dims: Some([80.0, 30.0, 40.0]),
+            stl_type: Binary,
+            tags: &["test", "calibration", "overhang"],
+            printed: 1,
+            favorite: false,
+            author: "You",
+        },
+        DemoModel {
+            name: "temp_tower_pla_180_220.stl",
+            folder: "test_prints",
+            size: 280_000,
+            tris: Some(3_600),
+            dims: Some([50.0, 30.0, 100.0]),
+            stl_type: Binary,
+            tags: &["test", "calibration", "temp"],
+            printed: 2,
+            favorite: false,
+            author: "You",
+        },
+        DemoModel {
+            name: "celtic_knot_coaster_set.stl",
+            folder: "decorative",
+            size: 920_000,
+            tris: Some(14_800),
+            dims: Some([95.0, 95.0, 6.0]),
+            stl_type: Binary,
+            tags: &["decorative", "coaster"],
+            printed: 4,
+            favorite: false,
+            author: "makerworld",
+        },
+        DemoModel {
+            name: "hex_organizer_drawer_module.stl",
+            folder: "organization",
+            size: 720_000,
+            tris: Some(8_400),
+            dims: Some([120.0, 120.0, 25.0]),
+            stl_type: Binary,
+            tags: &["organizer", "modular", "gridfinity"],
+            printed: 9,
+            favorite: false,
+            author: "You",
+        },
+        DemoModel {
+            name: "gridfinity_baseplate_4x4.stl",
+            folder: "organization/gridfinity",
+            size: 1_800_000,
+            tris: Some(24_000),
+            dims: Some([168.0, 168.0, 5.0]),
+            stl_type: Binary,
+            tags: &["organizer", "gridfinity", "modular"],
+            printed: 12,
+            favorite: true,
+            author: "printables",
+        },
+        DemoModel {
+            name: "gridfinity_bin_2x2x4_solid.stl",
+            folder: "organization/gridfinity",
+            size: 480_000,
+            tris: Some(8_200),
+            dims: Some([84.0, 84.0, 32.0]),
+            stl_type: Binary,
+            tags: &["organizer", "gridfinity"],
+            printed: 24,
+            favorite: false,
+            author: "You",
+        },
     ]
 }
 
@@ -634,7 +1828,7 @@ impl ShellState {
             library_filter: &self.filter,
             sort_by: self.sort_by,
             sort_ascending: self.sort_ascending,
-            preserve_order: self.is_reference_demo_state(),
+            preserve_order: false,
         };
         self.displayed = crate::view_model::filtered_sorted_entries(&self.entries, query);
         let query = DisplayQuery {
@@ -642,7 +1836,7 @@ impl ShellState {
             library_filter: &self.filter,
             sort_by: self.sort_by,
             sort_ascending: self.sort_ascending,
-            preserve_order: self.is_reference_demo_state(),
+            preserve_order: false,
         };
         AppViewSnapshot::from_parts(
             &self.entries,
@@ -659,7 +1853,7 @@ impl ShellState {
             library_filter: &self.filter,
             sort_by: self.sort_by,
             sort_ascending: self.sort_ascending,
-            preserve_order: self.is_reference_demo_state(),
+            preserve_order: false,
         };
         self.displayed = crate::view_model::filtered_sorted_entries(&self.entries, query);
         AppViewSnapshot::from_parts(
@@ -672,27 +1866,23 @@ impl ShellState {
                 library_filter: &self.filter,
                 sort_by: self.sort_by,
                 sort_ascending: self.sort_ascending,
-                preserve_order: self.is_reference_demo_state(),
+                preserve_order: false,
             },
         )
-    }
-
-    fn is_reference_demo_state(&self) -> bool {
-        self.current_folder
-            .as_ref()
-            .is_some_and(|folder| folder == Path::new("/Users/hwankishin/Library/3d"))
-            && self
-                .entries
-                .first()
-                .is_some_and(|entry| entry.filename == "raspberry_pi_5_poe_rackmount_v2_final.stl")
     }
 
     fn scan_folder(&mut self, folder: &Path) -> AppViewSnapshot {
         let (entries, skipped) = scan_folder_entries(folder);
         self.entries = entries;
         self.current_folder = Some(folder.to_path_buf());
+        self.prefs.last_folder = Some(folder.to_path_buf());
         self.skipped = skipped;
-        self.selected_index = if self.entries.is_empty() { None } else { Some(0) };
+        self.sidecar_writes_enabled = true;
+        self.selected_index = if self.entries.is_empty() {
+            None
+        } else {
+            Some(0)
+        };
         self.snapshot_done()
     }
 
@@ -705,6 +1895,10 @@ impl ShellState {
         .to_string();
     }
 
+    fn choose_view_mode(&mut self, mode: &str) {
+        self.prefs.view_mode = ViewMode::from_str(mode).as_str().to_string();
+    }
+
     fn cycle_density(&mut self) {
         self.prefs.density = match Density::from_str(&self.prefs.density) {
             Density::Small => "medium",
@@ -712,6 +1906,10 @@ impl ShellState {
             Density::Large => "small",
         }
         .to_string();
+    }
+
+    fn choose_density(&mut self, density: &str) {
+        self.prefs.density = Density::from_str(density).as_str().to_string();
     }
 
     fn cycle_language(&mut self) {
@@ -729,6 +1927,15 @@ impl ShellState {
         } else {
             "dark".to_string()
         };
+    }
+
+    fn selected_model_path(&self) -> Option<PathBuf> {
+        let idx = self.selected_index?;
+        self.displayed.get(idx).map(|entry| entry.path.clone())
+    }
+
+    fn reselect_path(&mut self, path: &Path) {
+        self.selected_index = self.displayed.iter().position(|entry| entry.path == path);
     }
 }
 
@@ -761,7 +1968,7 @@ fn apply_snapshot(ui: &ModelRackWindow, snapshot: &AppViewSnapshot) {
         .iter()
         .map(browser_card)
         .collect::<Vec<BrowserCard>>();
-    ui.set_model_cards(slint::ModelRc::new(slint::VecModel::from(cards)));
+    sync_browser_cards(ui, cards);
     let folders = snapshot
         .folders
         .iter()
@@ -784,6 +1991,33 @@ fn apply_snapshot(ui: &ModelRackWindow, snapshot: &AppViewSnapshot) {
         })
         .collect::<Vec<SidebarItem>>();
     ui.set_tag_items(slint::ModelRc::new(slint::VecModel::from(tags)));
+}
+
+fn sync_browser_cards(ui: &ModelRackWindow, cards: Vec<BrowserCard>) {
+    let current = ui.get_model_cards();
+    let Some(model) = current
+        .as_any()
+        .downcast_ref::<slint::VecModel<BrowserCard>>()
+    else {
+        ui.set_model_cards(slint::ModelRc::new(slint::VecModel::from(cards)));
+        return;
+    };
+
+    let same_cards = model.row_count() == cards.len()
+        && cards.iter().enumerate().all(|(row, card)| {
+            model
+                .row_data(row)
+                .is_some_and(|old| old.stable_key == card.stable_key)
+        });
+
+    if !same_cards {
+        model.set_vec(cards);
+        return;
+    }
+
+    for (row, card) in cards.into_iter().enumerate() {
+        model.set_row_data(row, card);
+    }
 }
 
 fn apply_settings(ui: &ModelRackWindow, state: &ShellState) {
@@ -851,6 +2085,8 @@ fn scan_folder_entries(folder: &Path) -> (Vec<scanner::StlFileInfo>, usize) {
 
 fn browser_card(card: &BrowserCardVm) -> BrowserCard {
     BrowserCard {
+        stable_key: card.stable_key.clone().into(),
+        slot_index: card.slot_index as i32,
         title: card.title.clone().into(),
         subtitle: card.subtitle.clone().into(),
         author: card.author.clone().into(),
@@ -861,5 +2097,727 @@ fn browser_card(card: &BrowserCardVm) -> BrowserCard {
         favorite: card.favorite,
         printed: card.printed,
         error: card.error,
+    }
+}
+
+fn tag_chip(tag: &String) -> TagChip {
+    TagChip {
+        label: tag.clone().into(),
+    }
+}
+
+fn print_history_row(record: &scanner::PrintRecord) -> PrintHistoryRow {
+    PrintHistoryRow {
+        date: record.date.clone().into(),
+        material: record.material.clone().into(),
+        printer: record.printer.clone().into(),
+        profile: record.profile.clone().into(),
+        nozzle: record.nozzle.clone().into(),
+        layer_height: record.layer_height.clone().into(),
+        duration: record.duration.clone().into(),
+        notes: record.notes.clone().into(),
+        success: record.success,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_path(name: &str) -> PathBuf {
+        let unique = format!(
+            "modelrack-{}-{}",
+            name,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        std::env::temp_dir().join(unique)
+    }
+
+    fn test_entry(path: &Path) -> scanner::StlFileInfo {
+        scanner::StlFileInfo {
+            path: path.to_path_buf(),
+            filename: path.file_name().unwrap().to_string_lossy().to_string(),
+            size: 1,
+            hash: [1; 32],
+            stl_type: scanner::StlType::Binary,
+            triangle_count: Some(1),
+            dimensions: Some([1.0, 1.0, 1.0]),
+            modified: None,
+            meta: None,
+        }
+    }
+
+    #[test]
+    fn app_prefs_save_and_load_from_explicit_path() {
+        let root = temp_path("prefs-roundtrip");
+        let path = root.join("prefs.json");
+        let prefs = AppPrefs {
+            density: "large".to_string(),
+            view_mode: "masonry".to_string(),
+            theme: "light".to_string(),
+            language: "ko".to_string(),
+            slicer_path: "/Applications/PrusaSlicer.app".to_string(),
+            last_folder: Some(root.join("models")),
+        };
+
+        save_app_prefs_to_path(&path, &prefs).unwrap();
+        let loaded = load_app_prefs_from_path(&path).unwrap();
+
+        assert_eq!(loaded, prefs);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn app_prefs_missing_or_invalid_falls_back_for_shell_startup() {
+        let root = temp_path("prefs-invalid");
+        let missing = root.join("missing.json");
+        let invalid = root.join("invalid.json");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(&invalid, "{not json").unwrap();
+
+        assert_eq!(
+            load_app_prefs_from_path(&missing).unwrap(),
+            AppPrefs::default()
+        );
+        assert!(load_app_prefs_from_path(&invalid).is_err());
+        assert_eq!(
+            ShellState::load_from_path(&invalid).prefs,
+            AppPrefs::default()
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn shell_startup_restores_existing_last_folder_without_clearing_missing_path() {
+        let root = temp_path("prefs-last-folder");
+        let existing = root.join("models");
+        let missing = root.join("missing");
+        fs::create_dir_all(&existing).unwrap();
+
+        let existing_prefs = AppPrefs {
+            last_folder: Some(existing.clone()),
+            ..AppPrefs::default()
+        };
+        let existing_path = root.join("existing-prefs.json");
+        save_app_prefs_to_path(&existing_path, &existing_prefs).unwrap();
+        let existing_state = ShellState::load_from_path(&existing_path);
+        assert_eq!(existing_state.current_folder, Some(existing.clone()));
+        assert!(existing_state.sidecar_writes_enabled);
+
+        let missing_prefs = AppPrefs {
+            last_folder: Some(missing.clone()),
+            ..AppPrefs::default()
+        };
+        let missing_path = root.join("missing-prefs.json");
+        save_app_prefs_to_path(&missing_path, &missing_prefs).unwrap();
+        let missing_state = ShellState::load_from_path(&missing_path);
+        assert_eq!(missing_state.prefs.last_folder, Some(missing));
+        assert_eq!(missing_state.current_folder, Some(PathBuf::from(DEMO_ROOT)));
+        assert!(!missing_state.sidecar_writes_enabled);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn favorite_toggle_writes_sidecar_and_preserves_metadata() {
+        let root = temp_path("favorite-sidecar");
+        fs::create_dir_all(&root).unwrap();
+        let model = root.join("part.stl");
+        fs::write(&model, b"solid test\nendsolid test\n").unwrap();
+        let mut entries = vec![test_entry(&model)];
+        entries[0].meta = Some(scanner::SidecarMeta {
+            tags: vec!["rack".to_string()],
+            notes: "keep me".to_string(),
+            printed: 2,
+            ..scanner::SidecarMeta::default()
+        });
+
+        assert_eq!(
+            persist_favorite_toggle(&mut entries, &model, true).unwrap(),
+            Some(true)
+        );
+
+        let sidecar = model.with_file_name("part.stl.modelrack.json");
+        let saved: scanner::SidecarMeta =
+            serde_json::from_str(&fs::read_to_string(sidecar).unwrap()).unwrap();
+        assert!(saved.favorite);
+        assert_eq!(saved.tags, vec!["rack"]);
+        assert_eq!(saved.notes, "keep me");
+        assert_eq!(saved.printed, 2);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn favorite_toggle_creates_sidecar_for_real_model_without_existing_metadata() {
+        let root = temp_path("favorite-new-sidecar");
+        fs::create_dir_all(&root).unwrap();
+        let model = root.join("part.stl");
+        fs::write(&model, b"solid test\nendsolid test\n").unwrap();
+        let mut entries = vec![test_entry(&model)];
+
+        assert_eq!(
+            persist_favorite_toggle(&mut entries, &model, true).unwrap(),
+            Some(true)
+        );
+
+        let sidecar = model.with_file_name("part.stl.modelrack.json");
+        let saved: scanner::SidecarMeta =
+            serde_json::from_str(&fs::read_to_string(sidecar).unwrap()).unwrap();
+        assert!(saved.favorite);
+        assert!(saved.tags.is_empty());
+        assert_eq!(saved.notes, "");
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn favorite_toggle_with_no_write_policy_does_not_create_sidecar() {
+        let root = temp_path("favorite-demo");
+        let model = root.join("missing.stl");
+        let mut entries = vec![test_entry(&model)];
+
+        assert_eq!(
+            persist_favorite_toggle(&mut entries, &model, false).unwrap(),
+            Some(true)
+        );
+        assert!(entries[0].meta.as_ref().unwrap().favorite);
+        assert!(!model.with_file_name("missing.stl.modelrack.json").exists());
+    }
+
+    #[test]
+    fn favorite_toggle_write_policy_is_not_demo_path_based() {
+        let root = temp_path("favorite-policy");
+        let model = root.join("existing-demo.stl");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(&model, b"solid test\nendsolid test\n").unwrap();
+        let mut entries = vec![test_entry(&model)];
+
+        assert_eq!(
+            persist_favorite_toggle(&mut entries, &model, false).unwrap(),
+            Some(true)
+        );
+        assert!(entries[0].meta.as_ref().unwrap().favorite);
+        assert!(!model
+            .with_file_name("existing-demo.stl.modelrack.json")
+            .exists());
+
+        assert_eq!(
+            persist_favorite_toggle(&mut entries, &model, true).unwrap(),
+            Some(false)
+        );
+        let sidecar = model.with_file_name("existing-demo.stl.modelrack.json");
+        let saved: scanner::SidecarMeta =
+            serde_json::from_str(&fs::read_to_string(sidecar).unwrap()).unwrap();
+        assert!(!saved.favorite);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn metadata_tag_input_trims_deduplicates_and_drops_empty_tags() {
+        assert_eq!(
+            parse_tag_input("rack, printer, rack, , PLA"),
+            vec!["rack".to_string(), "printer".to_string(), "PLA".to_string()]
+        );
+    }
+
+    #[test]
+    fn tag_chip_add_persists_unique_tags_and_preserves_metadata() {
+        let root = temp_path("tag-chip-add");
+        fs::create_dir_all(&root).unwrap();
+        let model = root.join("part.stl");
+        fs::write(&model, b"solid test\nendsolid test\n").unwrap();
+        let mut entries = vec![test_entry(&model)];
+        entries[0].meta = Some(scanner::SidecarMeta {
+            tags: vec!["rack".to_string()],
+            notes: "keep me".to_string(),
+            favorite: true,
+            printed: 2,
+            print_history: vec![scanner::PrintRecord {
+                date: "2026-05-08".to_string(),
+                material: "PLA".to_string(),
+                printer: "Bambu P1S".to_string(),
+                profile: "0.20 Standard".to_string(),
+                nozzle: "0.4 mm".to_string(),
+                layer_height: "0.20 mm".to_string(),
+                duration: "2h 10m".to_string(),
+                success: true,
+                notes: "clean".to_string(),
+            }],
+            ..scanner::SidecarMeta::default()
+        });
+
+        assert_eq!(
+            persist_add_tags(&mut entries, &model, true, "rack, jig, printer").unwrap(),
+            Some(3)
+        );
+
+        let sidecar = model.with_file_name("part.stl.modelrack.json");
+        let saved: scanner::SidecarMeta =
+            serde_json::from_str(&fs::read_to_string(sidecar).unwrap()).unwrap();
+        assert_eq!(saved.tags, vec!["rack", "jig", "printer"]);
+        assert_eq!(saved.notes, "keep me");
+        assert!(saved.favorite);
+        assert_eq!(saved.printed, 2);
+        assert_eq!(saved.print_history.len(), 1);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn tag_chip_remove_persists_selected_tag() {
+        let root = temp_path("tag-chip-remove");
+        fs::create_dir_all(&root).unwrap();
+        let model = root.join("part.stl");
+        fs::write(&model, b"solid test\nendsolid test\n").unwrap();
+        let mut entries = vec![test_entry(&model)];
+        entries[0].meta = Some(scanner::SidecarMeta {
+            tags: vec!["rack".to_string(), "jig".to_string(), "printer".to_string()],
+            ..scanner::SidecarMeta::default()
+        });
+
+        assert_eq!(
+            persist_remove_tag(&mut entries, &model, true, 1).unwrap(),
+            Some(2)
+        );
+
+        let sidecar = model.with_file_name("part.stl.modelrack.json");
+        let saved: scanner::SidecarMeta =
+            serde_json::from_str(&fs::read_to_string(sidecar).unwrap()).unwrap();
+        assert_eq!(saved.tags, vec!["rack", "printer"]);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn tag_chip_no_write_policy_updates_memory_only() {
+        let root = temp_path("tag-chip-demo");
+        let model = root.join("missing.stl");
+        let mut entries = vec![test_entry(&model)];
+
+        assert_eq!(
+            persist_add_tags(&mut entries, &model, false, "demo, tag").unwrap(),
+            Some(2)
+        );
+        assert_eq!(
+            persist_remove_tag(&mut entries, &model, false, 0).unwrap(),
+            Some(1)
+        );
+        assert_eq!(entries[0].meta.as_ref().unwrap().tags, vec!["tag"]);
+        assert!(!model.with_file_name("missing.stl.modelrack.json").exists());
+    }
+
+    #[test]
+    fn tag_chip_write_policy_rejects_missing_real_model_without_mutation() {
+        let root = temp_path("tag-chip-missing");
+        let model = root.join("missing.stl");
+        let mut entries = vec![test_entry(&model)];
+
+        let err = match persist_add_tags(&mut entries, &model, true, "tag") {
+            Ok(_) => panic!("missing real model should be rejected"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("model does not exist"));
+        assert!(entries[0].meta.is_none());
+    }
+
+    #[test]
+    fn metadata_edit_writes_sidecar_and_preserves_unedited_fields() {
+        let root = temp_path("metadata-sidecar");
+        fs::create_dir_all(&root).unwrap();
+        let model = root.join("part.stl");
+        fs::write(&model, b"solid test\nendsolid test\n").unwrap();
+        let mut entries = vec![test_entry(&model)];
+        entries[0].meta = Some(scanner::SidecarMeta {
+            favorite: true,
+            printed: 4,
+            print_history: vec![scanner::PrintRecord {
+                date: "2026-05-08".to_string(),
+                material: "PLA".to_string(),
+                printer: "Bambu P1S".to_string(),
+                profile: "0.20 Standard".to_string(),
+                nozzle: "0.4 mm".to_string(),
+                layer_height: "0.20 mm".to_string(),
+                duration: "2h 10m".to_string(),
+                success: true,
+                notes: "clean".to_string(),
+            }],
+            added: Some("2026-05-01".to_string()),
+            ..scanner::SidecarMeta::default()
+        });
+
+        persist_metadata_fields(
+            &mut entries,
+            &model,
+            true,
+            "rack, printer, rack",
+            "  makerworld  ",
+            "Fits the rack shelf.",
+        )
+        .unwrap();
+
+        let sidecar = model.with_file_name("part.stl.modelrack.json");
+        let saved: scanner::SidecarMeta =
+            serde_json::from_str(&fs::read_to_string(sidecar).unwrap()).unwrap();
+        assert_eq!(saved.tags, vec!["rack", "printer"]);
+        assert_eq!(saved.author, "makerworld");
+        assert_eq!(saved.notes, "Fits the rack shelf.");
+        assert!(saved.favorite);
+        assert_eq!(saved.printed, 4);
+        assert_eq!(saved.print_history.len(), 1);
+        assert_eq!(saved.added.as_deref(), Some("2026-05-01"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn metadata_edit_with_no_write_policy_updates_memory_only() {
+        let root = temp_path("metadata-demo");
+        let model = root.join("missing.stl");
+        let mut entries = vec![test_entry(&model)];
+
+        persist_metadata_fields(&mut entries, &model, false, "demo, tag", "You", "memo").unwrap();
+
+        let meta = entries[0].meta.as_ref().unwrap();
+        assert_eq!(meta.tags, vec!["demo", "tag"]);
+        assert_eq!(meta.author, "You");
+        assert_eq!(meta.notes, "memo");
+        assert!(!model.with_file_name("missing.stl.modelrack.json").exists());
+    }
+
+    #[test]
+    fn print_count_delta_persists_and_floors_at_zero() {
+        let root = temp_path("print-count");
+        fs::create_dir_all(&root).unwrap();
+        let model = root.join("part.stl");
+        fs::write(&model, b"solid test\nendsolid test\n").unwrap();
+        let mut entries = vec![test_entry(&model)];
+
+        assert_eq!(
+            persist_print_count_delta(&mut entries, &model, true, 2).unwrap(),
+            Some(2)
+        );
+        assert_eq!(
+            persist_print_count_delta(&mut entries, &model, true, -5).unwrap(),
+            Some(0)
+        );
+
+        let sidecar = model.with_file_name("part.stl.modelrack.json");
+        let saved: scanner::SidecarMeta =
+            serde_json::from_str(&fs::read_to_string(sidecar).unwrap()).unwrap();
+        assert_eq!(saved.printed, 0);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn print_record_add_persists_history_and_preserves_metadata() {
+        let root = temp_path("print-history-add");
+        fs::create_dir_all(&root).unwrap();
+        let model = root.join("part.stl");
+        fs::write(&model, b"solid test\nendsolid test\n").unwrap();
+        let mut entries = vec![test_entry(&model)];
+        entries[0].meta = Some(scanner::SidecarMeta {
+            tags: vec!["rack".to_string()],
+            favorite: true,
+            author: "makerworld".to_string(),
+            notes: "keep me".to_string(),
+            ..scanner::SidecarMeta::default()
+        });
+
+        assert_eq!(
+            persist_add_print_record(
+                &mut entries,
+                &model,
+                true,
+                " PLA ",
+                " Prusa MK4 ",
+                " 0.20 Quality ",
+                " 0.4 mm ",
+                " 0.20 mm ",
+                " 2h 15m ",
+                " good fit ",
+                "2026-05-08"
+            )
+            .unwrap(),
+            Some(1)
+        );
+
+        let sidecar = model.with_file_name("part.stl.modelrack.json");
+        let saved: scanner::SidecarMeta =
+            serde_json::from_str(&fs::read_to_string(sidecar).unwrap()).unwrap();
+        assert_eq!(saved.printed, 1);
+        assert_eq!(saved.print_history.len(), 1);
+        assert_eq!(saved.print_history[0].date, "2026-05-08");
+        assert_eq!(saved.print_history[0].material, "PLA");
+        assert_eq!(saved.print_history[0].printer, "Prusa MK4");
+        assert_eq!(saved.print_history[0].profile, "0.20 Quality");
+        assert_eq!(saved.print_history[0].nozzle, "0.4 mm");
+        assert_eq!(saved.print_history[0].layer_height, "0.20 mm");
+        assert_eq!(saved.print_history[0].duration, "2h 15m");
+        assert_eq!(saved.print_history[0].notes, "good fit");
+        assert!(saved.print_history[0].success);
+        assert_eq!(saved.tags, vec!["rack"]);
+        assert!(saved.favorite);
+        assert_eq!(saved.author, "makerworld");
+        assert_eq!(saved.notes, "keep me");
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn print_record_remove_persists_and_decrements_latest_display_row() {
+        let root = temp_path("print-history-remove");
+        fs::create_dir_all(&root).unwrap();
+        let model = root.join("part.stl");
+        fs::write(&model, b"solid test\nendsolid test\n").unwrap();
+        let mut entries = vec![test_entry(&model)];
+        entries[0].meta = Some(scanner::SidecarMeta {
+            printed: 2,
+            print_history: vec![
+                scanner::PrintRecord {
+                    date: "2026-05-07".to_string(),
+                    material: "PLA".to_string(),
+                    printer: "Bambu P1S".to_string(),
+                    profile: "0.20 Standard".to_string(),
+                    nozzle: "0.4 mm".to_string(),
+                    layer_height: "0.20 mm".to_string(),
+                    duration: "2h 10m".to_string(),
+                    success: true,
+                    notes: "older".to_string(),
+                },
+                scanner::PrintRecord {
+                    date: "2026-05-08".to_string(),
+                    material: "PETG".to_string(),
+                    printer: "Prusa MK4".to_string(),
+                    profile: "0.15 Quality".to_string(),
+                    nozzle: "0.4 mm".to_string(),
+                    layer_height: "0.15 mm".to_string(),
+                    duration: "3h 05m".to_string(),
+                    success: true,
+                    notes: "latest".to_string(),
+                },
+            ],
+            ..scanner::SidecarMeta::default()
+        });
+
+        assert_eq!(
+            persist_remove_print_record(&mut entries, &model, true, 0).unwrap(),
+            Some(1)
+        );
+
+        let sidecar = model.with_file_name("part.stl.modelrack.json");
+        let saved: scanner::SidecarMeta =
+            serde_json::from_str(&fs::read_to_string(sidecar).unwrap()).unwrap();
+        assert_eq!(saved.printed, 1);
+        assert_eq!(saved.print_history.len(), 1);
+        assert_eq!(saved.print_history[0].date, "2026-05-07");
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn print_record_no_write_policy_updates_memory_only() {
+        let root = temp_path("print-history-demo");
+        let model = root.join("missing.stl");
+        let mut entries = vec![test_entry(&model)];
+
+        persist_add_print_record(
+            &mut entries,
+            &model,
+            false,
+            "PLA",
+            "Bambu P1S",
+            "0.20 Standard",
+            "0.4 mm",
+            "0.20 mm",
+            "2h",
+            "demo",
+            "2026-05-08",
+        )
+        .unwrap();
+        assert_eq!(entries[0].meta.as_ref().unwrap().printed, 1);
+        assert_eq!(entries[0].meta.as_ref().unwrap().print_history.len(), 1);
+        assert!(!model.with_file_name("missing.stl.modelrack.json").exists());
+    }
+
+    #[test]
+    fn print_record_write_policy_rejects_missing_real_model_without_mutation() {
+        let root = temp_path("print-history-missing");
+        let model = root.join("missing.stl");
+        let mut entries = vec![test_entry(&model)];
+
+        let err = match persist_add_print_record(
+            &mut entries,
+            &model,
+            true,
+            "PLA",
+            "Bambu P1S",
+            "0.20 Standard",
+            "0.4 mm",
+            "0.20 mm",
+            "2h",
+            "should fail",
+            "2026-05-08",
+        ) {
+            Ok(_) => panic!("missing real model should be rejected"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("model does not exist"));
+        assert!(entries[0].meta.is_none());
+    }
+
+    #[test]
+    fn print_record_legacy_json_defaults_profile_fields() {
+        let json = r#"{
+            "date": "2026-05-08",
+            "material": "PLA",
+            "success": true,
+            "notes": "legacy"
+        }"#;
+
+        let record: scanner::PrintRecord = serde_json::from_str(json).unwrap();
+
+        assert_eq!(record.material, "PLA");
+        assert_eq!(record.printer, "");
+        assert_eq!(record.profile, "");
+        assert_eq!(record.nozzle, "");
+        assert_eq!(record.layer_height, "");
+        assert_eq!(record.duration, "");
+        assert_eq!(record.notes, "legacy");
+        assert!(record.success);
+    }
+
+    #[test]
+    fn civil_date_formats_unix_epoch() {
+        assert_eq!(civil_from_days(0), (1970, 1, 1));
+    }
+
+    #[test]
+    fn metadata_write_policy_rejects_missing_real_model() {
+        let root = temp_path("metadata-missing");
+        let model = root.join("missing.stl");
+        let mut entries = vec![test_entry(&model)];
+
+        let err =
+            match persist_metadata_fields(&mut entries, &model, true, "tag", "author", "notes") {
+                Ok(_) => panic!("missing real model should be rejected"),
+                Err(err) => err,
+            };
+        assert!(err.to_string().contains("model does not exist"));
+    }
+
+    #[test]
+    fn launcher_command_uses_default_or_configured_slicer() {
+        let model = Path::new("/tmp/model.stl");
+        let default = launcher_command(model, "");
+
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            default,
+            LaunchCommand {
+                program: "open".to_string(),
+                args: vec!["/tmp/model.stl".to_string()],
+                wait_for_exit: true,
+            }
+        );
+
+        #[cfg(target_os = "windows")]
+        assert_eq!(
+            default,
+            LaunchCommand {
+                program: "cmd".to_string(),
+                args: vec![
+                    "/C".to_string(),
+                    "start".to_string(),
+                    "".to_string(),
+                    "/tmp/model.stl".to_string(),
+                ],
+                wait_for_exit: true,
+            }
+        );
+
+        #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+        assert_eq!(
+            default,
+            LaunchCommand {
+                program: "xdg-open".to_string(),
+                args: vec!["/tmp/model.stl".to_string()],
+                wait_for_exit: true,
+            }
+        );
+
+        assert_eq!(
+            launcher_command(model, "/usr/local/bin/slicer"),
+            LaunchCommand {
+                program: "/usr/local/bin/slicer".to_string(),
+                args: vec!["/tmp/model.stl".to_string()],
+                wait_for_exit: false,
+            }
+        );
+    }
+
+    #[test]
+    fn launcher_preflight_rejects_missing_model_or_slicer() {
+        let root = temp_path("launcher-preflight");
+        let model = root.join("part.stl");
+        let slicer = root.join("slicer");
+
+        assert!(validate_launch_request(&model, "").is_err());
+
+        fs::create_dir_all(&root).unwrap();
+        fs::write(&model, b"solid test\nendsolid test\n").unwrap();
+        assert!(validate_launch_request(&model, slicer.to_str().unwrap()).is_err());
+
+        fs::write(&slicer, b"#!/bin/sh\n").unwrap();
+        validate_launch_request(&model, slicer.to_str().unwrap()).unwrap();
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn launcher_waits_and_reports_nonzero_helper_exit() {
+        let command = LaunchCommand {
+            program: "sh".to_string(),
+            args: vec!["-c".to_string(), "exit 7".to_string()],
+            wait_for_exit: true,
+        };
+
+        let err = run_launch_command(command).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::Other);
+    }
+
+    #[test]
+    fn launcher_reports_early_nonzero_exit_for_configured_slicer() {
+        let command = LaunchCommand {
+            program: "sh".to_string(),
+            args: vec!["-c".to_string(), "exit 7".to_string()],
+            wait_for_exit: false,
+        };
+
+        let err = run_launch_command(command).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::Other);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn launcher_command_uses_open_a_for_macos_app_bundles() {
+        assert_eq!(
+            launcher_command(Path::new("/tmp/model.stl"), "/Applications/PrusaSlicer.app"),
+            LaunchCommand {
+                program: "open".to_string(),
+                args: vec![
+                    "-a".to_string(),
+                    "/Applications/PrusaSlicer.app".to_string(),
+                    "/tmp/model.stl".to_string(),
+                ],
+                wait_for_exit: true,
+            }
+        );
     }
 }
