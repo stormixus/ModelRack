@@ -3,6 +3,7 @@
 #[cfg(target_os = "macos")]
 mod imp {
     use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Mutex;
     use std::sync::OnceLock;
 
     use objc::declare::ClassDecl;
@@ -13,6 +14,28 @@ mod imp {
     static OPEN_LIBRARY_REQUESTED: AtomicBool = AtomicBool::new(false);
     static MENU_INSTALLED: AtomicBool = AtomicBool::new(false);
     static MENU_TARGET: OnceLock<usize> = OnceLock::new();
+    static RESTORE_FRAME: Mutex<Option<NSRect>> = Mutex::new(None);
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct NSPoint {
+        x: f64,
+        y: f64,
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct NSSize {
+        width: f64,
+        height: f64,
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct NSRect {
+        origin: NSPoint,
+        size: NSSize,
+    }
 
     pub fn install_app_menu() {
         if MENU_INSTALLED.swap(true, Ordering::AcqRel) {
@@ -23,6 +46,7 @@ mod imp {
             let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
             let _: () = msg_send![app, setActivationPolicy: 0isize];
             let target = menu_target();
+            let _: () = msg_send![app, setDelegate: target];
             install_activation_observer(target);
 
             let main_menu: *mut Object = msg_send![class!(NSMenu), new];
@@ -196,6 +220,167 @@ mod imp {
         }
     }
 
+    pub fn configure_window_appearance() {
+        unsafe {
+            let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
+            let windows: *mut Object = msg_send![app, windows];
+            let count: usize = msg_send![windows, count];
+            for idx in 0..count {
+                let window: *mut Object = msg_send![windows, objectAtIndex: idx];
+                let content_view: *mut Object = msg_send![window, contentView];
+                let _: () = msg_send![content_view, setWantsLayer: true];
+                let layer: *mut Object = msg_send![content_view, layer];
+                let _: () = msg_send![layer, setCornerRadius: 12.0f64];
+                let _: () = msg_send![layer, setMasksToBounds: true];
+                let _: () = msg_send![window, setBackgroundColor: ns_color(0.0, 0.0, 0.0, 0.0)];
+                let _: () = msg_send![window, setOpaque: false];
+                let _: () = msg_send![window, setHasShadow: true];
+            }
+        }
+    }
+
+    pub fn hide_window() {
+        unsafe {
+            let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
+            let _: () = msg_send![app, hide: std::ptr::null_mut::<Object>()];
+        }
+    }
+
+    pub fn minimize_window() {
+        unsafe {
+            let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
+            let window: *mut Object = msg_send![app, keyWindow];
+            if !window.is_null() {
+                let _: () = msg_send![window, miniaturize: std::ptr::null_mut::<Object>()];
+            }
+        }
+    }
+
+    pub fn zoom_window() {
+        unsafe {
+            if let Some(window) = front_window() {
+                toggle_window_zoom(window);
+            }
+        }
+    }
+
+    pub fn show_windows() {
+        unsafe {
+            show_all_windows();
+        }
+    }
+
+    pub fn configure_transparent_titlebar() {
+        unsafe {
+            let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
+
+            // Dark appearance for the whole app
+            let name = ns_string("NSAppearanceNameDarkAqua");
+            let appearance: *mut Object = msg_send![class!(NSAppearance), appearanceNamed: name];
+            let _: () = msg_send![app, setAppearance: appearance];
+
+            let windows: *mut Object = msg_send![app, windows];
+            let count: usize = msg_send![windows, count];
+            for idx in 0..count {
+                let window: *mut Object = msg_send![windows, objectAtIndex: idx];
+
+                // Hide native title text
+                let _: () = msg_send![window, setTitle: ns_string("")];
+                let _: () = msg_send![window, setTitleVisibility: 1isize];
+
+                // Transparent titlebar — window bg shows through
+                let _: () = msg_send![window, setTitlebarAppearsTransparent: true];
+
+                // Let Slint draw into the native titlebar area so we don't get
+                // a separate macOS titlebar stacked above the custom one.
+                let style_mask: usize = msg_send![window, styleMask];
+                let full_size_content_view = 1usize << 15;
+                let resizable = 1usize << 3;
+                let _: () = msg_send![window, setStyleMask: style_mask | full_size_content_view | resizable];
+
+                // bg-1 = #26282e exactly
+                let _: () = msg_send![window, setBackgroundColor: ns_color(0.149, 0.157, 0.180, 1.0)];
+            }
+        }
+    }
+
+    unsafe fn ns_color(r: f64, g: f64, b: f64, a: f64) -> *mut Object {
+        msg_send![class!(NSColor), colorWithRed:r green:g blue:b alpha:a]
+    }
+
+    unsafe fn front_window() -> Option<*mut Object> {
+        let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
+        let key_window: *mut Object = msg_send![app, keyWindow];
+        if !key_window.is_null() {
+            return Some(key_window);
+        }
+
+        let main_window: *mut Object = msg_send![app, mainWindow];
+        if !main_window.is_null() {
+            return Some(main_window);
+        }
+
+        let windows: *mut Object = msg_send![app, windows];
+        let count: usize = msg_send![windows, count];
+        if count == 0 {
+            None
+        } else {
+            let window: *mut Object = msg_send![windows, objectAtIndex: 0usize];
+            (!window.is_null()).then_some(window)
+        }
+    }
+
+    unsafe fn show_all_windows() {
+        let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
+        let _: () = msg_send![app, unhide: std::ptr::null_mut::<Object>()];
+        let windows: *mut Object = msg_send![app, windows];
+        let count: usize = msg_send![windows, count];
+        for idx in 0..count {
+            let window: *mut Object = msg_send![windows, objectAtIndex: idx];
+            let _: () = msg_send![window, deminiaturize: std::ptr::null_mut::<Object>()];
+            let _: () = msg_send![window, makeKeyAndOrderFront: std::ptr::null_mut::<Object>()];
+            let _: () = msg_send![window, orderFrontRegardless];
+        }
+        let _: () = msg_send![app, activateIgnoringOtherApps: true];
+    }
+
+    unsafe fn toggle_window_zoom(window: *mut Object) {
+        let frame: NSRect = msg_send![window, frame];
+        let screen: *mut Object = msg_send![window, screen];
+        let screen = if screen.is_null() {
+            msg_send![class!(NSScreen), mainScreen]
+        } else {
+            screen
+        };
+        if screen.is_null() {
+            let _: () = msg_send![window, performZoom: std::ptr::null_mut::<Object>()];
+            return;
+        }
+
+        let visible_frame: NSRect = msg_send![screen, visibleFrame];
+        if frame_matches(frame, visible_frame) {
+            if let Some(restore_frame) = RESTORE_FRAME.lock().ok().and_then(|mut frame| frame.take()) {
+                let _: () = msg_send![window, setFrame: restore_frame display: true animate: false];
+                let _: () = msg_send![window, displayIfNeeded];
+            }
+            return;
+        }
+
+        if let Ok(mut restore_frame) = RESTORE_FRAME.lock() {
+            *restore_frame = Some(frame);
+        }
+        let _: () = msg_send![window, setFrame: visible_frame display: true animate: false];
+        let _: () = msg_send![window, displayIfNeeded];
+    }
+
+    fn frame_matches(a: NSRect, b: NSRect) -> bool {
+        const TOLERANCE: f64 = 2.0;
+        (a.origin.x - b.origin.x).abs() < TOLERANCE
+            && (a.origin.y - b.origin.y).abs() < TOLERANCE
+            && (a.size.width - b.size.width).abs() < TOLERANCE
+            && (a.size.height - b.size.height).abs() < TOLERANCE
+    }
+
     unsafe fn add_item(
         menu: *mut Object,
         title: &str,
@@ -262,6 +447,11 @@ mod imp {
                 sel!(modelRackApplicationDidBecomeActive:),
                 application_did_become_active as extern "C" fn(&Object, Sel, *mut Object),
             );
+            decl.add_method(
+                sel!(applicationShouldHandleReopen:hasVisibleWindows:),
+                application_should_handle_reopen
+                    as extern "C" fn(&Object, Sel, *mut Object, bool) -> bool,
+            );
         }
         decl.register()
     }
@@ -292,20 +482,28 @@ mod imp {
         _notification: *mut Object,
     ) {
         unsafe {
-            let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
-            let windows: *mut Object = msg_send![app, windows];
-            let count: usize = msg_send![windows, count];
-            for idx in 0..count {
-                let window: *mut Object = msg_send![windows, objectAtIndex: idx];
-                let _: () = msg_send![window, makeKeyAndOrderFront: std::ptr::null_mut::<Object>()];
-            }
+            show_all_windows();
         }
+    }
+
+    extern "C" fn application_should_handle_reopen(
+        _this: &Object,
+        _cmd: Sel,
+        _app: *mut Object,
+        _has_visible_windows: bool,
+    ) -> bool {
+        unsafe {
+            show_all_windows();
+        }
+        true
     }
 }
 
 #[cfg(target_os = "macos")]
 pub use imp::{
-    hide_application, install_app_menu, take_open_library_request, take_settings_request,
+    configure_transparent_titlebar, configure_window_appearance, hide_application, hide_window,
+    install_app_menu, minimize_window, take_open_library_request, take_settings_request,
+    show_windows, zoom_window,
 };
 
 #[cfg(not(target_os = "macos"))]
@@ -323,3 +521,21 @@ pub fn take_open_library_request() -> bool {
 
 #[cfg(not(target_os = "macos"))]
 pub fn hide_application() {}
+
+#[cfg(not(target_os = "macos"))]
+pub fn configure_transparent_titlebar() {}
+
+#[cfg(not(target_os = "macos"))]
+pub fn configure_window_appearance() {}
+
+#[cfg(not(target_os = "macos"))]
+pub fn hide_window() {}
+
+#[cfg(not(target_os = "macos"))]
+pub fn minimize_window() {}
+
+#[cfg(not(target_os = "macos"))]
+pub fn show_windows() {}
+
+#[cfg(not(target_os = "macos"))]
+pub fn zoom_window() {}

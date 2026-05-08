@@ -1,0 +1,1789 @@
+import { Button, LineEdit, ScrollView, TextEdit } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+// ─── Data structs ────────────────────────────────────────
+
+export struct BrowserCard {
+    title: string,
+    subtitle: string,
+    author: string,
+    relative-modified: string,
+    thumb-key: string,
+    badge: string,
+    printed-count: int,
+    favorite: bool,
+    printed: bool,
+    error: bool,
+}
+
+export struct SidebarItem {
+    key: string,
+    label: string,
+    count: int,
+    depth: int,
+}
+
+// ─── Reusable components ─────────────────────────────────
+
+component SvgIcon inherits Image {
+    in property <image> icon;
+    in property <brush> tint: Theme.fg-2;
+
+    source: icon;
+    image-fit: contain;
+    colorize: tint;
+}
+
+component ThumbImage inherits Image {
+    in property <string> thumb-key: "rack";
+
+    image-fit: contain;
+    source: thumb-key == "clip" ? @image-url("../assets/thumbs/thumb-clip.svg") :
+            thumb-key == "panel" ? @image-url("../assets/thumbs/thumb-panel.svg") :
+            thumb-key == "mount" ? @image-url("../assets/thumbs/thumb-mount.svg") :
+            thumb-key == "bracket" ? @image-url("../assets/thumbs/thumb-bracket.svg") :
+            thumb-key == "caddy" ? @image-url("../assets/thumbs/thumb-caddy.svg") :
+            thumb-key == "spool" ? @image-url("../assets/thumbs/thumb-spool.svg") :
+            thumb-key == "therm" ? @image-url("../assets/thumbs/thumb-therm.svg") :
+            thumb-key == "chain" ? @image-url("../assets/thumbs/thumb-chain.svg") :
+            thumb-key == "link" ? @image-url("../assets/thumbs/thumb-link.svg") :
+            thumb-key == "case" ? @image-url("../assets/thumbs/thumb-case.svg") :
+            thumb-key == "holder" ? @image-url("../assets/thumbs/thumb-holder.svg") :
+            thumb-key == "keycap" ? @image-url("../assets/thumbs/thumb-keycap.svg") :
+            thumb-key == "fox" ? @image-url("../assets/thumbs/thumb-fox.svg") :
+            thumb-key == "voro" ? @image-url("../assets/thumbs/thumb-voro.svg") :
+            thumb-key == "vase" ? @image-url("../assets/thumbs/thumb-vase.svg") :
+            thumb-key == "drag" ? @image-url("../assets/thumbs/thumb-drag.svg") :
+            thumb-key == "benchy" ? @image-url("../assets/thumbs/thumb-benchy.svg") :
+            thumb-key == "cube" ? @image-url("../assets/thumbs/thumb-cube.svg") :
+            thumb-key == "test" ? @image-url("../assets/thumbs/thumb-test.svg") :
+            thumb-key == "err" ? @image-url("../assets/thumbs/thumb-err.svg") :
+            thumb-key == "ascii" ? @image-url("../assets/thumbs/thumb-ascii.svg") :
+            thumb-key == "damp" ? @image-url("../assets/thumbs/thumb-damp.svg") :
+            thumb-key == "batt" ? @image-url("../assets/thumbs/thumb-batt.svg") :
+            thumb-key == "fan" ? @image-url("../assets/thumbs/thumb-fan.svg") :
+            thumb-key == "shroud" ? @image-url("../assets/thumbs/thumb-shroud.svg") :
+            thumb-key == "vesa" ? @image-url("../assets/thumbs/thumb-vesa.svg") :
+            thumb-key == "mclip" ? @image-url("../assets/thumbs/thumb-mclip.svg") :
+            thumb-key == "anc" ? @image-url("../assets/thumbs/thumb-anc.svg") :
+            thumb-key == "string" ? @image-url("../assets/thumbs/thumb-string.svg") :
+            thumb-key == "over" ? @image-url("../assets/thumbs/thumb-over.svg") :
+            thumb-key == "temp" ? @image-url("../assets/thumbs/thumb-temp.svg") :
+            thumb-key == "celt" ? @image-url("../assets/thumbs/thumb-celt.svg") :
+            thumb-key == "hex" ? @image-url("../assets/thumbs/thumb-hex.svg") :
+            thumb-key == "grid" ? @image-url("../assets/thumbs/thumb-grid.svg") :
+            thumb-key == "bin" ? @image-url("../assets/thumbs/thumb-bin.svg") :
+            @image-url("../assets/thumbs/thumb-rack.svg");
+}
+
+component SidebarLine inherits Rectangle {
+    in property <string> label;
+    in property <image> icon;
+    in property <int> count;
+    in property <int> depth: 0;
+    in property <bool> selected: false;
+    callback activated();
+
+    height: 26px;
+    background: selected ? Theme.accent-dim : transparent;
+    border-radius: Theme.radius-btn;
+
+    // Active indicator bar
+    if selected: Rectangle {
+        x: 0;
+        y: 4px;
+        width: 2px;
+        height: parent.height - 8px;
+        border-radius: 1px;
+        background: Theme.accent;
+    }
+
+    SvgIcon {
+        x: 8px + depth * 14px;
+        y: (parent.height - 14px) / 2;
+        width: 14px;
+        height: 14px;
+        icon: root.icon;
+        tint: selected ? Theme.accent : Theme.fg-2;
+    }
+
+    Text {
+        x: 30px + depth * 14px;
+        y: (parent.height - self.height) / 2;
+        width: parent.width - self.x - 42px;
+        text: label;
+        color: selected ? Theme.fg-0 : Theme.fg-1;
+        font-size: Theme.font-body;
+        overflow: elide;
+    }
+
+    Text {
+        x: parent.width - self.width - 10px;
+        y: (parent.height - self.height) / 2;
+        text: count;
+        color: selected ? Theme.fg-1 : Theme.fg-3;
+        font-family: "JetBrains Mono";
+        font-size: Theme.font-overline;
+    }
+
+    TouchArea {
+        width: parent.width;
+        height: parent.height;
+        clicked => { root.activated(); }
+    }
+}
+
+component SectionHeader inherits Rectangle {
+    in property <string> label;
+    height: 24px;
+
+    Text {
+        x: 0;
+        y: (parent.height - self.height) / 2;
+        text: label;
+        color: Theme.fg-2;
+        font-size: Theme.font-overline;
+        font-weight: 600;
+        letter-spacing: 0.8px;
+    }
+}
+
+component FilterChip inherits Rectangle {
+    in property <string> label;
+    in property <bool> active: false;
+    callback dismiss();
+
+    height: 22px;
+    width: chip-text.width + 32px;
+    background: active ? Theme.accent-dim : Theme.bg-1;
+    border-color: active ? Theme.accent-line : Theme.line-2;
+    border-width: 1px;
+    border-radius: Theme.radius-pill;
+
+    chip-text := Text {
+        x: 8px;
+        y: (parent.height - self.height) / 2;
+        text: label;
+        color: active ? Theme.fg-0 : Theme.fg-1;
+        font-size: Theme.font-meta;
+    }
+
+    SvgIcon {
+        x: parent.width - 16px;
+        y: (parent.height - 10px) / 2;
+        width: 10px;
+        height: 10px;
+        icon: @image-url("../assets/icons/close.svg");
+        tint: Theme.fg-2;
+    }
+
+    TouchArea {
+        width: parent.width;
+        height: parent.height;
+        clicked => { root.dismiss(); }
+    }
+}
+
+component ModelCard inherits Rectangle {
+    in property <BrowserCard> card;
+    in property <bool> selected: false;
+    in property <int> card-index;
+    callback clicked(int);
+
+    background: selected ? Theme.bg-5 : Theme.bg-3;
+    border-color: card.error ? Theme.error :
+                  selected ? Theme.accent-line : Theme.line;
+    border-width: 1px;
+    border-radius: Theme.radius-card;
+
+    VerticalLayout {
+        // Thumbnail area
+        Rectangle {
+            height: root.width;
+            background: Theme.bg-0;
+            border-radius: Theme.radius-card;
+
+            ThumbImage {
+                x: 0;
+                y: 0;
+                width: parent.width;
+                height: parent.height;
+                thumb-key: card.thumb-key;
+            }
+
+            // Badge
+            if card.error: Rectangle {
+                x: 6px;
+                y: 6px;
+                width: err-text.width + 12px;
+                height: 18px;
+                background: #3c151ccc;
+                border-radius: 3px;
+
+                err-text := Text {
+                    x: 6px;
+                    y: (parent.height - self.height) / 2;
+                    text: "ERR";
+                    color: #ff9b8e;
+                    font-family: "JetBrains Mono";
+                    font-size: 10px;
+                    font-weight: 700;
+                }
+            }
+
+            if !card.error && card.badge != "": Text {
+                x: 6px;
+                y: 6px;
+                text: card.badge;
+                color: card.error ? #ffb4b0 : Theme.fg-2;
+                font-family: "JetBrains Mono";
+                font-size: 10px;
+                font-weight: 700;
+            }
+
+            // Favorite star
+            if card.favorite: SvgIcon {
+                x: parent.width - 24px;
+                y: 6px;
+                width: 18px;
+                height: 18px;
+                icon: @image-url("../assets/icons/star.svg");
+                tint: #d4a84f;
+            }
+
+            // Printed badge
+            if card.printed: Rectangle {
+                x: 6px;
+                y: parent.height - self.height - 6px;
+                width: print-label.width + 12px;
+                height: 18px;
+                background: #00000088;
+                border-radius: 3px;
+
+                print-label := Text {
+                    x: 6px;
+                    y: (parent.height - self.height) / 2;
+                    text: card.printed-count;
+                    color: Theme.success;
+                    font-size: 10px;
+                }
+            }
+        }
+
+        // Card body
+        Rectangle {
+            height: 52px;
+
+            VerticalLayout {
+                padding: 8px;
+                padding-top: 5px;
+                spacing: 2px;
+
+                Text {
+                    text: card.title;
+                    color: Theme.fg-0;
+                    font-size: 11.5px;
+                    font-weight: 500;
+                    overflow: elide;
+                }
+
+                Text {
+                    text: card.subtitle;
+                    color: Theme.fg-2;
+                    font-family: "JetBrains Mono";
+                    font-size: 10px;
+                    overflow: elide;
+                }
+
+                Text {
+                    text: card.relative-modified;
+                    color: Theme.fg-3;
+                    font-family: "JetBrains Mono";
+                    font-size: 10px;
+                    overflow: elide;
+                }
+            }
+        }
+    }
+
+    TouchArea {
+        width: parent.width;
+        height: parent.height;
+        clicked => { root.clicked(root.card-index); }
+    }
+}
+
+component SettingsTabButton inherits Rectangle {
+    in property <string> label;
+    in property <string> key;
+    in property <image> icon;
+    in property <bool> selected: false;
+    callback activated(string);
+
+    height: 28px;
+    background: selected ? Theme.accent-dim : transparent;
+    border-radius: Theme.radius-btn;
+
+    if selected: Rectangle {
+        x: 0;
+        y: 4px;
+        width: 2px;
+        height: parent.height - 8px;
+        border-radius: 1px;
+        background: Theme.accent;
+    }
+
+    SvgIcon {
+        x: 10px;
+        y: (parent.height - 13px) / 2;
+        width: 13px;
+        height: 13px;
+        icon: root.icon;
+        tint: selected ? Theme.accent : Theme.fg-2;
+    }
+
+    Text {
+        x: 30px;
+        y: (parent.height - self.height) / 2;
+        text: label;
+        color: selected ? Theme.fg-0 : Theme.fg-1;
+        font-size: Theme.font-body;
+    }
+
+    TouchArea {
+        width: parent.width;
+        height: parent.height;
+        clicked => { root.activated(key); }
+    }
+}
+
+component SettingsRow inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+
+    height: 38px;
+    background: transparent;
+    border-width: 0;
+
+    Rectangle {
+        x: 0;
+        y: parent.height - 1px;
+        width: parent.width;
+        height: 1px;
+        background: Theme.line;
+    }
+
+    Text {
+        x: 0;
+        y: (parent.height - self.height) / 2;
+        text: label;
+        color: Theme.fg-1;
+        font-size: Theme.font-body;
+        font-weight: 500;
+    }
+
+    Text {
+        x: 180px;
+        y: (parent.height - self.height) / 2;
+        width: parent.width - 180px;
+        text: value;
+        horizontal-alignment: right;
+        color: Theme.fg-2;
+        font-family: "JetBrains Mono";
+        font-size: Theme.font-meta;
+        overflow: elide;
+    }
+}
+
+component DetailKV inherits Rectangle {
+    in property <string> label;
+    in property <string> value;
+
+    height: 22px;
+
+    Text {
+        x: 0;
+        y: 0;
+        width: 90px;
+        text: label;
+        color: Theme.fg-2;
+        font-size: 12px;
+    }
+
+    Text {
+        x: 90px;
+        y: 0;
+        text: value;
+        color: Theme.fg-0;
+        font-family: "JetBrains Mono";
+        font-size: 11.5px;
+    }
+}
+
+// ─── Main window ─────────────────────────────────────────
+
+export component ModelRackWindow inherits Window {
+    // Core properties
+    in property <string> app-title: "ModelRack";
+    in property <string> app-version: "v0.1.0";
+    in property <string> library-label: "~/Library/3d";
+    in property <int> selected-card-index: -1;
+    in property <string> status-text: "Ready";
+    in property <string> density-label: "M";
+    in property <string> view-mode-label: "Grid";
+    in-out property <string> search-text;
+    in property <string> browser-message;
+    in property <string> browser-count-label;
+    in property <string> sort-label: "Name ↑";
+
+    // Sidebar counts
+    in property <int> all-count;
+    in property <int> recent-count;
+    in property <int> favorites-count;
+    in property <int> printed-count;
+    in property <int> duplicates-count;
+    in property <int> ready-count;
+    in property <int> errors-count;
+
+    // Data models
+    in property <[BrowserCard]> model-cards;
+    in property <[SidebarItem]> folder-items;
+    in property <[SidebarItem]> tag-items;
+    in property <string> active-filter-key: "all";
+
+    // Detail panel
+    in property <bool> has-selection: false;
+    in property <string> detail-name;
+    in property <string> detail-path;
+    in property <string> detail-format;
+    in property <string> detail-tris;
+    in property <string> detail-dims;
+    in property <string> detail-volume;
+    in property <string> detail-filesize;
+    in property <string> detail-hash;
+    in property <string> detail-modified;
+    in property <string> detail-added;
+    in property <string> detail-author;
+    in property <string> detail-tags-label;
+    in property <string> detail-notes;
+    in property <int> detail-printed-count;
+    in property <int> detail-health-score;
+    in property <bool> detail-manifold;
+    in property <bool> detail-watertight;
+    in property <bool> detail-normals;
+    in property <string> detail-estimate-time;
+    in property <string> detail-estimate-grams;
+    in property <string> detail-estimate-layers;
+    in property <bool> detail-bed-fit;
+    in property <bool> detail-fav;
+
+    // Settings
+    in property <bool> settings-open;
+    in property <string> settings-tab: "general";
+    in property <string> settings-language-label: "English";
+    in property <string> settings-theme-label: "Dark";
+    in property <string> settings-folder-label;
+    in property <string> settings-density-label;
+    in property <string> settings-slicer-label;
+
+    // Callbacks
+    callback open-folder();
+    callback open-settings();
+    callback close-settings();
+    callback choose-settings-tab(string);
+    callback cycle-settings-language();
+    callback toggle-settings-theme();
+    callback cycle-settings-density();
+    callback apply-search(string);
+    callback cycle-view-mode();
+    callback cycle-density();
+    callback toggle-sort();
+    callback choose-filter(string);
+    callback select-model(int);
+    callback toggle-favorite();
+    callback open-in-slicer();
+    callback window-close();
+    callback window-minimize();
+    callback window-zoom();
+    callback titlebar-drag(length, length);
+
+    title: "";
+    width: 1480px;
+    height: 920px;
+    default-font-family: "Inter";
+    no-frame: true;
+    background: Theme.bg-0;
+
+    // ─── Root layout ───
+    VerticalLayout {
+        // ─── Custom titlebar (native frame is disabled with no-frame) ───
+        Rectangle {
+            height: Theme.titlebar-height;
+            background: Theme.bg-1;
+
+            ta-titlebar-drag := TouchArea {
+                pointer-event(event) => {
+                    if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                        titlebar-drag(ta-titlebar-drag.mouse-x, ta-titlebar-drag.mouse-y);
+                    }
+                }
+            }
+
+            Rectangle {
+                x: 0;
+                y: parent.height - 1px;
+                width: parent.width;
+                height: 1px;
+                background: Theme.line;
+            }
+
+            HorizontalLayout {
+                x: 12px;
+                y: (parent.height - 12px) / 2;
+                spacing: 8px;
+
+                Rectangle {
+                    width: 12px;
+                    height: 12px;
+                    border-radius: 6px;
+                    background: #ff5f56;
+                    border-color: #00000033;
+                    border-width: 1px;
+                    TouchArea { clicked => { window-close(); } }
+                }
+                Rectangle {
+                    width: 12px;
+                    height: 12px;
+                    border-radius: 6px;
+                    background: #ffbd2e;
+                    border-color: #00000033;
+                    border-width: 1px;
+                    TouchArea { clicked => { window-minimize(); } }
+                }
+                Rectangle {
+                    width: 12px;
+                    height: 12px;
+                    border-radius: 6px;
+                    background: #27c93f;
+                    border-color: #00000033;
+                    border-width: 1px;
+                    TouchArea { clicked => { window-zoom(); } }
+                }
+            }
+
+            Image {
+                x: 80px;
+                y: (parent.height - 18px) / 2;
+                width: 18px;
+                height: 18px;
+                source: @image-url("../assets/icons/app-mark.svg");
+                image-fit: contain;
+            }
+
+            Text {
+                x: 106px;
+                y: (parent.height - self.height) / 2;
+                text: app-title;
+                color: Theme.fg-1;
+                font-size: 12px;
+                font-weight: 500;
+            }
+
+            Text {
+                x: 178px;
+                y: (parent.height - self.height) / 2;
+                text: "—";
+                color: Theme.fg-3;
+                font-size: 12px;
+            }
+
+            Text {
+                x: 196px;
+                y: (parent.height - self.height) / 2;
+                text: library-label;
+                color: Theme.fg-2;
+                font-family: "JetBrains Mono";
+                font-size: 11px;
+            }
+
+            Rectangle {
+                x: parent.width - 38px;
+                y: (parent.height - 26px) / 2;
+                width: 26px;
+                height: 26px;
+                border-radius: Theme.radius-btn;
+                background: ta-settings.has-hover ? Theme.bg-3 : transparent;
+
+                SvgIcon {
+                    x: (parent.width - 14px) / 2;
+                    y: (parent.height - 14px) / 2;
+                    width: 14px;
+                    height: 14px;
+                    icon: @image-url("../assets/icons/settings.svg");
+                    tint: Theme.fg-2;
+                }
+
+                ta-settings := TouchArea {
+                    clicked => { open-settings(); }
+                }
+            }
+        }
+
+        // ─── Main 3-pane area ───
+        HorizontalLayout {
+            // ─── Sidebar ───
+            Rectangle {
+                width: Theme.sidebar-width;
+                background: Theme.bg-1;
+
+                Rectangle {
+                    x: parent.width - 1px;
+                    y: 0;
+                    width: 1px;
+                    height: parent.height;
+                    background: Theme.line;
+                }
+
+                ScrollView {
+                    x: 6px;
+                    y: 0;
+                    width: parent.width - 12px;
+                    height: parent.height;
+
+                    VerticalLayout {
+                        padding-top: 10px;
+                        spacing: 1px;
+
+                        SectionHeader { label: "LIBRARY"; }
+
+                        SidebarLine { icon: @image-url("../assets/icons/layers.svg"); label: "All Models"; count: all-count; selected: active-filter-key == "all"; activated => { choose-filter("all"); } }
+                        SidebarLine { icon: @image-url("../assets/icons/clock.svg"); label: "Recent"; count: recent-count; selected: active-filter-key == "recent"; activated => { choose-filter("recent"); } }
+                        SidebarLine { icon: @image-url("../assets/icons/star.svg"); label: "Favorites"; count: favorites-count; selected: active-filter-key == "favorites"; activated => { choose-filter("favorites"); } }
+                        SidebarLine { icon: @image-url("../assets/icons/print.svg"); label: "Printed"; count: printed-count; selected: active-filter-key == "printed"; activated => { choose-filter("printed"); } }
+                        SidebarLine { icon: @image-url("../assets/icons/box.svg"); label: "Ready to Print"; count: ready-count; selected: active-filter-key == "ready"; activated => { choose-filter("ready"); } }
+                        SidebarLine { icon: @image-url("../assets/icons/duplicate.svg"); label: "Duplicates"; count: duplicates-count; selected: active-filter-key == "duplicates"; activated => { choose-filter("duplicates"); } }
+                        SidebarLine { icon: @image-url("../assets/icons/error.svg"); label: "Parse Errors"; count: errors-count; selected: active-filter-key == "errors"; activated => { choose-filter("errors"); } }
+
+                        Rectangle {
+                            height: 1px;
+                            background: Theme.line;
+                        }
+
+                        if folder-items.length > 0: SectionHeader { label: "FOLDERS"; }
+
+                        for folder in folder-items: SidebarLine {
+                            icon: @image-url("../assets/icons/folder.svg");
+                            label: folder.label;
+                            count: folder.count;
+                            depth: folder.depth;
+                            selected: active-filter-key == folder.key;
+                            activated => { choose-filter(folder.key); }
+                        }
+
+                        if tag-items.length > 0: SectionHeader { label: "TAGS"; }
+
+                        for tag in tag-items: SidebarLine {
+                            icon: @image-url("../assets/icons/tag.svg");
+                            label: tag.label;
+                            count: tag.count;
+                            selected: active-filter-key == tag.key;
+                            activated => { choose-filter(tag.key); }
+                        }
+                    }
+                }
+            }
+
+            // ─── Center content ───
+            VerticalLayout {
+                // Toolbar
+                Rectangle {
+                    height: Theme.toolbar-height;
+                    background: Theme.bg-2;
+
+                    Rectangle {
+                        x: 0;
+                        y: parent.height - 1px;
+                        width: parent.width;
+                        height: 1px;
+                        background: Theme.line;
+                    }
+
+                    HorizontalLayout {
+                        padding: 8px;
+                        padding-left: 12px;
+                        padding-right: 12px;
+                        spacing: 8px;
+                        alignment: center;
+
+                        // Search
+                        Rectangle {
+                            max-width: 360px;
+                            horizontal-stretch: 1;
+                            height: 28px;
+                            background: Theme.bg-1;
+                            border-color: Theme.line;
+                            border-width: 1px;
+                            border-radius: Theme.radius-btn;
+
+                            HorizontalLayout {
+                                padding-left: 10px;
+                                padding-right: 8px;
+                                spacing: 6px;
+                                alignment: center;
+
+                                SvgIcon {
+                                    width: 14px;
+                                    height: 14px;
+                                    icon: @image-url("../assets/icons/search.svg");
+                                    tint: Theme.fg-2;
+                                }
+
+                                search-field := LineEdit {
+                                    horizontal-stretch: 1;
+                                    placeholder-text: "Search filename, tag, notes…";
+                                    text <=> search-text;
+                                    accepted(text) => { apply-search(text); }
+                                }
+
+                                Rectangle {
+                                    width: 28px;
+                                    height: 18px;
+                                    background: Theme.bg-2;
+                                    border-color: Theme.line;
+                                    border-width: 1px;
+                                    border-radius: 3px;
+
+                                    Text {
+                                        x: (parent.width - self.width) / 2;
+                                        y: (parent.height - self.height) / 2;
+                                        text: "⌘K";
+                                        color: Theme.fg-3;
+                                        font-family: "JetBrains Mono";
+                                        font-size: 10px;
+                                    }
+                                }
+                            }
+                        }
+
+                        // View segmented control
+                        HorizontalLayout {
+                            height: 28px;
+                            spacing: 1px;
+
+                            Rectangle {
+                                width: 58px;
+                                height: 28px;
+                                background: view-mode-label == "Grid" ? Theme.bg-3 : Theme.bg-1;
+                                border-color: Theme.line;
+                                border-width: 1px;
+                                border-radius: Theme.radius-btn;
+
+                                HorizontalLayout {
+                                    x: (parent.width - self.width) / 2;
+                                    y: 0;
+                                    height: parent.height;
+                                    spacing: 4px;
+                                    alignment: center;
+                                    SvgIcon { width: 12px; height: 12px; icon: @image-url("../assets/icons/grid.svg"); tint: view-mode-label == "Grid" ? Theme.fg-0 : Theme.fg-1; }
+                                    Text { text: "Grid"; color: view-mode-label == "Grid" ? Theme.fg-0 : Theme.fg-1; font-size: 12px; }
+                                }
+
+                                TouchArea { clicked => { cycle-view-mode(); } }
+                            }
+
+                            Rectangle {
+                                width: 86px;
+                                height: 28px;
+                                background: view-mode-label == "Masonry" ? Theme.bg-3 : Theme.bg-1;
+                                border-color: Theme.line;
+                                border-width: 1px;
+                                border-radius: Theme.radius-btn;
+
+                                HorizontalLayout {
+                                    x: (parent.width - self.width) / 2;
+                                    y: 0;
+                                    height: parent.height;
+                                    spacing: 4px;
+                                    alignment: center;
+                                    SvgIcon { width: 12px; height: 12px; icon: @image-url("../assets/icons/masonry.svg"); tint: view-mode-label == "Masonry" ? Theme.fg-0 : Theme.fg-1; }
+                                    Text { text: "Masonry"; color: view-mode-label == "Masonry" ? Theme.fg-0 : Theme.fg-1; font-size: 12px; }
+                                }
+
+                                TouchArea { clicked => { cycle-view-mode(); } }
+                            }
+
+                            Rectangle {
+                                width: 56px;
+                                height: 28px;
+                                background: view-mode-label == "List" ? Theme.bg-3 : Theme.bg-1;
+                                border-color: Theme.line;
+                                border-width: 1px;
+                                border-radius: Theme.radius-btn;
+
+                                HorizontalLayout {
+                                    x: (parent.width - self.width) / 2;
+                                    y: 0;
+                                    height: parent.height;
+                                    spacing: 4px;
+                                    alignment: center;
+                                    SvgIcon { width: 12px; height: 12px; icon: @image-url("../assets/icons/list.svg"); tint: view-mode-label == "List" ? Theme.fg-0 : Theme.fg-1; }
+                                    Text { text: "List"; color: view-mode-label == "List" ? Theme.fg-0 : Theme.fg-1; font-size: 12px; }
+                                }
+
+                                TouchArea { clicked => { cycle-view-mode(); } }
+                            }
+                        }
+
+                        // Density segmented control
+                        HorizontalLayout {
+                            height: 28px;
+                            spacing: 1px;
+
+                            Rectangle {
+                                width: 28px;
+                                height: 28px;
+                                background: density-label == "S" ? Theme.bg-3 : Theme.bg-1;
+                                border-color: Theme.line;
+                                border-width: 1px;
+                                border-radius: Theme.radius-btn;
+                                Text { x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; text: "S"; color: density-label == "S" ? Theme.fg-0 : Theme.fg-1; font-size: 12px; }
+                                TouchArea { clicked => { cycle-density(); } }
+                            }
+                            Rectangle {
+                                width: 28px;
+                                height: 28px;
+                                background: density-label == "M" ? Theme.bg-3 : Theme.bg-1;
+                                border-color: Theme.line;
+                                border-width: 1px;
+                                border-radius: Theme.radius-btn;
+                                Text { x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; text: "M"; color: density-label == "M" ? Theme.fg-0 : Theme.fg-1; font-size: 12px; }
+                                TouchArea { clicked => { cycle-density(); } }
+                            }
+                            Rectangle {
+                                width: 28px;
+                                height: 28px;
+                                background: density-label == "L" ? Theme.bg-3 : Theme.bg-1;
+                                border-color: Theme.line;
+                                border-width: 1px;
+                                border-radius: Theme.radius-btn;
+                                Text { x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; text: "L"; color: density-label == "L" ? Theme.fg-0 : Theme.fg-1; font-size: 12px; }
+                                TouchArea { clicked => { cycle-density(); } }
+                            }
+                        }
+
+                        Rectangle {
+                            width: 1px;
+                            height: 18px;
+                            background: Theme.line-2;
+                        }
+
+                        // Sort
+                        Rectangle {
+                            width: sort-btn-text.width + 28px;
+                            height: 28px;
+                            background: ta-sort.has-hover ? Theme.bg-3 : Theme.bg-1;
+                            border-color: Theme.line;
+                            border-width: 1px;
+                            border-radius: Theme.radius-btn;
+
+                            SvgIcon {
+                                x: 9px;
+                                y: (parent.height - 13px) / 2;
+                                width: 13px;
+                                height: 13px;
+                                icon: @image-url("../assets/icons/sort.svg");
+                                tint: Theme.fg-2;
+                            }
+
+                            sort-btn-text := Text {
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                                text: sort-label;
+                                color: Theme.fg-1;
+                                font-size: 12px;
+                            }
+
+                            ta-sort := TouchArea { clicked => { toggle-sort(); } }
+                        }
+
+                        Rectangle { horizontal-stretch: 1; }
+
+                        // Refresh
+                        Rectangle {
+                            width: 28px;
+                            height: 28px;
+                            background: Theme.bg-1;
+                            border-color: Theme.line;
+                            border-width: 1px;
+                            border-radius: Theme.radius-btn;
+
+                            SvgIcon {
+                                x: (parent.width - 14px) / 2;
+                                y: (parent.height - 14px) / 2;
+                                width: 14px;
+                                height: 14px;
+                                icon: @image-url("../assets/icons/refresh.svg");
+                                tint: Theme.fg-1;
+                            }
+                        }
+
+                        // Add Folder
+                        Rectangle {
+                            width: add-text.width + 30px;
+                            height: 28px;
+                            background: ta-add.has-hover ? #6fc8e0 : Theme.accent;
+                            border-radius: Theme.radius-btn;
+
+                            SvgIcon {
+                                x: 9px;
+                                y: (parent.height - 13px) / 2;
+                                width: 13px;
+                                height: 13px;
+                                icon: @image-url("../assets/icons/plus.svg");
+                                tint: #0e2a32;
+                            }
+
+                            add-text := Text {
+                                x: 22px;
+                                y: (parent.height - self.height) / 2;
+                                text: "Add Folder";
+                                color: #0e2a32;
+                                font-size: Theme.font-body;
+                                font-weight: 500;
+                            }
+
+                            ta-add := TouchArea { clicked => { open-folder(); } }
+                        }
+                    }
+                }
+
+                // Filter bar
+                Rectangle {
+                    height: Theme.filterbar-height;
+                    background: Theme.bg-2;
+
+                    Rectangle {
+                        x: 0;
+                        y: parent.height - 1px;
+                        width: parent.width;
+                        height: 1px;
+                        background: Theme.line;
+                    }
+
+                    HorizontalLayout {
+                        padding-left: 12px;
+                        padding-right: 12px;
+                        spacing: 8px;
+                        alignment: center;
+
+                        Text {
+                            text: active-filter-key == "all" ? "All models" : "Filtering";
+                            color: Theme.fg-2;
+                            font-size: 11px;
+                            font-weight: 500;
+                        }
+
+                        if active-filter-key != "all": FilterChip {
+                            label: active-filter-key;
+                            active: true;
+                            dismiss => { choose-filter("all"); }
+                        }
+
+                        Rectangle { horizontal-stretch: 1; }
+
+                        Text {
+                            text: browser-count-label;
+                            color: Theme.fg-2;
+                            font-family: "JetBrains Mono";
+                            font-size: 11px;
+                        }
+                    }
+                }
+
+                // Card grid area
+                Rectangle {
+                    background: Theme.bg-2;
+                    vertical-stretch: 1;
+
+                    if model-cards.length == 0: VerticalLayout {
+                        alignment: center;
+
+                        Rectangle {
+                            height: 36px;
+                            width: 36px;
+                            x: (parent.width - self.width) / 2;
+                            border-color: Theme.line-3;
+                            border-width: 1px;
+                            border-radius: 8px;
+                            background: transparent;
+
+                            SvgIcon {
+                                x: (parent.width - 16px) / 2;
+                                y: (parent.height - 16px) / 2;
+                                width: 16px;
+                                height: 16px;
+                                icon: @image-url("../assets/icons/box.svg");
+                                tint: Theme.fg-3;
+                            }
+                        }
+
+                        Text {
+                            text: browser-message;
+                            color: Theme.fg-1;
+                            font-size: Theme.font-body;
+                            horizontal-alignment: center;
+                        }
+                    }
+
+                    if model-cards.length > 0: Flickable {
+                        x: 14px;
+                        y: 14px;
+                        width: parent.width - 28px;
+                        height: parent.height - 28px;
+
+                        property <length> card-w: density-label == "S" ? 156px : density-label == "L" ? 244px : 208px;
+                        property <length> gap: 12px;
+                        property <int> cols: max(1, floor((self.width + gap) / (card-w + gap)));
+                        property <int> rows: ceil(model-cards.length / max(1, cols));
+
+                        viewport-height: rows * (card-w + 52px + gap);
+
+                        for card[index] in model-cards: ModelCard {
+                            x: mod(index, cols) * (card-w + gap);
+                            y: floor(index / cols) * (card-w + 52px + gap);
+                            width: card-w;
+                            card: card;
+                            card-index: index;
+                            selected: index == selected-card-index;
+                            clicked(idx) => { select-model(idx); }
+                        }
+                    }
+                }
+
+                // Status bar
+                Rectangle {
+                    height: Theme.statusbar-height;
+                    background: Theme.bg-1;
+
+                    Rectangle {
+                        x: 0;
+                        y: 0;
+                        width: parent.width;
+                        height: 1px;
+                        background: Theme.line;
+                    }
+
+                    HorizontalLayout {
+                        padding-left: 12px;
+                        padding-right: 12px;
+                        spacing: 8px;
+                        alignment: center;
+
+                        Rectangle {
+                            width: 6px;
+                            height: 6px;
+                            border-radius: 3px;
+                            background: Theme.success;
+                        }
+
+                        Text {
+                            text: status-text;
+                            color: Theme.fg-2;
+                            font-family: "JetBrains Mono";
+                            font-size: Theme.font-overline;
+                        }
+
+                        Rectangle { horizontal-stretch: 1; }
+
+                        Text {
+                            text: browser-count-label;
+                            color: Theme.fg-3;
+                            font-family: "JetBrains Mono";
+                            font-size: Theme.font-overline;
+                        }
+
+                        Text {
+                            text: app-version;
+                            color: Theme.fg-3;
+                            font-family: "JetBrains Mono";
+                            font-size: Theme.font-overline;
+                        }
+                    }
+                }
+            }
+
+            // ─── Detail panel ───
+            Rectangle {
+                width: Theme.detail-width;
+                background: Theme.bg-1;
+
+                Rectangle {
+                    x: 0;
+                    y: 0;
+                    width: 1px;
+                    height: parent.height;
+                    background: Theme.line;
+                }
+
+                if !has-selection: VerticalLayout {
+                    alignment: center;
+                    spacing: 8px;
+
+                    Rectangle {
+                        width: 36px;
+                        height: 36px;
+                        x: (parent.width - self.width) / 2;
+                        border-color: Theme.line-3;
+                        border-width: 1px;
+                        border-radius: 8px;
+                        background: transparent;
+
+                            SvgIcon {
+                                x: (parent.width - 16px) / 2;
+                                y: (parent.height - 16px) / 2;
+                                width: 16px;
+                                height: 16px;
+                                icon: @image-url("../assets/icons/box.svg");
+                                tint: Theme.fg-3;
+                            }
+                    }
+
+                    Text {
+                        text: "Select a model";
+                        color: Theme.fg-1;
+                        font-size: Theme.font-body;
+                        horizontal-alignment: center;
+                    }
+
+                    Text {
+                        text: "Click a thumbnail to view details";
+                        color: Theme.fg-2;
+                        font-size: Theme.font-meta;
+                        horizontal-alignment: center;
+                    }
+                }
+
+                if has-selection: VerticalLayout {
+                    // Preview area
+                    Rectangle {
+                        height: 280px;
+                        background: Theme.bg-0;
+
+                        Rectangle {
+                            x: 0;
+                            y: parent.height - 1px;
+                            width: parent.width;
+                            height: 1px;
+                            background: Theme.line;
+                        }
+
+                        ThumbImage {
+                            x: 0;
+                            y: 0;
+                            width: parent.width;
+                            height: parent.height;
+                            thumb-key: selected-card-index >= 0 && model-cards.length > selected-card-index ? model-cards[selected-card-index].thumb-key : "rack";
+                        }
+
+                        HorizontalLayout {
+                            x: parent.width - 60px;
+                            y: 8px;
+                            spacing: 4px;
+
+                            Rectangle {
+                                width: 24px; height: 24px;
+                                background: #00000080;
+                                border-color: Theme.line;
+                                border-width: 1px;
+                                border-radius: 4px;
+                                SvgIcon { x: (parent.width - 13px) / 2; y: (parent.height - 13px) / 2; width: 13px; height: 13px; icon: @image-url("../assets/icons/rotate.svg"); tint: Theme.fg-1; }
+                            }
+                            Rectangle {
+                                width: 24px; height: 24px;
+                                background: #00000080;
+                                border-color: Theme.line;
+                                border-width: 1px;
+                                border-radius: 4px;
+                                SvgIcon { x: (parent.width - 13px) / 2; y: (parent.height - 13px) / 2; width: 13px; height: 13px; icon: @image-url("../assets/icons/fullscreen.svg"); tint: Theme.fg-1; }
+                            }
+                        }
+
+                        // Axis labels
+                        HorizontalLayout {
+                            x: 8px;
+                            y: parent.height - 24px;
+                            spacing: 4px;
+
+                            Rectangle {
+                                width: 18px; height: 16px;
+                                background: #00000080;
+                                border-radius: 2px;
+                                Text { x: 5px; y: 2px; text: "X"; color: #c95040; font-family: "JetBrains Mono"; font-size: 10px; }
+                            }
+                            Rectangle {
+                                width: 18px; height: 16px;
+                                background: #00000080;
+                                border-radius: 2px;
+                                Text { x: 5px; y: 2px; text: "Y"; color: #5fb87a; font-family: "JetBrains Mono"; font-size: 10px; }
+                            }
+                            Rectangle {
+                                width: 18px; height: 16px;
+                                background: #00000080;
+                                border-radius: 2px;
+                                Text { x: 5px; y: 2px; text: "Z"; color: #5fb8d4; font-family: "JetBrains Mono"; font-size: 10px; }
+                            }
+                        }
+
+                        Text {
+                            x: parent.width - self.width - 8px;
+                            y: parent.height - 20px;
+                            text: "orbit · drag to rotate";
+                            color: Theme.fg-3;
+                            font-family: "JetBrains Mono";
+                            font-size: 10px;
+                        }
+                    }
+
+                    // Scrollable detail sections
+                    ScrollView {
+                        VerticalLayout {
+                            padding: 16px;
+                            padding-top: 14px;
+                            padding-bottom: 20px;
+                            spacing: 0px;
+
+                            // Title + path
+                            Text {
+                                text: detail-name;
+                                color: Theme.fg-0;
+                                font-size: Theme.font-heading;
+                                font-weight: 600;
+                                wrap: word-wrap;
+                            }
+
+                            Text {
+                                text: detail-path;
+                                color: Theme.fg-2;
+                                font-family: "JetBrains Mono";
+                                font-size: Theme.font-overline;
+                                wrap: word-wrap;
+                            }
+
+                            // Actions
+                            HorizontalLayout {
+                                spacing: 6px;
+                                height: 48px;
+                                alignment: start;
+
+                                Rectangle {
+                                    width: slicer-text.width + 32px;
+                                    height: 28px;
+                                    background: ta-slicer.has-hover ? #6fc8e0 : Theme.accent;
+                                    border-radius: Theme.radius-btn;
+
+                                    slicer-text := Text {
+                                        x: 26px;
+                                        y: (parent.height - self.height) / 2;
+                                        text: "Open in Slicer";
+                                        color: #0e2a32;
+                                        font-size: Theme.font-body;
+                                        font-weight: 500;
+                                    }
+
+                                    SvgIcon {
+                                        x: 9px;
+                                        y: (parent.height - 13px) / 2;
+                                        width: 13px;
+                                        height: 13px;
+                                        icon: @image-url("../assets/icons/slicer.svg");
+                                        tint: #0e2a32;
+                                    }
+
+                                    ta-slicer := TouchArea { clicked => { open-in-slicer(); } }
+                                }
+
+                                Rectangle {
+                                    width: 28px; height: 28px;
+                                    background: ta-printed.has-hover ? Theme.bg-3 : Theme.bg-1;
+                                    border-color: Theme.line;
+                                    border-width: 1px;
+                                    border-radius: Theme.radius-btn;
+
+                                    SvgIcon {
+                                        x: (parent.width - 14px) / 2;
+                                        y: (parent.height - 14px) / 2;
+                                        width: 14px;
+                                        height: 14px;
+                                        icon: @image-url("../assets/icons/print.svg");
+                                        tint: Theme.fg-2;
+                                    }
+
+                                    ta-printed := TouchArea {}
+                                }
+
+                                Rectangle {
+                                    width: 28px; height: 28px;
+                                    background: ta-fav.has-hover ? Theme.bg-3 : Theme.bg-1;
+                                    border-color: Theme.line;
+                                    border-width: 1px;
+                                    border-radius: Theme.radius-btn;
+
+                                    SvgIcon {
+                                        x: (parent.width - 14px) / 2;
+                                        y: (parent.height - 14px) / 2;
+                                        width: 14px;
+                                        height: 14px;
+                                        icon: @image-url("../assets/icons/star.svg");
+                                        tint: detail-fav ? #d4a84f : Theme.fg-2;
+                                    }
+
+                                    ta-fav := TouchArea { clicked => { toggle-favorite(); } }
+                                }
+                            }
+
+                            // Geometry section
+                            SectionHeader { label: "GEOMETRY"; }
+                            DetailKV { label: "Format"; value: detail-format; }
+                            DetailKV { label: "Triangles"; value: detail-tris; }
+                            DetailKV { label: "Dimensions"; value: detail-dims; }
+                            DetailKV { label: "Volume est."; value: detail-volume; }
+                            DetailKV { label: "File size"; value: detail-filesize; }
+
+                            // Mesh health
+                            SectionHeader { label: "MESH HEALTH"; }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                height: 20px;
+                                Text { text: detail-manifold ? "✓ Manifold" : "✗ Manifold"; color: detail-manifold ? Theme.success : Theme.error; font-size: 12px; }
+                                Text { text: detail-watertight ? "✓ Watertight" : "✗ Watertight"; color: detail-watertight ? Theme.success : Theme.warn; font-size: 12px; }
+                            }
+                            HorizontalLayout {
+                                spacing: 8px;
+                                height: 20px;
+                                Text { text: detail-normals ? "✓ Normals" : "✗ Normals"; color: detail-normals ? Theme.success : Theme.warn; font-size: 12px; }
+                            }
+
+                            // Print estimate
+                            if detail-estimate-time != "": SectionHeader { label: "PRINT ESTIMATE"; }
+                            if detail-estimate-time != "": HorizontalLayout {
+                                spacing: 8px;
+                                height: 60px;
+
+                                Rectangle {
+                                    horizontal-stretch: 1;
+                                    background: Theme.bg-3;
+                                    border-color: Theme.line;
+                                    border-width: 1px;
+                                    border-radius: 6px;
+
+                                    VerticalLayout {
+                                        padding: 8px;
+                                        Text { text: "TIME"; color: Theme.fg-2; font-size: Theme.font-overline; }
+                                        Text { text: detail-estimate-time; color: Theme.fg-0; font-size: 16px; font-weight: 600; }
+                                    }
+                                }
+                                Rectangle {
+                                    horizontal-stretch: 1;
+                                    background: Theme.bg-3;
+                                    border-color: Theme.line;
+                                    border-width: 1px;
+                                    border-radius: 6px;
+
+                                    VerticalLayout {
+                                        padding: 8px;
+                                        Text { text: "FILAMENT"; color: Theme.fg-2; font-size: Theme.font-overline; }
+                                        Text { text: detail-estimate-grams; color: Theme.fg-0; font-size: 16px; font-weight: 600; }
+                                    }
+                                }
+                                Rectangle {
+                                    horizontal-stretch: 1;
+                                    background: Theme.bg-3;
+                                    border-color: Theme.line;
+                                    border-width: 1px;
+                                    border-radius: 6px;
+
+                                    VerticalLayout {
+                                        padding: 8px;
+                                        Text { text: "LAYERS"; color: Theme.fg-2; font-size: Theme.font-overline; }
+                                        Text { text: detail-estimate-layers; color: Theme.fg-0; font-size: 16px; font-weight: 600; }
+                                    }
+                                }
+                            }
+
+                            SectionHeader { label: "TAGS"; }
+                            Rectangle {
+                                height: 28px;
+
+                                Rectangle {
+                                    x: 0;
+                                    y: 2px;
+                                    width: tags-text.width + 14px;
+                                    height: 20px;
+                                    background: Theme.bg-3;
+                                    border-color: Theme.line;
+                                    border-width: 1px;
+                                    border-radius: 3px;
+
+                                    tags-text := Text {
+                                        x: 7px;
+                                        y: (parent.height - self.height) / 2;
+                                        text: detail-tags-label;
+                                        color: Theme.fg-1;
+                                        font-size: 11px;
+                                        overflow: elide;
+                                    }
+                                }
+
+                                Rectangle {
+                                    x: tags-text.width + 20px;
+                                    y: 2px;
+                                    width: 44px;
+                                    height: 20px;
+                                    background: transparent;
+                                    border-color: Theme.line;
+                                    border-width: 1px;
+                                    border-radius: 3px;
+
+                                    Text {
+                                        x: (parent.width - self.width) / 2;
+                                        y: (parent.height - self.height) / 2;
+                                        text: "+ add";
+                                        color: Theme.fg-2;
+                                        font-size: 11px;
+                                    }
+                                }
+                            }
+
+                            if detail-printed-count > 0: SectionHeader { label: "PRINT HISTORY"; }
+                            if detail-printed-count > 0: Rectangle {
+                                height: 42px;
+
+                                Text {
+                                    x: 0;
+                                    y: 8px;
+                                    width: 64px;
+                                    text: "recent";
+                                    color: Theme.fg-2;
+                                    font-family: "JetBrains Mono";
+                                    font-size: 10.5px;
+                                }
+
+                                Rectangle {
+                                    x: 74px;
+                                    y: 13px;
+                                    width: 6px;
+                                    height: 6px;
+                                    border-radius: 3px;
+                                    background: Theme.success;
+                                }
+
+                                Text {
+                                    x: 90px;
+                                    y: 5px;
+                                    text: "Printed " + detail-printed-count + " times";
+                                    color: Theme.fg-0;
+                                    font-size: 11.5px;
+                                }
+
+                                Text {
+                                    x: 90px;
+                                    y: 22px;
+                                    text: "PLA · 0.20mm profile";
+                                    color: Theme.fg-2;
+                                    font-family: "JetBrains Mono";
+                                    font-size: 10px;
+                                }
+                            }
+
+                            SectionHeader { label: "NOTES"; }
+                            Rectangle {
+                                height: 62px;
+                                background: Theme.bg-2;
+                                border-color: Theme.line;
+                                border-width: 1px;
+                                border-radius: Theme.radius-btn;
+
+                                Text {
+                                    x: 10px;
+                                    y: 8px;
+                                    width: parent.width - 20px;
+                                    text: detail-notes;
+                                    color: detail-notes == "Add notes..." ? Theme.fg-3 : Theme.fg-1;
+                                    font-size: 12px;
+                                    wrap: word-wrap;
+                                }
+                            }
+
+                            // File section
+                            SectionHeader { label: "FILE"; }
+                            DetailKV { label: "Hash (b3)"; value: detail-hash; }
+                            DetailKV { label: "Modified"; value: detail-modified; }
+                            DetailKV { label: "Added"; value: detail-added; }
+                            DetailKV { label: "Author"; value: detail-author; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ─── Settings dialog ───
+    if settings-open: Rectangle {
+        x: 0; y: 0;
+        width: parent.width;
+        height: parent.height;
+        background: #000000aa;
+
+        TouchArea {
+            clicked => { close-settings(); }
+        }
+
+        Rectangle {
+            x: (parent.width - 760px) / 2;
+            y: (parent.height - 540px) / 2;
+            width: 760px;
+            height: 540px;
+            background: Theme.bg-1;
+            border-color: Theme.line;
+            border-width: 1px;
+            border-radius: 12px;
+
+            TouchArea {}
+
+            HorizontalLayout {
+                // Settings sidebar
+                Rectangle {
+                    width: 200px;
+                    background: Theme.bg-0;
+                    border-radius: 12px;
+
+                    VerticalLayout {
+                        padding: 14px;
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        spacing: 1px;
+
+                        Text {
+                            text: "ModelRack";
+                            color: Theme.fg-0;
+                            font-size: Theme.font-title;
+                            font-weight: 600;
+                            horizontal-alignment: center;
+                        }
+
+                        Text {
+                            text: app-version;
+                            color: Theme.fg-2;
+                            font-family: "JetBrains Mono";
+                            font-size: 11px;
+                            horizontal-alignment: center;
+                        }
+
+                        Rectangle { height: 12px; }
+
+                        Rectangle {
+                            height: 1px;
+                            background: Theme.line;
+                        }
+
+                        Rectangle { height: 8px; }
+
+                        SettingsTabButton { icon: @image-url("../assets/icons/settings.svg"); label: "General"; key: "general"; selected: settings-tab == "general"; activated(tab) => { choose-settings-tab(tab); } }
+                        SettingsTabButton { icon: @image-url("../assets/icons/settings.svg"); label: "Appearance"; key: "appearance"; selected: settings-tab == "appearance"; activated(tab) => { choose-settings-tab(tab); } }
+                        SettingsTabButton { icon: @image-url("../assets/icons/folder.svg"); label: "Library"; key: "library"; selected: settings-tab == "library"; activated(tab) => { choose-settings-tab(tab); } }
+                        SettingsTabButton { icon: @image-url("../assets/icons/box.svg"); label: "Thumbnails"; key: "thumbnails"; selected: settings-tab == "thumbnails"; activated(tab) => { choose-settings-tab(tab); } }
+                        SettingsTabButton { icon: @image-url("../assets/icons/slicer.svg"); label: "Slicer"; key: "slicer"; selected: settings-tab == "slicer"; activated(tab) => { choose-settings-tab(tab); } }
+                        SettingsTabButton { icon: @image-url("../assets/icons/grid.svg"); label: "Hotkeys"; key: "hotkeys"; selected: settings-tab == "hotkeys"; activated(tab) => { choose-settings-tab(tab); } }
+                        SettingsTabButton { icon: @image-url("../assets/icons/settings.svg"); label: "Advanced"; key: "advanced"; selected: settings-tab == "advanced"; activated(tab) => { choose-settings-tab(tab); } }
+                        SettingsTabButton { icon: @image-url("../assets/icons/info.svg"); label: "About"; key: "about"; selected: settings-tab == "about"; activated(tab) => { choose-settings-tab(tab); } }
+                    }
+                }
+
+                // Settings body
+                VerticalLayout {
+                    // Header
+                    Rectangle {
+                        height: 44px;
+
+                        Rectangle {
+                            x: 0;
+                            y: parent.height - 1px;
+                            width: parent.width;
+                            height: 1px;
+                            background: Theme.line;
+                        }
+
+                        HorizontalLayout {
+                            padding-left: 18px;
+                            padding-right: 18px;
+                            alignment: center;
+
+                            Text {
+                                text: settings-tab == "general" ? "General" :
+                                      settings-tab == "appearance" ? "Appearance" :
+                                      settings-tab == "library" ? "Library" :
+                                      settings-tab == "thumbnails" ? "Thumbnails" :
+                                      settings-tab == "slicer" ? "Slicer" :
+                                      settings-tab == "hotkeys" ? "Hotkeys" :
+                                      settings-tab == "advanced" ? "Advanced" : "About";
+                                color: Theme.fg-0;
+                                font-size: Theme.font-heading;
+                                font-weight: 600;
+                            }
+
+                            Rectangle { horizontal-stretch: 1; }
+
+                            Rectangle {
+                                width: 24px;
+                                height: 24px;
+                                border-radius: Theme.radius-btn;
+                                background: ta-close.has-hover ? Theme.bg-3 : transparent;
+
+                                SvgIcon {
+                                    x: (parent.width - 12px) / 2;
+                                    y: (parent.height - 12px) / 2;
+                                    width: 12px;
+                                    height: 12px;
+                                    icon: @image-url("../assets/icons/close.svg");
+                                    tint: Theme.fg-2;
+                                }
+
+                                ta-close := TouchArea { clicked => { close-settings(); } }
+                            }
+                        }
+                    }
+
+                    // Content
+                    ScrollView {
+                        VerticalLayout {
+                            padding: 18px;
+                            padding-left: 22px;
+                            padding-right: 22px;
+                            spacing: 0px;
+
+                            if settings-tab == "general": SettingsRow { label: "Language"; value: settings-language-label; }
+                            if settings-tab == "general": SettingsRow { label: "On startup"; value: "Reopen last library"; }
+                            if settings-tab == "general": SettingsRow { label: "Default view"; value: view-mode-label; }
+                            if settings-tab == "general": SettingsRow { label: "Default sort"; value: sort-label; }
+                            if settings-tab == "general": Rectangle {
+                                height: 40px;
+                                Rectangle {
+                                    width: lang-text.width + 20px;
+                                    height: 28px;
+                                    background: ta-lang.has-hover ? Theme.bg-4 : Theme.bg-3;
+                                    border-color: Theme.line-2;
+                                    border-width: 1px;
+                                    border-radius: Theme.radius-btn;
+
+                                    lang-text := Text {
+                                        x: (parent.width - self.width) / 2;
+                                        y: (parent.height - self.height) / 2;
+                                        text: "Cycle Language";
+                                        color: Theme.fg-0;
+                                        font-size: 12px;
+                                    }
+                                    ta-lang := TouchArea { clicked => { cycle-settings-language(); } }
+                                }
+                            }
+
+                            if settings-tab == "appearance": SettingsRow { label: "Theme"; value: settings-theme-label; }
+                            if settings-tab == "appearance": SettingsRow { label: "Accent color"; value: "Teal"; }
+                            if settings-tab == "appearance": SettingsRow { label: "Typography"; value: "Inter + JetBrains Mono"; }
+                            if settings-tab == "appearance": Rectangle {
+                                height: 40px;
+                                Rectangle {
+                                    width: theme-text.width + 20px;
+                                    height: 28px;
+                                    background: ta-theme.has-hover ? Theme.bg-4 : Theme.bg-3;
+                                    border-color: Theme.line-2;
+                                    border-width: 1px;
+                                    border-radius: Theme.radius-btn;
+
+                                    theme-text := Text {
+                                        x: (parent.width - self.width) / 2;
+                                        y: (parent.height - self.height) / 2;
+                                        text: "Toggle Theme";
+                                        color: Theme.fg-0;
+                                        font-size: 12px;
+                                    }
+                                    ta-theme := TouchArea { clicked => { toggle-settings-theme(); } }
+                                }
+                            }
+
+                            if settings-tab == "library": SettingsRow { label: "Library folder"; value: settings-folder-label; }
+                            if settings-tab == "library": SettingsRow { label: "Recursive scan"; value: "Enabled"; }
+                            if settings-tab == "library": SettingsRow { label: "Watch for changes"; value: "Enabled"; }
+                            if settings-tab == "library": SettingsRow { label: "Metadata storage"; value: ".modelrack.json"; }
+
+                            if settings-tab == "thumbnails": SettingsRow { label: "Density"; value: settings-density-label; }
+                            if settings-tab == "thumbnails": SettingsRow { label: "Style"; value: "Isometric shaded"; }
+                            if settings-tab == "thumbnails": SettingsRow { label: "Lighting"; value: "Studio"; }
+                            if settings-tab == "thumbnails": SettingsRow { label: "Anti-aliasing"; value: "MSAA 4×"; }
+                            if settings-tab == "thumbnails": Rectangle {
+                                height: 40px;
+                                Rectangle {
+                                    width: dens-text.width + 20px;
+                                    height: 28px;
+                                    background: ta-dens2.has-hover ? Theme.bg-4 : Theme.bg-3;
+                                    border-color: Theme.line-2;
+                                    border-width: 1px;
+                                    border-radius: Theme.radius-btn;
+
+                                    dens-text := Text {
+                                        x: (parent.width - self.width) / 2;
+                                        y: (parent.height - self.height) / 2;
+                                        text: "Cycle Density";
+                                        color: Theme.fg-0;
+                                        font-size: 12px;
+                                    }
+                                    ta-dens2 := TouchArea { clicked => { cycle-settings-density(); } }
+                                }
+                            }
+
+                            if settings-tab == "slicer": SettingsRow { label: "Default slicer"; value: settings-slicer-label; }
+                            if settings-tab == "slicer": SettingsRow { label: "After export"; value: "Open in slicer"; }
+
+                            if settings-tab == "hotkeys": SettingsRow { label: "⌘F"; value: "Focus search"; }
+                            if settings-tab == "hotkeys": SettingsRow { label: "⌘,"; value: "Open settings"; }
+                            if settings-tab == "hotkeys": SettingsRow { label: "⌘1"; value: "Grid view"; }
+                            if settings-tab == "hotkeys": SettingsRow { label: "⌘2"; value: "Masonry view"; }
+                            if settings-tab == "hotkeys": SettingsRow { label: "⌘3"; value: "List view"; }
+                            if settings-tab == "hotkeys": SettingsRow { label: "⌘I"; value: "Toggle detail panel"; }
+
+                            if settings-tab == "advanced": SettingsRow { label: "Log level"; value: "info"; }
+                            if settings-tab == "advanced": SettingsRow { label: "Telemetry"; value: "Off"; }
+
+                            if settings-tab == "about": VerticalLayout {
+                                alignment: center;
+                                spacing: 8px;
+                                padding-top: 24px;
+
+                                Text {
+                                    text: "ModelRack";
+                                    color: Theme.fg-0;
+                                    font-size: 22px;
+                                    font-weight: 600;
+                                    horizontal-alignment: center;
+                                }
+
+                                Text {
+                                    text: "A workshop tool for your 3D model library";
+                                    color: Theme.fg-2;
+                                    font-size: Theme.font-body;
+                                    horizontal-alignment: center;
+                                }
+
+                                Rectangle { height: 16px; }
+
+                                SettingsRow { label: "Version"; value: app-version; }
+                                SettingsRow { label: "Build"; value: "2026.05.08"; }
+                                SettingsRow { label: "Stack"; value: "Rust + Slint"; }
+                                SettingsRow { label: "License"; value: "MIT"; }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

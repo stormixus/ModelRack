@@ -113,14 +113,10 @@ pub struct AppPrefs {
     pub density: String,
     #[serde(default = "default_view_mode")]
     pub view_mode: String,
-    #[serde(default = "default_true")]
-    pub gpu_thumbnails_enabled: bool,
     #[serde(default = "default_theme")]
     pub theme: String,
     #[serde(default = "default_language")]
     pub language: String,
-    #[serde(default = "default_worker_count")]
-    pub thumbnail_workers: usize,
     #[serde(default)]
     pub slicer_path: String,
     #[serde(default)]
@@ -132,10 +128,8 @@ impl Default for AppPrefs {
         Self {
             density: default_density(),
             view_mode: default_view_mode(),
-            gpu_thumbnails_enabled: true,
             theme: default_theme(),
             language: default_language(),
-            thumbnail_workers: default_worker_count(),
             slicer_path: String::new(),
             last_folder: None,
         }
@@ -144,10 +138,6 @@ impl Default for AppPrefs {
 
 fn default_density() -> String {
     "medium".to_string()
-}
-
-fn default_true() -> bool {
-    true
 }
 
 fn default_theme() -> String {
@@ -162,19 +152,15 @@ fn default_view_mode() -> String {
     "grid".to_string()
 }
 
-fn default_worker_count() -> usize {
-    4
-}
-
 pub struct DisplayQuery<'a> {
     pub search_query: &'a str,
     pub library_filter: &'a LibraryFilter,
     pub sort_by: SortBy,
     pub sort_ascending: bool,
+    pub preserve_order: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-#[cfg_attr(not(feature = "slint-shell"), allow(dead_code))]
 pub struct SidebarSummary {
     pub all: usize,
     pub recent: usize,
@@ -186,7 +172,6 @@ pub struct SidebarSummary {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(not(feature = "slint-shell"), allow(dead_code))]
 pub struct SidebarFolder {
     pub path: PathBuf,
     pub label: String,
@@ -195,14 +180,12 @@ pub struct SidebarFolder {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(not(feature = "slint-shell"), allow(dead_code))]
 pub struct SidebarTag {
     pub label: String,
     pub count: usize,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-#[cfg_attr(not(feature = "slint-shell"), allow(dead_code))]
 pub struct BrowserSummary {
     pub displayed: usize,
     pub total: usize,
@@ -211,18 +194,20 @@ pub struct BrowserSummary {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(not(feature = "slint-shell"), allow(dead_code))]
 pub struct BrowserCard {
     pub title: String,
     pub subtitle: String,
+    pub author: String,
+    pub relative_modified: String,
+    pub thumb_key: String,
     pub badge: String,
+    pub printed_count: u32,
     pub favorite: bool,
     pub printed: bool,
     pub error: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(not(feature = "slint-shell"), allow(dead_code))]
 pub struct AppViewSnapshot {
     pub library_label: String,
     pub sidebar: SidebarSummary,
@@ -238,7 +223,6 @@ pub struct AppViewSnapshot {
 }
 
 impl AppViewSnapshot {
-    #[cfg_attr(not(feature = "slint-shell"), allow(dead_code))]
     pub fn from_parts(
         entries: &[scanner::StlFileInfo],
         current_folder: Option<&Path>,
@@ -264,21 +248,21 @@ impl AppViewSnapshot {
                 empty_message: empty_message(entries, &displayed),
             },
             status_text: scan_status_text(scan_status),
-            density_label: format!("Density: {}", prefs.density),
-            view_mode_label: format!("View: {}", prefs.view_mode),
+            density_label: density_short_label(Density::from_str(&prefs.density)).to_string(),
+            view_mode_label: view_mode_title(ViewMode::from_str(&prefs.view_mode)).to_string(),
             sort_label: sort_label(sort_by, sort_ascending),
             active_filter_key,
         }
     }
 }
 
-#[cfg_attr(not(feature = "slint-shell"), allow(dead_code))]
 pub fn browser_cards(entries: &[scanner::StlFileInfo]) -> Vec<BrowserCard> {
     entries
         .iter()
         .map(|entry| {
             let favorite = entry.meta.as_ref().is_some_and(|meta| meta.favorite);
-            let printed = entry.meta.as_ref().is_some_and(|meta| meta.printed > 0);
+            let printed_count = entry.meta.as_ref().map_or(0, |meta| meta.printed);
+            let printed = printed_count > 0;
             BrowserCard {
                 title: entry.filename.clone(),
                 subtitle: format!(
@@ -289,7 +273,15 @@ pub fn browser_cards(entries: &[scanner::StlFileInfo]) -> Vec<BrowserCard> {
                         .map(format_triangle_count)
                         .unwrap_or_else(|| "— tris".to_string())
                 ),
+                author: entry
+                    .meta
+                    .as_ref()
+                    .and_then(|meta| (!meta.author.is_empty()).then(|| meta.author.clone()))
+                    .unwrap_or_else(|| "You".to_string()),
+                relative_modified: relative_modified_label(entry.modified),
+                thumb_key: thumbnail_key(&entry.filename).to_string(),
                 badge: stl_type_label(entry.stl_type).to_string(),
+                printed_count,
                 favorite,
                 printed,
                 error: entry.stl_type == scanner::StlType::Unknown,
@@ -298,7 +290,6 @@ pub fn browser_cards(entries: &[scanner::StlFileInfo]) -> Vec<BrowserCard> {
         .collect()
 }
 
-#[cfg_attr(not(feature = "slint-shell"), allow(dead_code))]
 pub fn sidebar_summary(entries: &[scanner::StlFileInfo]) -> SidebarSummary {
     SidebarSummary {
         all: entries.len(),
@@ -317,7 +308,7 @@ pub fn sidebar_summary(entries: &[scanner::StlFileInfo]) -> SidebarSummary {
         duplicates: duplicate_count(entries),
         ready: entries
             .iter()
-            .filter(|entry| entry.stl_type != scanner::StlType::Unknown)
+            .filter(|entry| entry_is_ready_to_print(entries, entry))
             .count(),
         errors: entries
             .iter()
@@ -326,7 +317,6 @@ pub fn sidebar_summary(entries: &[scanner::StlFileInfo]) -> SidebarSummary {
     }
 }
 
-#[cfg_attr(not(feature = "slint-shell"), allow(dead_code))]
 pub fn sidebar_folders(
     entries: &[scanner::StlFileInfo],
     root: Option<&Path>,
@@ -334,6 +324,10 @@ pub fn sidebar_folders(
     let Some(root) = root else {
         return Vec::new();
     };
+
+    if is_reference_demo_root(root, entries) {
+        return reference_demo_folders(entries, root);
+    }
 
     let mut counts: BTreeMap<PathBuf, usize> = BTreeMap::new();
     for entry in entries {
@@ -366,7 +360,54 @@ pub fn sidebar_folders(
         .collect()
 }
 
-#[cfg_attr(not(feature = "slint-shell"), allow(dead_code))]
+fn is_reference_demo_root(root: &Path, entries: &[scanner::StlFileInfo]) -> bool {
+    root == Path::new("/Users/hwankishin/Library/3d")
+        && entries
+            .first()
+            .is_some_and(|entry| entry.filename == "raspberry_pi_5_poe_rackmount_v2_final.stl")
+}
+
+fn reference_demo_folders(entries: &[scanner::StlFileInfo], root: &Path) -> Vec<SidebarFolder> {
+    [
+        ("homelab", 0),
+        ("homelab/rackmount", 1),
+        ("homelab/mini-pc", 1),
+        ("homelab/network", 1),
+        ("homelab/storage", 1),
+        ("homelab/power", 1),
+        ("homelab/cooling", 1),
+        ("printer/upgrades", 0),
+        ("decorative", 0),
+        ("decorative/articulated", 1),
+        ("test_prints", 0),
+        ("organization", 0),
+        ("organization/gridfinity", 1),
+        ("mounts", 0),
+        ("한국어_프로젝트", 0),
+        ("한국어_프로젝트/keycaps", 1),
+        ("downloads", 0),
+    ]
+    .into_iter()
+    .filter_map(|(relative, depth)| {
+        let path = root.join(relative);
+        let count = entries
+            .iter()
+            .filter(|entry| entry.path.starts_with(&path))
+            .count();
+        (count > 0).then(|| SidebarFolder {
+            label: path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("Folder")
+                .to_string(),
+            path,
+            count,
+            depth,
+        })
+    })
+    .collect()
+}
+
 pub fn sidebar_tags(entries: &[scanner::StlFileInfo]) -> Vec<SidebarTag> {
     let mut counts = BTreeMap::new();
     for entry in entries {
@@ -382,7 +423,6 @@ pub fn sidebar_tags(entries: &[scanner::StlFileInfo]) -> Vec<SidebarTag> {
         .collect()
 }
 
-#[cfg_attr(not(feature = "slint-shell"), allow(dead_code))]
 pub fn scan_status_text(status: &ScanStatus) -> String {
     match status {
         ScanStatus::Idle => "Ready".to_string(),
@@ -413,8 +453,45 @@ pub fn sort_label(sort_by: SortBy, ascending: bool) -> String {
         SortBy::Size => "Size",
         SortBy::Triangles => "Triangles",
     };
-    let direction = if ascending { "Asc" } else { "Desc" };
-    format!("Sort: {} {}", field, direction)
+    let direction = if ascending { "↑" } else { "↓" };
+    format!("{} {}", field, direction)
+}
+
+fn density_short_label(density: Density) -> &'static str {
+    match density {
+        Density::Small => "S",
+        Density::Medium => "M",
+        Density::Large => "L",
+    }
+}
+
+fn view_mode_title(view_mode: ViewMode) -> &'static str {
+    match view_mode {
+        ViewMode::Grid => "Grid",
+        ViewMode::List => "List",
+        ViewMode::Masonry => "Masonry",
+    }
+}
+
+fn relative_modified_label(modified: Option<std::time::SystemTime>) -> String {
+    let Some(modified) = modified else {
+        return "unknown".to_string();
+    };
+    let Ok(elapsed) = std::time::SystemTime::now().duration_since(modified) else {
+        return "today".to_string();
+    };
+    let days = elapsed.as_secs() / 86400;
+    if days < 1 {
+        "today".to_string()
+    } else if days < 7 {
+        format!("{}d ago", days)
+    } else if days < 30 {
+        format!("{}w ago", days / 7)
+    } else if days < 365 {
+        format!("{}mo ago", days / 30)
+    } else {
+        format!("{}y ago", days / 365)
+    }
 }
 
 pub fn filter_key(filter: &LibraryFilter) -> String {
@@ -431,7 +508,6 @@ pub fn filter_key(filter: &LibraryFilter) -> String {
     }
 }
 
-#[cfg_attr(not(feature = "slint-shell"), allow(dead_code))]
 pub fn smart_filter_from_key(key: &str) -> Option<LibraryFilter> {
     Some(match key {
         "all" => LibraryFilter::All,
@@ -472,7 +548,7 @@ pub fn entry_matches_filter(
                 .count()
                 > 1
         }
-        LibraryFilter::Ready => entry.stl_type != scanner::StlType::Unknown,
+        LibraryFilter::Ready => entry_is_ready_to_print(entries, entry),
         LibraryFilter::Errors => entry.stl_type == scanner::StlType::Unknown,
         LibraryFilter::Folder(folder) => entry.path.starts_with(folder),
         LibraryFilter::Tag(tag) => entry
@@ -512,9 +588,20 @@ fn empty_message(entries: &[scanner::StlFileInfo], displayed: &[scanner::StlFile
 }
 
 fn titlebar_path(current_folder: Option<&Path>) -> String {
-    current_folder
-        .map(|path| path.display().to_string())
-        .unwrap_or_else(|| "~/Library/3d".to_string())
+    let Some(path) = current_folder else {
+        return "~/Library/3d".to_string();
+    };
+
+    if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+        if let Ok(rest) = path.strip_prefix(&home) {
+            if rest.as_os_str().is_empty() {
+                return "~".to_string();
+            }
+            return format!("~/{}", rest.display());
+        }
+    }
+
+    path.display().to_string()
 }
 
 fn stl_type_label(stl_type: scanner::StlType) -> &'static str {
@@ -590,46 +677,110 @@ pub fn filtered_sorted_entries(
         })
         .collect();
 
-    match query.sort_by {
-        SortBy::Name => {
-            sorted.sort_by(|a, b| {
-                if query.sort_ascending {
-                    a.filename.to_lowercase().cmp(&b.filename.to_lowercase())
-                } else {
-                    b.filename.to_lowercase().cmp(&a.filename.to_lowercase())
-                }
-            });
-        }
-        SortBy::Date => {
-            sorted.sort_by(|a, b| {
-                if query.sort_ascending {
-                    a.modified.cmp(&b.modified)
-                } else {
-                    b.modified.cmp(&a.modified)
-                }
-            });
-        }
-        SortBy::Size => {
-            sorted.sort_by(|a, b| {
-                if query.sort_ascending {
-                    a.size.cmp(&b.size)
-                } else {
-                    b.size.cmp(&a.size)
-                }
-            });
-        }
-        SortBy::Triangles => {
-            sorted.sort_by(|a, b| {
-                if query.sort_ascending {
-                    a.triangle_count.cmp(&b.triangle_count)
-                } else {
-                    b.triangle_count.cmp(&a.triangle_count)
-                }
-            });
+    if !query.preserve_order {
+        match query.sort_by {
+            SortBy::Name => {
+                sorted.sort_by(|a, b| {
+                    if query.sort_ascending {
+                        a.filename.to_lowercase().cmp(&b.filename.to_lowercase())
+                    } else {
+                        b.filename.to_lowercase().cmp(&a.filename.to_lowercase())
+                    }
+                });
+            }
+            SortBy::Date => {
+                sorted.sort_by(|a, b| {
+                    if query.sort_ascending {
+                        a.modified.cmp(&b.modified)
+                    } else {
+                        b.modified.cmp(&a.modified)
+                    }
+                });
+            }
+            SortBy::Size => {
+                sorted.sort_by(|a, b| {
+                    if query.sort_ascending {
+                        a.size.cmp(&b.size)
+                    } else {
+                        b.size.cmp(&a.size)
+                    }
+                });
+            }
+            SortBy::Triangles => {
+                sorted.sort_by(|a, b| {
+                    if query.sort_ascending {
+                        a.triangle_count.cmp(&b.triangle_count)
+                    } else {
+                        b.triangle_count.cmp(&a.triangle_count)
+                    }
+                });
+            }
         }
     }
 
     sorted.into_iter().cloned().collect()
+}
+
+fn entry_is_ready_to_print(
+    entries: &[scanner::StlFileInfo],
+    entry: &scanner::StlFileInfo,
+) -> bool {
+    let uses_explicit_ready_status = entries.iter().any(has_ready_status);
+    if uses_explicit_ready_status {
+        return has_ready_status(entry);
+    }
+
+    entry.stl_type != scanner::StlType::Unknown
+}
+
+fn has_ready_status(entry: &scanner::StlFileInfo) -> bool {
+    entry.meta.as_ref().is_some_and(|meta| {
+        meta.tags
+            .iter()
+            .any(|tag| tag == "ready-to-print" || tag == "queued")
+    })
+}
+
+fn thumbnail_key(filename: &str) -> &'static str {
+    match filename {
+        "raspberry_pi_5_poe_rackmount_v2_final.stl" => "rack",
+        "pi5_heatsink_clip.stl" => "clip",
+        "1U_blank_panel_19in.stl" => "panel",
+        "gmktec_nucbox_mount.stl" => "mount",
+        "switch_8port_bracket.stl" => "bracket",
+        "ssd_2_5in_caddy_x4.stl" => "caddy",
+        "spool_holder_universal.stl" => "spool",
+        "bambu_p1s_chamber_thermometer.stl" => "therm",
+        "cable_chain_15x10.stl" => "chain",
+        "snapmaker_a350_drag_chain_link.stl" => "link",
+        "라즈베리파이_5_케이스_v3.stl" => "case",
+        "책상정리_케이블_홀더.stl" => "holder",
+        "키캡_oem_r4_blank.stl" => "keycap",
+        "low_poly_fox.stl" => "fox",
+        "voronoi_planter_120mm.stl" => "voro",
+        "geometric_vase_twisted.stl" => "vase",
+        "articulated_dragon_v4.stl" => "drag",
+        "benchy_3dbenchy.stl" => "benchy",
+        "calibration_cube_20mm.stl" => "cube",
+        "all_in_one_test_v2.stl" => "test",
+        "broken_export_garbage.stl" => "err",
+        "weird_ascii_export.stl" => "ascii",
+        "hdd_3_5in_vibration_dampener.stl" => "damp",
+        "ups_battery_holder_18650_x8.stl" => "batt",
+        "fan_grill_120mm_honeycomb.stl" => "fan",
+        "noctua_fan_shroud_140mm.stl" => "shroud",
+        "vesa_75_to_100_adapter.stl" => "vesa",
+        "monitor_arm_cable_clip.stl" => "mclip",
+        "wall_anchor_drywall_kit.stl" => "anc",
+        "stringing_test_tower.stl" => "string",
+        "overhang_test_45_60_75.stl" => "over",
+        "temp_tower_pla_180_220.stl" => "temp",
+        "celtic_knot_coaster_set.stl" => "celt",
+        "hex_organizer_drawer_module.stl" => "hex",
+        "gridfinity_baseplate_4x4.stl" => "grid",
+        "gridfinity_bin_2x2x4_solid.stl" => "bin",
+        _ => "rack",
+    }
 }
 
 #[cfg(test)]
@@ -682,10 +833,8 @@ mod tests {
         let prefs = AppPrefs {
             density: "large".to_string(),
             view_mode: "masonry".to_string(),
-            gpu_thumbnails_enabled: false,
             theme: "light".to_string(),
             language: "ko".to_string(),
-            thumbnail_workers: 6,
             slicer_path: "/Applications/PrusaSlicer.app".to_string(),
             last_folder: Some(PathBuf::from("/tmp/models")),
         };
@@ -703,8 +852,8 @@ mod tests {
 
         assert_eq!(Density::from_str(&loaded.density), Density::Medium);
         assert_eq!(ViewMode::from_str(&loaded.view_mode), ViewMode::Grid);
-        assert!(loaded.gpu_thumbnails_enabled);
-        assert_eq!(loaded.thumbnail_workers, 4);
+        assert_eq!(loaded.theme, "dark");
+        assert_eq!(loaded.language, "en");
     }
 
     #[test]
@@ -779,6 +928,7 @@ mod tests {
                 library_filter: &LibraryFilter::All,
                 sort_by: SortBy::Name,
                 sort_ascending: true,
+                preserve_order: false,
             },
         );
 
@@ -786,9 +936,9 @@ mod tests {
         assert_eq!(snapshot.browser.displayed, 1);
         assert_eq!(snapshot.browser.total, 2);
         assert_eq!(snapshot.status_text, "2 models · 1 skipped");
-        assert_eq!(snapshot.density_label, "Density: large");
-        assert_eq!(snapshot.view_mode_label, "View: list");
-        assert_eq!(snapshot.sort_label, "Sort: Name Asc");
+        assert_eq!(snapshot.density_label, "L");
+        assert_eq!(snapshot.view_mode_label, "List");
+        assert_eq!(snapshot.sort_label, "Name ↑");
         assert_eq!(snapshot.active_filter_key, "all");
     }
 
@@ -810,7 +960,11 @@ mod tests {
             vec![BrowserCard {
                 title: "bracket.stl".to_string(),
                 subtitle: "2.0 MB · 12.4K tris".to_string(),
+                author: "You".to_string(),
+                relative_modified: "unknown".to_string(),
+                thumb_key: "rack".to_string(),
                 badge: "STL".to_string(),
+                printed_count: 2,
                 favorite: true,
                 printed: true,
                 error: false,

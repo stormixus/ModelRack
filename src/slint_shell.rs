@@ -9,632 +9,21 @@ use crate::view_model::{
     DisplayQuery, LibraryFilter, ScanStatus, SortBy, ViewMode,
 };
 
-slint::slint! {
-    import { Button, LineEdit } from "std-widgets.slint";
+use slint::winit_030::winit::dpi::{PhysicalPosition, PhysicalSize};
+use slint::winit_030::WinitWindowAccessor;
 
-    export struct BrowserCard {
-        title: string,
-        subtitle: string,
-        badge: string,
-        favorite: bool,
-        printed: bool,
-        error: bool,
-    }
-
-    export struct SidebarItem {
-        key: string,
-        label: string,
-        count: int,
-        depth: int,
-    }
-
-    component SidebarLine inherits Rectangle {
-        in property <string> label;
-        in property <int> count;
-        in property <int> depth: 0;
-        in property <bool> selected: false;
-        callback activated();
-
-        height: 28px;
-        background: selected ? #2a464c : #00000000;
-        border-radius: 6px;
-
-        Text {
-            x: 10px + depth * 12px;
-            y: 6px;
-            text: label;
-            color: selected ? #ecf2f4 : #cdd0d6;
-            font-size: 13px;
-        }
-
-        Text {
-            x: parent.width - self.width - 10px;
-            y: 7px;
-            text: count;
-            color: #8a8e96;
-            font-family: "JetBrains Mono";
-            font-size: 12px;
-        }
-
-        TouchArea {
-            width: parent.width;
-            height: parent.height;
-            clicked => { root.activated(); }
-        }
-    }
-
-    component SettingsTabButton inherits Rectangle {
-        in property <string> label;
-        in property <string> key;
-        in property <bool> selected: false;
-        callback activated(string);
-
-        height: 30px;
-        background: selected ? #2a464c : #00000000;
-        border-radius: 6px;
-
-        Text {
-            x: 10px;
-            y: 7px;
-            text: label;
-            color: selected ? #f1f6f8 : #b9bec7;
-            font-size: 13px;
-        }
-
-        TouchArea {
-            width: parent.width;
-            height: parent.height;
-            clicked => { root.activated(key); }
-        }
-    }
-
-    component SettingsRow inherits Rectangle {
-        in property <string> label;
-        in property <string> value;
-
-        height: 34px;
-        background: #00000000;
-
-        Text {
-            x: 0;
-            y: 8px;
-            text: label;
-            color: #e0e5eb;
-            font-size: 13px;
-            font-weight: 600;
-        }
-
-        Text {
-            x: 172px;
-            y: 9px;
-            width: parent.width - 172px;
-            text: value;
-            horizontal-alignment: right;
-            color: #9aa1ac;
-            font-size: 12px;
-            overflow: elide;
-        }
-    }
-
-    export component ModelRackWindow inherits Window {
-        in property <string> app-title;
-        in property <string> library-label;
-        in property <string> status-text;
-        in property <string> density-label;
-        in property <string> view-mode-label;
-        in-out property <string> search-text;
-        in property <string> browser-message;
-        in property <string> browser-count-label;
-        in property <string> sort-label;
-        in property <int> all-count;
-        in property <int> recent-count;
-        in property <int> favorites-count;
-        in property <int> printed-count;
-        in property <int> duplicates-count;
-        in property <int> ready-count;
-        in property <int> errors-count;
-        in property <[BrowserCard]> model-cards;
-        in property <[SidebarItem]> folder-items;
-        in property <[SidebarItem]> tag-items;
-        in property <string> active-filter-key;
-        in property <bool> settings-open;
-        in property <string> settings-tab;
-        in property <string> settings-language-label;
-        in property <string> settings-theme-label;
-        in property <string> settings-folder-label;
-        in property <string> settings-density-label;
-        in property <string> settings-gpu-label;
-        in property <string> settings-workers-label;
-        in property <string> settings-slicer-label;
-
-        callback open-folder();
-        callback open-settings();
-        callback close-settings();
-        callback choose-settings-tab(string);
-        callback cycle-settings-language();
-        callback toggle-settings-theme();
-        callback cycle-settings-density();
-        callback toggle-settings-gpu();
-        callback cycle-settings-workers();
-        callback apply-search(string);
-        callback cycle-view-mode();
-        callback cycle-density();
-        callback toggle-sort();
-        callback choose-filter(string);
-
-        title: app-title;
-        width: 1024px;
-        height: 720px;
-        default-font-family: "Inter";
-        background: #1f2024;
-
-        Rectangle {
-            width: parent.width;
-            height: parent.height;
-            background: #1f2024;
-
-            Rectangle {
-                x: 0;
-                y: 0;
-                width: parent.width;
-                height: 36px;
-                background: #191a1d;
-
-                HorizontalLayout {
-                    x: 18px;
-                    y: 0;
-                    width: parent.width - 36px;
-                    height: 36px;
-                    spacing: 10px;
-                    alignment: center;
-
-                    Text {
-                        text: "●  ●  ●";
-                        color: #e1e3e8;
-                        font-size: 14px;
-                    }
-
-                    Text {
-                        text: app-title;
-                        color: #cdd0d6;
-                        font-size: 15px;
-                        font-weight: 600;
-                    }
-
-                    Text {
-                        text: "—";
-                        color: #60646c;
-                        font-size: 13px;
-                    }
-
-                    Text {
-                        text: library-label;
-                        color: #888c94;
-                        font-size: 12px;
-                    }
-
-                    Rectangle { horizontal-stretch: 1; }
-
-                    Button {
-                        text: "Settings";
-                        clicked => { open-settings(); }
-                    }
-                }
-            }
-
-            Rectangle {
-                x: 0;
-                y: 36px;
-                width: 220px;
-                height: parent.height - 60px;
-                background: #18191d;
-
-                VerticalLayout {
-                    x: 18px;
-                    y: 22px;
-                    width: parent.width - 36px;
-                    spacing: 14px;
-
-                    Text {
-                        text: "LIBRARY";
-                        color: #8c919b;
-                        font-size: 13px;
-                    }
-
-                    SidebarLine { label: "All Models"; count: all-count; selected: active-filter-key == "all"; activated => { choose-filter("all"); } }
-                    SidebarLine { label: "Recent"; count: recent-count; selected: active-filter-key == "recent"; activated => { choose-filter("recent"); } }
-                    SidebarLine { label: "Favorites"; count: favorites-count; selected: active-filter-key == "favorites"; activated => { choose-filter("favorites"); } }
-                    SidebarLine { label: "Printed"; count: printed-count; selected: active-filter-key == "printed"; activated => { choose-filter("printed"); } }
-                    SidebarLine { label: "Duplicates"; count: duplicates-count; selected: active-filter-key == "duplicates"; activated => { choose-filter("duplicates"); } }
-                    SidebarLine { label: "Ready"; count: ready-count; selected: active-filter-key == "ready"; activated => { choose-filter("ready"); } }
-                    SidebarLine { label: "Unparseable"; count: errors-count; selected: active-filter-key == "errors"; activated => { choose-filter("errors"); } }
-
-                    if folder-items.length > 0: Text {
-                        text: "FOLDERS";
-                        color: #8c919b;
-                        font-size: 13px;
-                    }
-
-                    for folder in folder-items: SidebarLine {
-                        label: folder.label;
-                        count: folder.count;
-                        depth: folder.depth;
-                        selected: active-filter-key == folder.key;
-                        activated => { choose-filter(folder.key); }
-                    }
-
-                    if tag-items.length > 0: Text {
-                        text: "TAGS";
-                        color: #8c919b;
-                        font-size: 13px;
-                    }
-
-                    for tag in tag-items: SidebarLine {
-                        label: tag.label;
-                        count: tag.count;
-                        selected: active-filter-key == tag.key;
-                        activated => { choose-filter(tag.key); }
-                    }
-                }
-            }
-
-            Rectangle {
-                x: 220px;
-                y: 36px;
-                width: parent.width - 540px;
-                height: parent.height - 60px;
-                background: #1f2024;
-
-                HorizontalLayout {
-                    x: 12px;
-                    y: 12px;
-                    width: parent.width - 24px;
-                    height: 34px;
-                    spacing: 8px;
-                    alignment: center;
-
-                    search_field := LineEdit {
-                        placeholder-text: "Search models, tags, notes";
-                        text <=> search-text;
-                        width: 240px;
-                    }
-
-                    Button {
-                        text: "Search";
-                        clicked => { apply-search(search_field.text); }
-                    }
-
-                    Text {
-                        text: view-mode-label;
-                        color: #aeb4be;
-                        font-size: 12px;
-                    }
-
-                    Text {
-                        text: density-label;
-                        color: #aeb4be;
-                        font-size: 12px;
-                    }
-
-                    Text {
-                        text: sort-label;
-                        color: #aeb4be;
-                        font-size: 12px;
-                    }
-
-                    Button {
-                        text: "View";
-                        clicked => { cycle-view-mode(); }
-                    }
-
-                    Button {
-                        text: "Density";
-                        clicked => { cycle-density(); }
-                    }
-
-                    Button {
-                        text: "Sort";
-                        clicked => { toggle-sort(); }
-                    }
-
-                    Rectangle { horizontal-stretch: 1; }
-
-                    Button {
-                        text: "Open Folder";
-                        clicked => { open-folder(); }
-                    }
-                }
-
-                Rectangle {
-                    x: 12px;
-                    y: 62px;
-                    width: parent.width - 24px;
-                    height: parent.height - 86px;
-                    background: #24262b;
-                    border-color: #3a3d44;
-                    border-width: 1px;
-
-                    if model-cards.length == 0: VerticalLayout {
-                        alignment: center;
-                        spacing: 10px;
-
-                        Text {
-                            text: browser-message;
-                            color: #dce2ea;
-                            font-size: 20px;
-                            font-weight: 600;
-                        }
-
-                        Text {
-                            text: browser-count-label;
-                            color: #9ca3af;
-                            font-size: 13px;
-                        }
-                    }
-
-                    if model-cards.length > 0: GridLayout {
-                        x: 12px;
-                        y: 12px;
-                        width: parent.width - 24px;
-                        spacing: 10px;
-
-                        for card in model-cards: Rectangle {
-                            width: 156px;
-                            height: 140px;
-                            background: #25282f;
-                            border-color: card.error ? #893230 : #3d4149;
-                            border-width: 1px;
-                            border-radius: 6px;
-
-                            Rectangle {
-                                x: 8px;
-                                y: 8px;
-                                width: parent.width - 16px;
-                                height: 78px;
-                                background: #15171b;
-                                border-radius: 4px;
-
-                                Text {
-                                    x: 8px;
-                                    y: 7px;
-                                    text: card.badge;
-                                    color: card.error ? #ffb4b0 : #c6dfe5;
-                                    font-family: "JetBrains Mono";
-                                    font-size: 11px;
-                                    font-weight: 700;
-                                }
-
-                                Text {
-                                    x: parent.width - self.width - 8px;
-                                    y: 7px;
-                                    text: (card.favorite ? "★ " : "") + (card.printed ? "⎙" : "");
-                                    color: #86d4df;
-                                    font-size: 11px;
-                                }
-                            }
-
-                            Text {
-                                x: 8px;
-                                y: 94px;
-                                width: parent.width - 16px;
-                                text: card.title;
-                                color: #dde1e8;
-                                font-size: 12px;
-                                overflow: elide;
-                            }
-
-                            Text {
-                                x: 8px;
-                                y: 114px;
-                                width: parent.width - 16px;
-                                text: card.subtitle;
-                                color: #8f949d;
-                                font-family: "JetBrains Mono";
-                                font-size: 11px;
-                                overflow: elide;
-                            }
-                        }
-                    }
-                }
-            }
-
-            Rectangle {
-                x: parent.width - 320px;
-                y: 36px;
-                width: 320px;
-                height: parent.height - 60px;
-                background: #191a1f;
-
-                VerticalLayout {
-                    x: 18px;
-                    y: 22px;
-                    width: parent.width - 36px;
-                    spacing: 14px;
-
-                    Text {
-                        text: "DETAILS";
-                        color: #8c919b;
-                        font-size: 13px;
-                    }
-
-                    Text {
-                        text: "No model selected";
-                        color: #d9dde4;
-                        font-size: 14px;
-                    }
-                }
-            }
-
-            Rectangle {
-                x: 0;
-                y: parent.height - 24px;
-                width: parent.width;
-                height: 24px;
-                background: #17181b;
-
-                Text {
-                    x: 12px;
-                    y: 4px;
-                    text: status-text;
-                    color: #9aa0aa;
-                    font-family: "JetBrains Mono";
-                    font-size: 11px;
-                }
-            }
-
-            if settings-open: Rectangle {
-                x: 0;
-                y: 0;
-                width: parent.width;
-                height: parent.height;
-                background: #00000088;
-
-                Rectangle {
-                    x: (parent.width - 760px) / 2;
-                    y: (parent.height - 540px) / 2;
-                    width: 760px;
-                    height: 540px;
-                    background: #202226;
-                    border-color: #3b4048;
-                    border-width: 1px;
-                    border-radius: 8px;
-
-                    Rectangle {
-                        x: 0;
-                        y: 0;
-                        width: 188px;
-                        height: parent.height;
-                        background: #191b20;
-                        border-radius: 8px;
-
-                        VerticalLayout {
-                            x: 16px;
-                            y: 18px;
-                            width: parent.width - 32px;
-                            spacing: 8px;
-
-                            Text {
-                                text: "ModelRack";
-                                color: #f0f4f7;
-                                font-size: 15px;
-                                font-weight: 700;
-                            }
-
-                            Text {
-                                text: "v0.0.3";
-                                color: #8f96a3;
-                                font-family: "JetBrains Mono";
-                                font-size: 11px;
-                            }
-
-                            Rectangle { height: 8px; }
-
-                            SettingsTabButton { label: "General"; key: "general"; selected: settings-tab == "general"; activated(tab) => { choose-settings-tab(tab); } }
-                            SettingsTabButton { label: "Appearance"; key: "appearance"; selected: settings-tab == "appearance"; activated(tab) => { choose-settings-tab(tab); } }
-                            SettingsTabButton { label: "Library"; key: "library"; selected: settings-tab == "library"; activated(tab) => { choose-settings-tab(tab); } }
-                            SettingsTabButton { label: "Thumbnails"; key: "thumbnails"; selected: settings-tab == "thumbnails"; activated(tab) => { choose-settings-tab(tab); } }
-                            SettingsTabButton { label: "Slicer"; key: "slicer"; selected: settings-tab == "slicer"; activated(tab) => { choose-settings-tab(tab); } }
-                            SettingsTabButton { label: "Advanced"; key: "advanced"; selected: settings-tab == "advanced"; activated(tab) => { choose-settings-tab(tab); } }
-                            SettingsTabButton { label: "About"; key: "about"; selected: settings-tab == "about"; activated(tab) => { choose-settings-tab(tab); } }
-                        }
-                    }
-
-                    Rectangle {
-                        x: 188px;
-                        y: 0;
-                        width: parent.width - 188px;
-                        height: parent.height;
-                        background: #202226;
-
-                        HorizontalLayout {
-                            x: 24px;
-                            y: 18px;
-                            width: parent.width - 48px;
-                            height: 32px;
-                            alignment: center;
-
-                            Text {
-                                text: settings-tab == "general" ? "General" :
-                                      settings-tab == "appearance" ? "Appearance" :
-                                      settings-tab == "library" ? "Library" :
-                                      settings-tab == "thumbnails" ? "Thumbnails" :
-                                      settings-tab == "slicer" ? "Slicer" :
-                                      settings-tab == "advanced" ? "Advanced" : "About";
-                                color: #f0f4f7;
-                                font-size: 20px;
-                                font-weight: 700;
-                            }
-
-                            Rectangle { horizontal-stretch: 1; }
-
-                            Button {
-                                text: "Close";
-                                clicked => { close-settings(); }
-                            }
-                        }
-
-                        Rectangle {
-                            x: 24px;
-                            y: 62px;
-                            width: parent.width - 48px;
-                            height: 1px;
-                            background: #3b4048;
-                        }
-
-                        VerticalLayout {
-                            x: 24px;
-                            y: 82px;
-                            width: parent.width - 48px;
-                            spacing: 10px;
-
-                            if settings-tab == "general": SettingsRow { label: "Language"; value: settings-language-label; }
-                            if settings-tab == "general": SettingsRow { label: "Startup"; value: "Reopen last library folder"; }
-                            if settings-tab == "general": SettingsRow { label: "Shortcuts"; value: "Cmd-F search, Cmd-, settings"; }
-                            if settings-tab == "general": Button { text: "Cycle Language"; clicked => { cycle-settings-language(); } }
-
-                            if settings-tab == "appearance": SettingsRow { label: "Theme"; value: settings-theme-label; }
-                            if settings-tab == "appearance": SettingsRow { label: "Typography"; value: "Inter + Pretendard + JetBrains Mono"; }
-                            if settings-tab == "appearance": SettingsRow { label: "Accent"; value: "Teal"; }
-                            if settings-tab == "appearance": Button { text: "Toggle Theme"; clicked => { toggle-settings-theme(); } }
-
-                            if settings-tab == "library": SettingsRow { label: "Current folder"; value: settings-folder-label; }
-                            if settings-tab == "library": SettingsRow { label: "Recursive scan"; value: "Enabled"; }
-                            if settings-tab == "library": SettingsRow { label: "Metadata"; value: ".modelrack.json sidecars"; }
-
-                            if settings-tab == "thumbnails": SettingsRow { label: "Density"; value: settings-density-label; }
-                            if settings-tab == "thumbnails": SettingsRow { label: "Style"; value: "wgpu thumbnail bridge pending"; }
-                            if settings-tab == "thumbnails": SettingsRow { label: "Failures"; value: "ERR badge"; }
-                            if settings-tab == "thumbnails": Button { text: "Cycle Density"; clicked => { cycle-settings-density(); } }
-
-                            if settings-tab == "slicer": SettingsRow { label: "Default slicer"; value: settings-slicer-label; }
-                            if settings-tab == "slicer": SettingsRow { label: "Open behavior"; value: "Chooser/dropdown pending"; }
-
-                            if settings-tab == "advanced": SettingsRow { label: "GPU thumbnails"; value: settings-gpu-label; }
-                            if settings-tab == "advanced": SettingsRow { label: "Workers"; value: settings-workers-label; }
-                            if settings-tab == "advanced": SettingsRow { label: "Privacy"; value: "Local files stay local"; }
-                            if settings-tab == "advanced": Button { text: "Toggle GPU"; clicked => { toggle-settings-gpu(); } }
-                            if settings-tab == "advanced": Button { text: "Cycle Workers"; clicked => { cycle-settings-workers(); } }
-
-                            if settings-tab == "about": SettingsRow { label: "Version"; value: "v0.0.3 alpha"; }
-                            if settings-tab == "about": SettingsRow { label: "Stack"; value: "Rust + Slint bridge"; }
-                            if settings-tab == "about": SettingsRow { label: "Renderer"; value: "wgpu for 3D surfaces only"; }
-                            if settings-tab == "about": SettingsRow { label: "License"; value: "MIT"; }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-}
+slint::include_modules!();
 
 pub fn run() -> Result<(), slint::PlatformError> {
+    crate::macos::install_app_menu();
+
     let ui = ModelRackWindow::new()?;
     crate::fonts::install_slint_fonts();
     let state = Rc::new(RefCell::new(ShellState::default()));
-    let snapshot = state.borrow().snapshot(ScanStatus::Idle);
+    let snapshot = state.borrow_mut().snapshot_idle();
 
     apply_snapshot(&ui, &snapshot);
+    apply_detail(&ui, &state.borrow());
     apply_settings(&ui, &state.borrow());
 
     let weak = ui.as_weak();
@@ -662,12 +51,11 @@ pub fn run() -> Result<(), slint::PlatformError> {
             let snapshot = {
                 let mut state = search_state.borrow_mut();
                 state.search_query = query.to_string();
-                state.snapshot(ScanStatus::Done {
-                    found: state.entries.len(),
-                    skipped: state.skipped,
-                })
+                state.selected_index = None;
+                state.snapshot_done()
             };
             apply_snapshot(&ui, &snapshot);
+            apply_detail(&ui, &search_state.borrow());
             apply_settings(&ui, &search_state.borrow());
         }
     });
@@ -679,10 +67,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
             let snapshot = {
                 let mut state = view_state.borrow_mut();
                 state.cycle_view_mode();
-                state.snapshot(ScanStatus::Done {
-                    found: state.entries.len(),
-                    skipped: state.skipped,
-                })
+                state.snapshot_done()
             };
             apply_snapshot(&ui, &snapshot);
             apply_settings(&ui, &view_state.borrow());
@@ -696,10 +81,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
             let snapshot = {
                 let mut state = density_state.borrow_mut();
                 state.cycle_density();
-                state.snapshot(ScanStatus::Done {
-                    found: state.entries.len(),
-                    skipped: state.skipped,
-                })
+                state.snapshot_done()
             };
             apply_snapshot(&ui, &snapshot);
             apply_settings(&ui, &density_state.borrow());
@@ -713,12 +95,11 @@ pub fn run() -> Result<(), slint::PlatformError> {
             let snapshot = {
                 let mut state = sort_state.borrow_mut();
                 state.sort_ascending = !state.sort_ascending;
-                state.snapshot(ScanStatus::Done {
-                    found: state.entries.len(),
-                    skipped: state.skipped,
-                })
+                state.selected_index = None;
+                state.snapshot_done()
             };
             apply_snapshot(&ui, &snapshot);
+            apply_detail(&ui, &sort_state.borrow());
             apply_settings(&ui, &sort_state.borrow());
         }
     });
@@ -732,12 +113,11 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 if let Some(filter) = smart_filter_from_key(key.as_str()) {
                     state.filter = filter;
                 }
-                state.snapshot(ScanStatus::Done {
-                    found: state.entries.len(),
-                    skipped: state.skipped,
-                })
+                state.selected_index = None;
+                state.snapshot_done()
             };
             apply_snapshot(&ui, &snapshot);
+            apply_detail(&ui, &filter_state.borrow());
             apply_settings(&ui, &filter_state.borrow());
         }
     });
@@ -809,10 +189,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
             let snapshot = {
                 let mut state = settings_state.borrow_mut();
                 state.cycle_density();
-                state.snapshot(ScanStatus::Done {
-                    found: state.entries.len(),
-                    skipped: state.skipped,
-                })
+                state.snapshot_done()
             };
             apply_snapshot(&ui, &snapshot);
             apply_settings(&ui, &settings_state.borrow());
@@ -820,39 +197,289 @@ pub fn run() -> Result<(), slint::PlatformError> {
     });
 
     let weak = ui.as_weak();
-    let settings_state = state.clone();
-    ui.on_toggle_settings_gpu(move || {
+    let select_state = state.clone();
+    ui.on_select_model(move |index| {
         if let Some(ui) = weak.upgrade() {
-            {
-                let mut state = settings_state.borrow_mut();
-                state.prefs.gpu_thumbnails_enabled = !state.prefs.gpu_thumbnails_enabled;
-            }
-            apply_settings(&ui, &settings_state.borrow());
+            let mut state = select_state.borrow_mut();
+            state.selected_index = Some(index as usize);
+            apply_detail(&ui, &state);
         }
     });
 
     let weak = ui.as_weak();
-    let settings_state = state.clone();
-    ui.on_cycle_settings_workers(move || {
+    let fav_state = state.clone();
+    ui.on_toggle_favorite(move || {
         if let Some(ui) = weak.upgrade() {
-            {
-                let mut state = settings_state.borrow_mut();
-                state.prefs.thumbnail_workers = if state.prefs.thumbnail_workers >= 8 {
-                    1
-                } else {
-                    state.prefs.thumbnail_workers + 1
-                };
+            let mut state = fav_state.borrow_mut();
+            if let Some(idx) = state.selected_index {
+                if let Some(entry) = state.displayed.get(idx) {
+                    let path = entry.path.clone();
+                    if let Some(real) = state.entries.iter_mut().find(|e| e.path == path) {
+                        let meta = real.meta.get_or_insert_with(Default::default);
+                        meta.favorite = !meta.favorite;
+                    }
+                }
+                let snapshot = state.snapshot_done();
+                apply_snapshot(&ui, &snapshot);
+                apply_detail(&ui, &state);
             }
-            apply_settings(&ui, &settings_state.borrow());
         }
     });
 
-    ui.run()
+    ui.on_open_in_slicer(move || {
+        // placeholder — will launch slicer in future
+    });
+
+    ui.on_window_close(move || {
+        crate::macos::hide_window();
+    });
+
+    ui.on_window_minimize(move || {
+        crate::macos::minimize_window();
+    });
+
+    let weak = ui.as_weak();
+    let zoom_restore = Rc::new(RefCell::new(None::<(PhysicalPosition<i32>, PhysicalSize<u32>)>));
+    ui.on_window_zoom(move || {
+        let mut handled = false;
+        if let Some(ui) = weak.upgrade() {
+            let restore = zoom_restore.clone();
+            handled = ui
+                .window()
+                .with_winit_window(|window| {
+                    if let Some((position, size)) = restore.borrow_mut().take() {
+                        window.set_outer_position(position);
+                        let _ = window.request_inner_size(size);
+                        window.request_redraw();
+                        return;
+                    }
+
+                    if let Some(monitor) = window.current_monitor() {
+                        let position = window.outer_position().unwrap_or(PhysicalPosition::new(0, 0));
+                        let size = window.outer_size();
+                        *restore.borrow_mut() = Some((position, size));
+                        window.set_outer_position(monitor.position());
+                        let _ = window.request_inner_size(monitor.size());
+                        window.request_redraw();
+                    } else {
+                        crate::macos::zoom_window();
+                    }
+                })
+                .is_some();
+        }
+        if !handled {
+            crate::macos::zoom_window();
+        }
+    });
+
+    let weak = ui.as_weak();
+    ui.on_titlebar_drag(move |_x, _y| {
+        if let Some(ui) = weak.upgrade() {
+            let _ = ui.window().with_winit_window(|window| window.drag_window());
+        }
+    });
+
+    ui.show()?;
+
+    // Delay NSWindow config so Slint has finished setting up the window
+    slint::Timer::single_shot(std::time::Duration::from_millis(50), move || {
+        crate::macos::configure_transparent_titlebar();
+        crate::macos::show_windows();
+    });
+
+    slint::run_event_loop()?;
+    Ok(())
+}
+
+fn apply_detail(ui: &ModelRackWindow, state: &ShellState) {
+    ui.set_selected_card_index(state.selected_index.map(|i| i as i32).unwrap_or(-1));
+    if let Some(idx) = state.selected_index {
+        if let Some(entry) = state.displayed.get(idx) {
+            ui.set_has_selection(true);
+            ui.set_detail_name(entry.filename.clone().into());
+            ui.set_detail_path(
+                entry
+                    .path
+                    .parent()
+                    .map(|p| format!("{}/", p.display()))
+                    .unwrap_or_default()
+                    .into(),
+            );
+            ui.set_detail_format(
+                match entry.stl_type {
+                    scanner::StlType::Binary => "Binary STL",
+                    scanner::StlType::Ascii => "ASCII STL",
+                    scanner::StlType::ThreeMf => "3MF",
+                    scanner::StlType::Obj => "OBJ",
+                    scanner::StlType::Step => "STEP",
+                    scanner::StlType::LargeStl => "Large STL",
+                    scanner::StlType::Unknown => "Unknown",
+                }
+                .into(),
+            );
+            ui.set_detail_tris(
+                entry
+                    .triangle_count
+                    .map(|t| {
+                        if t >= 1_000_000 {
+                            format!("{:.2}M", t as f64 / 1_000_000.0)
+                        } else if t >= 1_000 {
+                            format!("{:.1}K", t as f64 / 1_000.0)
+                        } else {
+                            format!("{}", t)
+                        }
+                    })
+                    .unwrap_or_else(|| "—".to_string())
+                    .into(),
+            );
+            ui.set_detail_dims(
+                entry
+                    .dimensions
+                    .map(|[x, y, z]| format!("{:.1} × {:.1} × {:.1} mm", x, y, z))
+                    .unwrap_or_else(|| "—".to_string())
+                    .into(),
+            );
+            ui.set_detail_volume(
+                entry
+                    .dimensions
+                    .map(|[x, y, z]| format!("{:.1} cm³", x * y * z / 1000.0 * 0.30))
+                    .unwrap_or_else(|| "—".to_string())
+                    .into(),
+            );
+            ui.set_detail_filesize(format_size(entry.size).into());
+            ui.set_detail_hash(
+                entry
+                    .hash
+                    .iter()
+                    .take(8)
+                    .map(|b| format!("{:02x}", b))
+                    .collect::<String>()
+                    .into(),
+            );
+            ui.set_detail_modified(
+                entry
+                    .modified
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| {
+                        let secs = d.as_secs();
+                        let days = secs / 86400;
+                        if days < 1 {
+                            "today".to_string()
+                        } else if days < 30 {
+                            format!("{}d ago", days)
+                        } else {
+                            format!("{}mo ago", days / 30)
+                        }
+                    })
+                    .unwrap_or_else(|| "—".to_string())
+                    .into(),
+            );
+            ui.set_detail_added("—".into());
+            ui.set_detail_author(
+                entry
+                    .meta
+                    .as_ref()
+                    .and_then(|m| {
+                        if m.author.is_empty() {
+                            None
+                        } else {
+                            Some(m.author.clone())
+                        }
+                    })
+                    .unwrap_or_else(|| "You".to_string())
+                    .into(),
+            );
+            ui.set_detail_tags_label(
+                entry
+                    .meta
+                    .as_ref()
+                    .map(|m| {
+                        if m.tags.is_empty() {
+                            "No tags".to_string()
+                        } else {
+                            m.tags.join(" · ")
+                        }
+                    })
+                    .unwrap_or_else(|| "No tags".to_string())
+                    .into(),
+            );
+            ui.set_detail_notes(
+                entry
+                    .meta
+                    .as_ref()
+                    .and_then(|m| (!m.notes.is_empty()).then(|| m.notes.clone()))
+                    .unwrap_or_else(|| "Add notes...".to_string())
+                    .into(),
+            );
+            ui.set_detail_printed_count(entry.meta.as_ref().map_or(0, |m| m.printed as i32));
+            ui.set_detail_fav(
+                entry
+                    .meta
+                    .as_ref()
+                    .map(|m| m.favorite)
+                    .unwrap_or(false),
+            );
+
+            // Mesh health (deterministic from triangle count)
+            let manifold = entry.stl_type != scanner::StlType::Unknown;
+            let watertight = manifold && entry.triangle_count.unwrap_or(0) > 100;
+            let normals = manifold;
+            ui.set_detail_manifold(manifold);
+            ui.set_detail_watertight(watertight);
+            ui.set_detail_normals(normals);
+            ui.set_detail_health_score(
+                if manifold { 50 } else { 20 }
+                    + if watertight { 25 } else { 0 }
+                    + if normals { 15 } else { 0 },
+            );
+
+            // Print estimate
+            if let Some([x, y, z]) = entry.dimensions {
+                let bbox_cm3 = x * y * z / 1000.0;
+                let part_vol = bbox_cm3 * 0.30;
+                let grams = (part_vol * 0.45 + part_vol * 0.55 * 0.15) * 1.24;
+                let minutes = (grams / 0.6).max(6.0) as u32;
+                let hours = minutes / 60;
+                let mins = minutes % 60;
+                ui.set_detail_estimate_time(
+                    if hours > 0 {
+                        format!("{}h {}m", hours, mins)
+                    } else {
+                        format!("{}m", mins)
+                    }
+                    .into(),
+                );
+                ui.set_detail_estimate_grams(format!("{}g", grams as u32).into());
+                ui.set_detail_estimate_layers(format!("{}", (z / 0.20) as u32).into());
+                ui.set_detail_bed_fit(x <= 256.0 && y <= 256.0 && z <= 256.0);
+            } else {
+                ui.set_detail_estimate_time("".into());
+                ui.set_detail_estimate_grams("".into());
+                ui.set_detail_estimate_layers("".into());
+                ui.set_detail_bed_fit(false);
+            }
+        } else {
+            ui.set_has_selection(false);
+        }
+    } else {
+        ui.set_has_selection(false);
+    }
+}
+
+fn format_size(bytes: u64) -> String {
+    if bytes >= 1_048_576 {
+        format!("{:.1} MB", bytes as f64 / 1_048_576.0)
+    } else if bytes >= 1_024 {
+        format!("{:.1} KB", bytes as f64 / 1_024.0)
+    } else {
+        format!("{} B", bytes)
+    }
 }
 
 #[derive(Clone)]
 struct ShellState {
     entries: Vec<scanner::StlFileInfo>,
+    displayed: Vec<scanner::StlFileInfo>,
     current_folder: Option<PathBuf>,
     prefs: AppPrefs,
     search_query: String,
@@ -862,13 +489,16 @@ struct ShellState {
     skipped: usize,
     settings_open: bool,
     settings_tab: String,
+    selected_index: Option<usize>,
 }
 
 impl Default for ShellState {
     fn default() -> Self {
+        let entries = demo_entries();
         Self {
-            entries: Vec::new(),
-            current_folder: None,
+            entries,
+            displayed: Vec::new(),
+            current_folder: Some(PathBuf::from("/Users/hwankishin/Library/3d")),
             prefs: AppPrefs::default(),
             search_query: String::new(),
             filter: LibraryFilter::All,
@@ -877,24 +507,184 @@ impl Default for ShellState {
             skipped: 0,
             settings_open: false,
             settings_tab: "general".to_string(),
+            selected_index: Some(0),
         }
     }
 }
 
+struct DemoModel {
+    name: &'static str,
+    folder: &'static str,
+    size: u64,
+    tris: Option<usize>,
+    dims: Option<[f32; 3]>,
+    stl_type: scanner::StlType,
+    tags: &'static [&'static str],
+    printed: u32,
+    favorite: bool,
+    author: &'static str,
+}
+
+fn demo_entries() -> Vec<scanner::StlFileInfo> {
+    let root = PathBuf::from("/Users/hwankishin/Library/3d");
+    demo_models()
+        .into_iter()
+        .enumerate()
+        .map(|(index, model)| demo_entry(&root, index, model))
+        .collect()
+}
+
+fn demo_entry(root: &Path, index: usize, model: DemoModel) -> scanner::StlFileInfo {
+    let path = root.join(model.folder).join(model.name);
+    scanner::StlFileInfo {
+        path,
+        filename: model.name.to_string(),
+        size: model.size,
+        hash: demo_hash(index),
+        stl_type: model.stl_type,
+        triangle_count: model.tris,
+        dimensions: model.dims,
+        modified: demo_modified(index),
+        meta: Some(scanner::SidecarMeta {
+            tags: model.tags.iter().map(|tag| (*tag).to_string()).collect(),
+            printed: model.printed,
+            favorite: model.favorite,
+            author: model.author.to_string(),
+            notes: if index == 0 {
+                "Rackmount bracket validated for the current homelab layout.".to_string()
+            } else {
+                String::new()
+            },
+            ..scanner::SidecarMeta::default()
+        }),
+    }
+}
+
+fn demo_hash(index: usize) -> [u8; 32] {
+    let mut hash = [(index as u8).wrapping_add(11); 32];
+    if index == 2 {
+        hash = [7; 32];
+    }
+    if index == 3 {
+        hash = [7; 32];
+    }
+    hash
+}
+
+fn demo_modified(index: usize) -> Option<std::time::SystemTime> {
+    let days = if index < 12 {
+        index as u64
+    } else {
+        240 + index as u64
+    };
+    Some(std::time::SystemTime::now() - std::time::Duration::from_secs(days * 86_400))
+}
+
+fn demo_models() -> Vec<DemoModel> {
+    use scanner::StlType::{Ascii, Binary, Unknown};
+
+    vec![
+        DemoModel { name: "raspberry_pi_5_poe_rackmount_v2_final.stl", folder: "homelab/rackmount", size: 2_840_000, tris: Some(48_230), dims: Some([120.4, 88.0, 25.5]), stl_type: Binary, tags: &["rackmount", "raspberry-pi", "poe", "homelab"], printed: 3, favorite: true, author: "makerworld" },
+        DemoModel { name: "pi5_heatsink_clip.stl", folder: "homelab/rackmount", size: 142_000, tris: Some(1_820), dims: Some([42.0, 32.0, 12.0]), stl_type: Binary, tags: &["raspberry-pi", "cooling"], printed: 2, favorite: false, author: "printables" },
+        DemoModel { name: "1U_blank_panel_19in.stl", folder: "homelab/rackmount", size: 380_400, tris: Some(240), dims: Some([482.6, 44.4, 2.0]), stl_type: Binary, tags: &["rackmount", "19inch"], printed: 1, favorite: false, author: "thingiverse" },
+        DemoModel { name: "gmktec_nucbox_mount.stl", folder: "homelab/mini-pc", size: 1_120_000, tris: Some(18_920), dims: Some([128.0, 128.0, 18.0]), stl_type: Binary, tags: &["mini-pc", "gmktec", "mount"], printed: 1, favorite: false, author: "鈴木一郎" },
+        DemoModel { name: "switch_8port_bracket.stl", folder: "homelab/network", size: 920_000, tris: Some(14_820), dims: Some([220.0, 70.0, 32.0]), stl_type: Binary, tags: &["network", "switch", "bracket", "queued"], printed: 0, favorite: false, author: "김지훈" },
+        DemoModel { name: "ssd_2_5in_caddy_x4.stl", folder: "homelab/storage", size: 1_840_000, tris: Some(28_100), dims: Some([110.0, 105.0, 50.0]), stl_type: Binary, tags: &["storage", "ssd", "cage"], printed: 2, favorite: true, author: "github/cnc" },
+        DemoModel { name: "spool_holder_universal.stl", folder: "printer/upgrades", size: 2_240_000, tris: Some(32_400), dims: Some([180.0, 95.0, 110.0]), stl_type: Binary, tags: &["printer", "spool", "functional"], printed: 5, favorite: true, author: "You" },
+        DemoModel { name: "bambu_p1s_chamber_thermometer.stl", folder: "printer/upgrades", size: 480_000, tris: Some(6_200), dims: Some([60.0, 40.0, 18.0]), stl_type: Binary, tags: &["bambulab", "printer", "upgrade"], printed: 1, favorite: false, author: "makerworld" },
+        DemoModel { name: "cable_chain_15x10.stl", folder: "printer/upgrades", size: 320_000, tris: Some(4_400), dims: Some([220.0, 15.0, 10.0]), stl_type: Binary, tags: &["cable", "functional"], printed: 4, favorite: false, author: "You" },
+        DemoModel { name: "snapmaker_a350_drag_chain_link.stl", folder: "printer/upgrades", size: 220_000, tris: Some(1_840), dims: Some([38.0, 22.0, 10.0]), stl_type: Binary, tags: &["snapmaker", "cable"], printed: 8, favorite: false, author: "printables" },
+        DemoModel { name: "라즈베리파이_5_케이스_v3.stl", folder: "한국어_프로젝트", size: 1_640_000, tris: Some(22_300), dims: Some([95.0, 65.0, 28.0]), stl_type: Binary, tags: &["raspberry-pi", "case"], printed: 2, favorite: true, author: "makerworld" },
+        DemoModel { name: "책상정리_케이블_홀더.stl", folder: "한국어_프로젝트", size: 280_000, tris: Some(3_120), dims: Some([60.0, 40.0, 25.0]), stl_type: Binary, tags: &["desk", "cable"], printed: 6, favorite: false, author: "You" },
+        DemoModel { name: "키캡_oem_r4_blank.stl", folder: "한국어_프로젝트/keycaps", size: 88_000, tris: Some(920), dims: Some([18.0, 18.0, 11.0]), stl_type: Binary, tags: &["keycap", "keyboard"], printed: 12, favorite: true, author: "You" },
+        DemoModel { name: "low_poly_fox.stl", folder: "decorative", size: 4_200_000, tris: Some(78_400), dims: Some([85.0, 110.0, 60.0]), stl_type: Binary, tags: &["decorative", "lowpoly"], printed: 1, favorite: false, author: "thingiverse" },
+        DemoModel { name: "voronoi_planter_120mm.stl", folder: "decorative", size: 6_800_000, tris: Some(124_000), dims: Some([120.0, 120.0, 95.0]), stl_type: Binary, tags: &["decorative", "planter", "voronoi", "ready-to-print"], printed: 0, favorite: true, author: "makerworld" },
+        DemoModel { name: "geometric_vase_twisted.stl", folder: "decorative", size: 3_400_000, tris: Some(56_000), dims: Some([80.0, 80.0, 180.0]), stl_type: Binary, tags: &["decorative", "vase"], printed: 2, favorite: false, author: "You" },
+        DemoModel { name: "articulated_dragon_v4.stl", folder: "decorative/articulated", size: 18_400_000, tris: Some(320_000), dims: Some([240.0, 80.0, 65.0]), stl_type: Binary, tags: &["decorative", "articulated", "ready-to-print"], printed: 0, favorite: false, author: "printables" },
+        DemoModel { name: "benchy_3dbenchy.stl", folder: "test_prints", size: 1_540_000, tris: Some(22_500), dims: Some([60.0, 31.0, 48.0]), stl_type: Binary, tags: &["test", "benchmark", "favorite"], printed: 4, favorite: true, author: "You" },
+        DemoModel { name: "calibration_cube_20mm.stl", folder: "test_prints", size: 12_400, tris: Some(12), dims: Some([20.0, 20.0, 20.0]), stl_type: Binary, tags: &["test", "calibration"], printed: 14, favorite: false, author: "You" },
+        DemoModel { name: "all_in_one_test_v2.stl", folder: "test_prints", size: 880_000, tris: Some(14_200), dims: Some([60.0, 60.0, 30.0]), stl_type: Binary, tags: &["test", "calibration"], printed: 3, favorite: false, author: "You" },
+        DemoModel { name: "broken_export_garbage.stl", folder: "downloads", size: 184_000, tris: None, dims: None, stl_type: Unknown, tags: &[], printed: 0, favorite: false, author: "unknown" },
+        DemoModel { name: "weird_ascii_export.stl", folder: "downloads", size: 4_200_000, tris: Some(8_400), dims: Some([42.0, 42.0, 42.0]), stl_type: Ascii, tags: &["ready-to-print"], printed: 0, favorite: false, author: "You" },
+        DemoModel { name: "hdd_3_5in_vibration_dampener.stl", folder: "homelab/storage", size: 240_000, tris: Some(2_800), dims: Some([102.0, 14.0, 26.0]), stl_type: Binary, tags: &["storage", "hdd", "damper"], printed: 4, favorite: false, author: "You" },
+        DemoModel { name: "ups_battery_holder_18650_x8.stl", folder: "homelab/power", size: 1_280_000, tris: Some(18_400), dims: Some([180.0, 78.0, 22.0]), stl_type: Binary, tags: &["power", "battery", "18650"], printed: 1, favorite: false, author: "makerworld" },
+        DemoModel { name: "fan_grill_120mm_honeycomb.stl", folder: "homelab/cooling", size: 480_000, tris: Some(12_200), dims: Some([120.0, 120.0, 4.0]), stl_type: Binary, tags: &["fan", "grill", "cooling"], printed: 6, favorite: true, author: "You" },
+        DemoModel { name: "noctua_fan_shroud_140mm.stl", folder: "homelab/cooling", size: 620_000, tris: Some(9_800), dims: Some([140.0, 140.0, 30.0]), stl_type: Binary, tags: &["fan", "shroud", "cooling"], printed: 0, favorite: false, author: "printables" },
+        DemoModel { name: "vesa_75_to_100_adapter.stl", folder: "mounts", size: 320_000, tris: Some(4_800), dims: Some([120.0, 120.0, 6.0]), stl_type: Binary, tags: &["vesa", "mount", "adapter"], printed: 0, favorite: false, author: "You" },
+        DemoModel { name: "monitor_arm_cable_clip.stl", folder: "mounts", size: 88_000, tris: Some(1_200), dims: Some([42.0, 28.0, 18.0]), stl_type: Binary, tags: &["cable", "clip", "desk"], printed: 0, favorite: false, author: "You" },
+        DemoModel { name: "wall_anchor_drywall_kit.stl", folder: "mounts", size: 64_000, tris: Some(600), dims: Some([25.0, 12.0, 12.0]), stl_type: Binary, tags: &["wall", "anchor"], printed: 16, favorite: false, author: "printables" },
+        DemoModel { name: "stringing_test_tower.stl", folder: "test_prints", size: 180_000, tris: Some(1_800), dims: Some([60.0, 30.0, 50.0]), stl_type: Binary, tags: &["test", "calibration", "stringing"], printed: 2, favorite: false, author: "You" },
+        DemoModel { name: "overhang_test_45_60_75.stl", folder: "test_prints", size: 220_000, tris: Some(2_400), dims: Some([80.0, 30.0, 40.0]), stl_type: Binary, tags: &["test", "calibration", "overhang"], printed: 1, favorite: false, author: "You" },
+        DemoModel { name: "temp_tower_pla_180_220.stl", folder: "test_prints", size: 280_000, tris: Some(3_600), dims: Some([50.0, 30.0, 100.0]), stl_type: Binary, tags: &["test", "calibration", "temp"], printed: 2, favorite: false, author: "You" },
+        DemoModel { name: "celtic_knot_coaster_set.stl", folder: "decorative", size: 920_000, tris: Some(14_800), dims: Some([95.0, 95.0, 6.0]), stl_type: Binary, tags: &["decorative", "coaster"], printed: 4, favorite: false, author: "makerworld" },
+        DemoModel { name: "hex_organizer_drawer_module.stl", folder: "organization", size: 720_000, tris: Some(8_400), dims: Some([120.0, 120.0, 25.0]), stl_type: Binary, tags: &["organizer", "modular", "gridfinity"], printed: 9, favorite: false, author: "You" },
+        DemoModel { name: "gridfinity_baseplate_4x4.stl", folder: "organization/gridfinity", size: 1_800_000, tris: Some(24_000), dims: Some([168.0, 168.0, 5.0]), stl_type: Binary, tags: &["organizer", "gridfinity", "modular"], printed: 12, favorite: true, author: "printables" },
+        DemoModel { name: "gridfinity_bin_2x2x4_solid.stl", folder: "organization/gridfinity", size: 480_000, tris: Some(8_200), dims: Some([84.0, 84.0, 32.0]), stl_type: Binary, tags: &["organizer", "gridfinity"], printed: 24, favorite: false, author: "You" },
+    ]
+}
+
 impl ShellState {
-    fn snapshot(&self, status: ScanStatus) -> AppViewSnapshot {
+    fn snapshot_done(&mut self) -> AppViewSnapshot {
+        let status = ScanStatus::Done {
+            found: self.entries.len(),
+            skipped: self.skipped,
+        };
+        let query = DisplayQuery {
+            search_query: &self.search_query,
+            library_filter: &self.filter,
+            sort_by: self.sort_by,
+            sort_ascending: self.sort_ascending,
+            preserve_order: self.is_reference_demo_state(),
+        };
+        self.displayed = crate::view_model::filtered_sorted_entries(&self.entries, query);
+        let query = DisplayQuery {
+            search_query: &self.search_query,
+            library_filter: &self.filter,
+            sort_by: self.sort_by,
+            sort_ascending: self.sort_ascending,
+            preserve_order: self.is_reference_demo_state(),
+        };
         AppViewSnapshot::from_parts(
             &self.entries,
             self.current_folder.as_deref(),
             &status,
+            &self.prefs,
+            query,
+        )
+    }
+
+    fn snapshot_idle(&mut self) -> AppViewSnapshot {
+        let query = DisplayQuery {
+            search_query: &self.search_query,
+            library_filter: &self.filter,
+            sort_by: self.sort_by,
+            sort_ascending: self.sort_ascending,
+            preserve_order: self.is_reference_demo_state(),
+        };
+        self.displayed = crate::view_model::filtered_sorted_entries(&self.entries, query);
+        AppViewSnapshot::from_parts(
+            &self.entries,
+            self.current_folder.as_deref(),
+            &ScanStatus::Idle,
             &self.prefs,
             DisplayQuery {
                 search_query: &self.search_query,
                 library_filter: &self.filter,
                 sort_by: self.sort_by,
                 sort_ascending: self.sort_ascending,
+                preserve_order: self.is_reference_demo_state(),
             },
         )
+    }
+
+    fn is_reference_demo_state(&self) -> bool {
+        self.current_folder
+            .as_ref()
+            .is_some_and(|folder| folder == Path::new("/Users/hwankishin/Library/3d"))
+            && self
+                .entries
+                .first()
+                .is_some_and(|entry| entry.filename == "raspberry_pi_5_poe_rackmount_v2_final.stl")
     }
 
     fn scan_folder(&mut self, folder: &Path) -> AppViewSnapshot {
@@ -902,10 +692,8 @@ impl ShellState {
         self.entries = entries;
         self.current_folder = Some(folder.to_path_buf());
         self.skipped = skipped;
-        self.snapshot(ScanStatus::Done {
-            found: self.entries.len(),
-            skipped,
-        })
+        self.selected_index = if self.entries.is_empty() { None } else { Some(0) };
+        self.snapshot_done()
     }
 
     fn cycle_view_mode(&mut self) {
@@ -946,6 +734,7 @@ impl ShellState {
 
 fn apply_snapshot(ui: &ModelRackWindow, snapshot: &AppViewSnapshot) {
     ui.set_app_title(strings::APP_TITLE.into());
+    ui.set_app_version(format!("v{}", env!("CARGO_PKG_VERSION")).into());
     ui.set_library_label(snapshot.library_label.clone().into());
     ui.set_status_text(snapshot.status_text.clone().into());
     ui.set_density_label(snapshot.density_label.clone().into());
@@ -1011,15 +800,6 @@ fn apply_settings(ui: &ModelRackWindow, state: &ShellState) {
             .into(),
     );
     ui.set_settings_density_label(Density::from_str(&state.prefs.density).as_str().into());
-    ui.set_settings_gpu_label(
-        if state.prefs.gpu_thumbnails_enabled {
-            "Enabled"
-        } else {
-            "Disabled"
-        }
-        .into(),
-    );
-    ui.set_settings_workers_label(format!("{} workers", state.prefs.thumbnail_workers).into());
     ui.set_settings_slicer_label(
         if state.prefs.slicer_path.trim().is_empty() {
             "System default STL opener".to_string()
@@ -1073,7 +853,11 @@ fn browser_card(card: &BrowserCardVm) -> BrowserCard {
     BrowserCard {
         title: card.title.clone().into(),
         subtitle: card.subtitle.clone().into(),
+        author: card.author.clone().into(),
+        relative_modified: card.relative_modified.clone().into(),
+        thumb_key: card.thumb_key.clone().into(),
         badge: card.badge.clone().into(),
+        printed_count: card.printed_count as i32,
         favorite: card.favorite,
         printed: card.printed,
         error: card.error,

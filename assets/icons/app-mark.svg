@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="top" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0" stop-color="#8fe3f6"/>
+      <stop offset="1" stop-color="#5fb8d4"/>
+    </linearGradient>
+  </defs>
+  <g>
+    <path d="M30.948 67 L50 78 L50 100 L30.948 89 Z" fill="#367f9b"/>
+    <path d="M69.052 67 L50 78 L50 100 L69.052 89 Z" fill="#1d536b"/>
+    <path d="M50 56 L69.052 67 L50 78 L30.948 67 Z" fill="url(#top)"/>
+  </g>
+  <g>
+    <path d="M69.052 67 L88.104 78 L88.104 100 L69.052 89 Z" fill="#367f9b"/>
+    <path d="M107.104 67 L88.104 78 L88.104 100 L107.104 89 Z" fill="#1d536b"/>
+    <path d="M88.104 56 L107.104 67 L88.104 78 L69.052 67 Z" fill="url(#top)"/>
+  </g>
+  <g>
+    <path d="M50 45 L69.052 56 L69.052 78 L50 67 Z" fill="#5fb8d4"/>
+    <path d="M88.104 45 L69.052 56 L69.052 78 L88.104 67 Z" fill="#367f9b"/>
+    <path d="M69.052 34 L88.104 45 L69.052 56 L50 45 Z" fill="url(#top)"/>
+  </g>
+</svg>

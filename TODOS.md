@@ -101,3 +101,17 @@
 **What:** Bundle and load explicit UI fonts, using Inter for Latin and Pretendard for Korean fallback, with a documented monospace choice for paths/hashes/counts. Remove dependency on uncontrolled OS fallback chains.
 **Why:** Typography is the interface for dense maker/library workflows. Mixed San Francisco + Apple SD Gothic Neo fallback creates spacing and weight mismatches on Korean macOS systems.
 **Status:** Implemented for the current bridge. Inter Variable, Pretendard Variable, and JetBrains Mono Regular are now bundled under `assets/fonts`, with license files kept beside the font assets. The default egui shell loads those bundled fonts instead of reading user/system font paths, and the feature-gated Slint shell registers the same bundled fonts with Hangul fallback. JetBrains Mono is used for dense count/path/hash-style text surfaces.
+
+### TODO-15: Frameless Slint macOS traffic-light behavior
+**Added:** 2026-05-08 (custom titlebar QA)
+**Target:** v0.2.0 Slint shell polish
+**What:** Revisit the custom traffic-light implementation for the feature-gated Slint shell. Red should hide the window and restore from the Dock icon, yellow should minimize, green should actually maximize/restore the frameless window, and the custom titlebar drag region should keep native-feeling movement.
+**Why:** The current frameless Slint/winit/macOS bridge receives the green-button click and can trigger zoom/maximize animations, but the window frame does not reliably commit to the maximized size. Dock restore after custom hide also needs real packaged-app QA instead of ad hoc debug-process behavior.
+**Status:** Deferred. Current bridge keeps the custom titlebar visually correct and red/yellow/titlebar callbacks wired, but green maximize remains unreliable on macOS frameless windows and should be fixed later at the window creation/backend boundary.
+
+### TODO-16: Finish Slint mockup parity polish
+**Added:** 2026-05-08 (Ralph visual parity pass)
+**Target:** v0.2.0 Slint shell polish
+**What:** Continue the ModelRack mockup parity pass from the current Slint shell state. Remaining visible gaps: exact outer-window positioning/shadow versus the browser mockup capture, toolbar control sizing/spacing, folder tree expand affordances and `+` actions beside `FOLDERS`/`TAGS`, first-screen bottom clipping/scrollbar polish, and detail-panel microcopy/section spacing.
+**Why:** The current app now matches the main mockup state at the large structural level: populated 36-model library, matching sidebar counts, selected raspberry_pi card, AppMark titlebar, generated per-model SVG thumbnails, 4-column grid, and detailed metadata panel. The remaining work is pixel-level polish rather than architecture.
+**Status:** Deferred at user request. Last verified screenshot was `/tmp/modelrack-app-after-thumbs-1480.png`; tests passed with `23 passed`.

@@ -16,18 +16,52 @@ const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 // Settings (persisted to localStorage so the dialog survives reload)
 // ─────────────────────────────────────────────────────────
 const SETTINGS_DEFAULTS = {
+  // General
   theme: "dark",            // dark | light | auto
   lang: "en",               // en | ko | ja
+  startupFolder: "last",    // last | empty
+  defaultView: "grid",      // grid | masonry | list
+  defaultSort: "name-asc",  // name-asc | name-desc | modified | added | size | tris
+  dateFormat: "auto",       // auto | iso | us
+  confirmDelete: true,
+  showHidden: false,
+  showExtensions: true,
+
+  // Appearance
   accent: "teal",           // teal | violet | orange | green
-  thumbStyle: "iso",        // iso | wire | normal
-  thumbCacheGB: 2,
+  density: "comfortable",   // comfortable | compact
+  sidebarPos: "left",       // left | right
+  cardLabel: "filename",    // filename | titled
+  reduceMotion: false,
+  thumbBg: "checker",       // solid | checker | dot
+
+  // Library
+  fileTypes: { stl: true, threeMF: true, step: false, obj: false },
+  excludePatterns: ".DS_Store, Thumbs.db, *.tmp",
+  sidecar: "json",          // json | db | none
   libRecursive: true,
   libWatch: true,
   libSizeCapMB: 200,
+
+  // Thumbnails
+  thumbStyle: "iso",        // iso | wire | normal
+  thumbCacheGB: 2,
+  thumbRenderSize: 512,
+  thumbLighting: "studio",  // studio | even | rim
+  thumbAA: "msaa4x",        // off | msaa2x | msaa4x | msaa8x
+
+  // Slicer
   slicer: "orca",
   slicerPath: "",
+  postExport: "open",       // open | reveal | none
+  defaultProfile: "0.20mm Standard",
+
+  // Advanced
   workers: 4,
   gpu: true,
+  cacheLocation: "~/Library/Caches/modelrack",
+  logLevel: "info",         // error | warn | info | debug | trace
+  devMenu: false,
   telemetry: false,
 };
 
@@ -86,6 +120,9 @@ const Icon = ({ name, size = 14, stroke = 1.5 }) => {
     rotate: <g><path d="M8 2v3M8 11v3M2 8h3M11 8h3"/><circle cx="8" cy="8" r="3"/></g>,
     fullscreen: <path d="M3 6V3h3M13 6V3h-3M3 10v3h3M13 10v3h-3" />,
     info: <g><circle cx="8" cy="8" r="6"/><path d="M8 7v4M8 5v0.1"/></g>,
+    check: <path d="m3 8.5 3.5 3 6.5-7" />,
+    link: <g><path d="M9 6.5h2.5a3 3 0 0 1 0 6H9M7 9.5H4.5a3 3 0 0 1 0-6H7"/><path d="M6 8h4"/></g>,
+    download: <g><path d="M8 2v8m0 0L5 7m3 3 3-3"/><path d="M3 12v1.5h10V12"/></g>,
   };
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none"
@@ -162,6 +199,63 @@ function tagColor(name) {
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
   const hue = Math.abs(h) % 360;
   return `oklch(0.72 0.10 ${hue})`;
+}
+
+// Mesh health (deterministic from id) — manifold, normals, etc.
+function meshHealth(model) {
+  if (model.type === "Unknown") {
+    return { score: 0, manifold: false, watertight: false, normals: false,
+             components: 0, holes: 0, degenerate: 0, error: true };
+  }
+  const s = (model.id * 2654435761) >>> 0;
+  const isCalibration = model.tags.includes("calibration") || model.tags.includes("test");
+  const manifold   = isCalibration || (s % 11) !== 0;
+  const watertight = manifold && (s % 13) !== 0;
+  const normals    = (s % 17) !== 0;
+  const components = (s % 5 === 0) ? 2 + ((s >> 4) % 4) : 1;
+  const holes      = watertight ? 0 : 1 + (s % 4);
+  const degenerate = manifold ? 0 : ((s >> 8) % 6);
+  const score = (manifold ? 50 : 20) + (watertight ? 25 : 0) + (normals ? 15 : 0) + (holes === 0 ? 10 : 0);
+  return { score: Math.min(100, score), manifold, watertight, normals,
+           components, holes, degenerate, error: false };
+}
+
+// Print estimate at default 0.20mm profile, 15% infill, PLA 1.24g/cm³
+function printEstimate(model) {
+  if (!model.dims || model.tris == null) return null;
+  const [x, y, z] = model.dims;
+  const bbox = (x * y * z) / 1000; // cm³
+  // approximate solid volume → 30% of bbox for typical part
+  const partVol = bbox * 0.30;
+  const shellVol = partVol * 0.45;
+  const infillVol = partVol * 0.55 * 0.15; // 15% infill
+  const printedVol = shellVol + infillVol;
+  const grams = printedVol * 1.24;
+  // ~ 0.6 g/min throughput for 0.4 nozzle 0.20 layer
+  const minutes = Math.max(6, Math.round(grams / 0.6));
+  const lengthM = +(grams / 2.98).toFixed(1); // PLA 1.75mm
+  return {
+    grams: +grams.toFixed(0),
+    minutes,
+    hours: Math.floor(minutes / 60),
+    mins: minutes % 60,
+    lengthM,
+    layers: Math.ceil(z / 0.20),
+    bedFit: x <= 256 && y <= 256 && z <= 256,
+    bedSize: "Bambu P1S · 256 × 256 × 256",
+  };
+}
+
+// Source / provenance
+const SOURCE_HOSTS = [
+  { host: "printables.com",  user: "ronan_co",       date: "Jan 12, 2026" },
+  { host: "thingiverse.com", user: "makers_dad",     date: "Mar 04, 2025" },
+  { host: "makerworld.com",  user: "studio_fold",    date: "Feb 21, 2026" },
+  { host: "thangs.com",      user: "cnc-lab",        date: "Sep 03, 2025" },
+  null, null, // some are local-only
+];
+function modelSource(model) {
+  return SOURCE_HOSTS[model.id % SOURCE_HOSTS.length];
 }
 
 // Sample print history per model
@@ -453,7 +547,65 @@ function ListView({ models, selectedId, onSelect }) {
 // ─────────────────────────────────────────────────────────
 // Detail panel
 // ─────────────────────────────────────────────────────────
-function DetailPanel({ model, L }) {
+function DetailPanel({ model, L, settings, updateSettings }) {
+  const [slicerMenu, setSlicerMenu] = useState(false);
+  useEffect(() => {
+    if (!slicerMenu) return;
+    const onDoc = () => setSlicerMenu(false);
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [slicerMenu]);
+  const SlicerAppIcon = ({ id }) => {
+    if (id === "orca") return (
+      <svg viewBox="0 0 24 24" width="22" height="22" style={{ display: "block" }}>
+        <rect width="24" height="24" rx="6" fill="#0E1820"/>
+        <path d="M5 14c2-4 6-6 9-5.5 1.4.2 2.6 1 3.5 2L19 8.5l-.4 4c.6 1.4.5 3-.5 4.5-1.7 2.4-5.5 3-8.5 1.5C7 17.4 5.6 16 5 14z" fill="#1FB8C8"/>
+        <path d="M11.5 11.5c1.4-.4 3 .2 4 1.5l-2 1.5c-.6-.7-1.4-1.1-2.3-1z" fill="#fff"/>
+        <circle cx="15.5" cy="12.2" r="0.7" fill="#0E1820"/>
+      </svg>
+    );
+    if (id === "bambu") return (
+      <svg viewBox="0 0 24 24" width="22" height="22" style={{ display: "block" }}>
+        <rect width="24" height="24" rx="6" fill="#0F2419"/>
+        <path d="M7 6c2 0 3 1 3 3v3c0 1.5 1 2.5 2.5 2.5S15 13.5 15 12V8c0-1.4 1-2 2-2v6c0 3-2 5-4.5 5S8 15 8 12V9c0-2-1-3-3-3z" fill="#16C47F"/>
+        <circle cx="6.5" cy="7" r="1" fill="#16C47F"/>
+        <circle cx="17.5" cy="7" r="1" fill="#16C47F"/>
+      </svg>
+    );
+    if (id === "prusa") return (
+      <svg viewBox="0 0 24 24" width="22" height="22" style={{ display: "block" }}>
+        <rect width="24" height="24" rx="6" fill="#1A1208"/>
+        <path d="M12 4 4 8.5v7L12 20l8-4.5v-7z" fill="#FA6831"/>
+        <path d="M12 7 7 9.7v4.6L12 17l5-2.7V9.7z" fill="#1A1208"/>
+        <text x="12" y="14" textAnchor="middle" fontFamily="system-ui, sans-serif" fontWeight="800" fontSize="7" fill="#FA6831">P</text>
+      </svg>
+    );
+    if (id === "super") return (
+      <svg viewBox="0 0 24 24" width="22" height="22" style={{ display: "block" }}>
+        <rect width="24" height="24" rx="6" fill="#1A0E1A"/>
+        <path d="M12 3 5 7v6.5C5 17 8 20 12 21c4-1 7-4 7-7.5V7z" fill="#E11D48"/>
+        <path d="M9 11h6M9.5 8.5l-1.2-1.2M14.5 8.5l1.2-1.2M12 6.5V5" stroke="#fff" strokeWidth="1.4" strokeLinecap="round"/>
+        <path d="m9.5 14 2.5 3 2.5-3" stroke="#fff" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+      </svg>
+    );
+    if (id === "cura") return (
+      <svg viewBox="0 0 24 24" width="22" height="22" style={{ display: "block" }}>
+        <rect width="24" height="24" rx="6" fill="#0B2434"/>
+        <circle cx="12" cy="12" r="6.5" fill="none" stroke="#06D6E0" strokeWidth="2.2"/>
+        <path d="M16.5 6.5 19 4M14.5 9.5 17 7" stroke="#06D6E0" strokeWidth="2.2" strokeLinecap="round"/>
+      </svg>
+    );
+    return <span>{(id || "?").charAt(0).toUpperCase()}</span>;
+  };
+  const SLICERS = [
+    { id: "orca",  name: "OrcaSlicer",   sub: "0.20mm Standard · PLA" },
+    { id: "bambu", name: "Bambu Studio", sub: "P1S · 0.16mm Fine" },
+    { id: "prusa", name: "PrusaSlicer",  sub: "MK4 · 0.20mm Speed" },
+    { id: "super", name: "SuperSlicer",  sub: "Custom profile" },
+    { id: "cura",  name: "UltiMaker Cura", sub: "Standard" },
+  ];
+  const defaultSlicerId = settings ? settings.slicer : "orca";
+  const defaultSlicer = SLICERS.find(s => s.id === defaultSlicerId) || SLICERS[0];
   if (!model) {
     return (
       <div className="detail">
@@ -470,6 +622,9 @@ function DetailPanel({ model, L }) {
 
   const dims = model.dims;
   const history = printHistory(model);
+  const health = meshHealth(model);
+  const estimate = printEstimate(model);
+  const source = modelSource(model);
 
   return (
     <div className="detail">
@@ -495,9 +650,42 @@ function DetailPanel({ model, L }) {
         <div className="detail-path">~/Library/3d/{model.folder}/</div>
 
         <div className="detail-actions">
-          <button className="btn primary" style={{ flex: 1 }}>
-            <Icon name="slicer" size={12} /> {L.detail_open_slicer}
-          </button>
+          <div className="split-btn" onMouseDown={(e) => e.stopPropagation()}>
+            <button className="btn primary split-main" title={`${L.detail_open_in} ${defaultSlicer.name}`}>
+              <Icon name="slicer" size={12} /> {L.detail_open_slicer}
+              <span className="split-sub">{defaultSlicer.name}</span>
+            </button>
+            <button className={"btn primary split-caret " + (slicerMenu ? "on" : "")}
+                    title={L.detail_choose_slicer}
+                    onClick={() => setSlicerMenu(v => !v)}>
+              <Icon name="chevron" size={9} stroke={2.2} />
+            </button>
+            {slicerMenu && (
+              <div className="slicer-menu" onMouseDown={(e) => e.stopPropagation()}>
+                <div className="slicer-menu-head">{L.detail_open_with}</div>
+                {SLICERS.map(s => (
+                  <button key={s.id}
+                          className={"slicer-menu-item " + (s.id === defaultSlicerId ? "active" : "")}
+                          onClick={() => {
+                            if (updateSettings) updateSettings({ slicer: s.id });
+                            setSlicerMenu(false);
+                          }}>
+                    <span className="slicer-icon"><SlicerAppIcon id={s.id} /></span>
+                    <span className="slicer-name">
+                      <span>{s.name}</span>
+                      <span className="slicer-sub">{s.sub}</span>
+                    </span>
+                    {s.id === defaultSlicerId && <Icon name="check" size={11} stroke={2} />}
+                  </button>
+                ))}
+                <div className="slicer-menu-foot">
+                  <button className="slicer-menu-link">
+                    <Icon name="plus" size={10} stroke={2} /> {L.detail_add_slicer}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
           <button className="btn icon-only" title="Mark printed"><Icon name="print" size={13} /></button>
           <button className="btn icon-only" title="Favorite">
             <Icon name="star" size={13} stroke={model.fav ? 2 : 1.5} />
@@ -517,13 +705,85 @@ function DetailPanel({ model, L }) {
                 {dims[1].toFixed(1)} <span style={{ color: "var(--fg-3)" }}>×</span>{" "}
                 {dims[2].toFixed(1)} <span style={{ color: "var(--fg-3)" }}>mm</span>
               </div>
+              <div className="k">{L.detail_bbox}</div>
+              <div className="v">{(dims[0]*dims[1]*dims[2]/1000).toFixed(1)} cm³ <span style={{ color: "var(--fg-3)" }}>· bbox</span></div>
               <div className="k">{L.detail_volume}</div>
-              <div className="v">{(dims[0]*dims[1]*dims[2]/1000).toFixed(1)} cm³</div>
+              <div className="v">{(dims[0]*dims[1]*dims[2]/1000 * 0.30).toFixed(1)} cm³ <span style={{ color: "var(--fg-3)" }}>· est. solid</span></div>
+              <div className="k">{L.detail_longest}</div>
+              <div className="v">{Math.max(...dims).toFixed(1)} mm <span style={{ color: "var(--fg-3)" }}>· {Math.max(...dims) === dims[0] ? "X" : Math.max(...dims) === dims[1] ? "Y" : "Z"}</span></div>
             </>}
             <div className="k">{L.detail_filesize}</div>
             <div className="v">{fmtSize(model.size)}</div>
           </div>
         </div>
+
+        {!health.error && (
+          <div className="detail-section">
+            <h3>
+              {L.detail_health}
+              <span className={"health-badge " + (health.score >= 90 ? "ok" : health.score >= 65 ? "warn" : "bad")}>
+                {health.score}<span className="suffix">/100</span>
+              </span>
+            </h3>
+            <div className="health-grid">
+              <div className={"health-item " + (health.manifold ? "ok" : "bad")}>
+                <Icon name={health.manifold ? "check" : "close"} size={11} stroke={2} />
+                <span>{L.detail_manifold}</span>
+              </div>
+              <div className={"health-item " + (health.watertight ? "ok" : "warn")}>
+                <Icon name={health.watertight ? "check" : "close"} size={11} stroke={2} />
+                <span>{L.detail_watertight}</span>
+              </div>
+              <div className={"health-item " + (health.normals ? "ok" : "warn")}>
+                <Icon name={health.normals ? "check" : "close"} size={11} stroke={2} />
+                <span>{L.detail_normals}</span>
+              </div>
+              <div className={"health-item " + (health.components === 1 ? "ok" : "info")}>
+                <Icon name="box" size={11} />
+                <span>{health.components} {L.detail_components}</span>
+              </div>
+            </div>
+            {(health.holes > 0 || health.degenerate > 0) && (
+              <div className="health-issues">
+                {health.holes > 0 && <span><span className="dot warn" />{health.holes} {L.detail_holes}</span>}
+                {health.degenerate > 0 && <span><span className="dot warn" />{health.degenerate} {L.detail_degenerate}</span>}
+                <button className="health-fix">{L.detail_repair}</button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {estimate && (
+          <div className="detail-section">
+            <h3>
+              {L.detail_estimate}
+              <span className="section-sub">0.20mm · 15% infill · PLA</span>
+            </h3>
+            <div className="estimate-row">
+              <div className="est-item">
+                <div className="est-label">{L.detail_est_time}</div>
+                <div className="est-value">
+                  {estimate.hours > 0 && <span>{estimate.hours}<span className="u">h</span></span>}
+                  <span>{estimate.mins}<span className="u">m</span></span>
+                </div>
+              </div>
+              <div className="est-item">
+                <div className="est-label">{L.detail_est_filament}</div>
+                <div className="est-value">{estimate.grams}<span className="u">g</span></div>
+                <div className="est-sub">{estimate.lengthM} m</div>
+              </div>
+              <div className="est-item">
+                <div className="est-label">{L.detail_est_layers}</div>
+                <div className="est-value">{estimate.layers}</div>
+              </div>
+            </div>
+            <div className={"bed-fit " + (estimate.bedFit ? "ok" : "warn")}>
+              <Icon name={estimate.bedFit ? "check" : "close"} size={10} stroke={2} />
+              <span>{estimate.bedFit ? L.detail_bed_fits : L.detail_bed_no_fit}</span>
+              <code>{estimate.bedSize}</code>
+            </div>
+          </div>
+        )}
 
         <div className="detail-section">
           <h3>{L.detail_tags}</h3>
@@ -568,6 +828,22 @@ function DetailPanel({ model, L }) {
             )}
           </div>
         </div>
+
+        {source && (
+          <div className="detail-section">
+            <h3>{L.detail_source}</h3>
+            <div className="source-card">
+              <div className="source-icon">{source.host.charAt(0).toUpperCase()}</div>
+              <div className="source-body">
+                <div className="source-host">{source.host}</div>
+                <div className="source-meta">@{source.user} · {source.date}</div>
+              </div>
+              <button className="source-open" title={L.detail_source_open}>
+                <Icon name="link" size={11} />
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="detail-section">
           <h3>{L.detail_file}</h3>
@@ -654,7 +930,8 @@ function SettingsDialog({ open, onClose, settings, update, L }) {
     { id: "library",    icon: "folder",    label: L.settings_library },
     { id: "thumbnails", icon: "box",       label: L.settings_thumbnails },
     { id: "slicer",     icon: "slicer",    label: L.settings_slicer },
-    { id: "advanced",   icon: "cmd",       label: L.settings_advanced },
+    { id: "hotkeys",    icon: "cmd",       label: L.settings_hotkeys },
+    { id: "advanced",   icon: "sparkle",   label: L.settings_advanced },
     { id: "about",      icon: "info",      label: L.settings_about },
   ];
 
@@ -733,6 +1010,53 @@ function SettingsDialog({ open, onClose, settings, update, L }) {
                        ]}
                        onChange={(v) => update({ lang: v })} />
                 </Row>
+                <Row label={L.settings_startup} hint={L.settings_startup_hint}>
+                  <Seg value={settings.startupFolder}
+                       options={[
+                         { value: "last",  label: L.settings_startup_last },
+                         { value: "empty", label: L.settings_startup_empty },
+                       ]}
+                       onChange={(v) => update({ startupFolder: v })} />
+                </Row>
+                <Row label={L.settings_default_view}>
+                  <Seg value={settings.defaultView}
+                       options={[
+                         { value: "grid",    label: L.view_grid },
+                         { value: "masonry", label: L.view_masonry },
+                         { value: "list",    label: L.view_list },
+                       ]}
+                       onChange={(v) => update({ defaultView: v })} />
+                </Row>
+                <Row label={L.settings_default_sort}>
+                  <select className="settings-text" style={{ maxWidth: 220 }}
+                          value={settings.defaultSort}
+                          onChange={(e) => update({ defaultSort: e.target.value })}>
+                    <option value="name-asc">{L.sort_name_asc}</option>
+                    <option value="name-desc">{L.sort_name_desc}</option>
+                    <option value="modified">{L.sort_modified}</option>
+                    <option value="added">{L.sort_added}</option>
+                    <option value="size">{L.sort_size}</option>
+                    <option value="tris">{L.sort_tris}</option>
+                  </select>
+                </Row>
+                <Row label={L.settings_date_format}>
+                  <Seg value={settings.dateFormat}
+                       options={[
+                         { value: "auto", label: L.settings_date_auto },
+                         { value: "iso",  label: "2026-05-08" },
+                         { value: "us",   label: "May 8, 2026" },
+                       ]}
+                       onChange={(v) => update({ dateFormat: v })} />
+                </Row>
+                <Row label={L.settings_show_extensions}>
+                  <SettingsToggle on={settings.showExtensions} onChange={(v) => update({ showExtensions: v })} />
+                </Row>
+                <Row label={L.settings_show_hidden} hint={L.settings_show_hidden_hint}>
+                  <SettingsToggle on={settings.showHidden} onChange={(v) => update({ showHidden: v })} />
+                </Row>
+                <Row label={L.settings_confirm_delete}>
+                  <SettingsToggle on={settings.confirmDelete} onChange={(v) => update({ confirmDelete: v })} />
+                </Row>
               </>
             )}
 
@@ -757,6 +1081,42 @@ function SettingsDialog({ open, onClose, settings, update, L }) {
                           ]}
                           onChange={(v) => update({ accent: v })} />
                 </Row>
+                <Row label={L.settings_density}>
+                  <Seg value={settings.density}
+                       options={[
+                         { value: "comfortable", label: L.settings_density_comfort },
+                         { value: "compact",     label: L.settings_density_compact },
+                       ]}
+                       onChange={(v) => update({ density: v })} />
+                </Row>
+                <Row label={L.settings_sidebar_pos}>
+                  <Seg value={settings.sidebarPos}
+                       options={[
+                         { value: "left",  label: L.settings_left },
+                         { value: "right", label: L.settings_right },
+                       ]}
+                       onChange={(v) => update({ sidebarPos: v })} />
+                </Row>
+                <Row label={L.settings_card_label} hint={L.settings_card_label_hint}>
+                  <Seg value={settings.cardLabel}
+                       options={[
+                         { value: "filename", label: L.settings_card_filename },
+                         { value: "titled",   label: L.settings_card_titled },
+                       ]}
+                       onChange={(v) => update({ cardLabel: v })} />
+                </Row>
+                <Row label={L.settings_thumb_bg}>
+                  <Seg value={settings.thumbBg}
+                       options={[
+                         { value: "solid",   label: L.settings_thumb_bg_solid },
+                         { value: "checker", label: L.settings_thumb_bg_checker },
+                         { value: "dot",     label: L.settings_thumb_bg_dot },
+                       ]}
+                       onChange={(v) => update({ thumbBg: v })} />
+                </Row>
+                <Row label={L.settings_reduce_motion}>
+                  <SettingsToggle on={settings.reduceMotion} onChange={(v) => update({ reduceMotion: v })} />
+                </Row>
               </>
             )}
 
@@ -770,16 +1130,47 @@ function SettingsDialog({ open, onClose, settings, update, L }) {
                       <span className="path-count">36</span>
                       <button className="path-x"><Icon name="close" size={10} stroke={2} /></button>
                     </div>
+                    <div className="path-row">
+                      <Icon name="folder" size={12} />
+                      <code>~/Downloads/stl</code>
+                      <span className="path-count">8</span>
+                      <button className="path-x"><Icon name="close" size={10} stroke={2} /></button>
+                    </div>
                     <button className="path-add">
                       <Icon name="plus" size={11} stroke={2} /> {L.add_folder}
                     </button>
                   </div>
                 </Row>
+                <Row label={L.settings_file_types}>
+                  <div className="settings-checks">
+                    {[["stl","STL"],["threeMF","3MF"],["step","STEP"],["obj","OBJ"]].map(([k,lbl]) => (
+                      <label key={k} className="settings-check">
+                        <input type="checkbox" checked={settings.fileTypes[k]}
+                               onChange={(e) => update({ fileTypes: { ...settings.fileTypes, [k]: e.target.checked } })} />
+                        <span>{lbl}</span>
+                      </label>
+                    ))}
+                  </div>
+                </Row>
                 <Row label={L.settings_lib_recursive}>
                   <SettingsToggle on={settings.libRecursive} onChange={(v) => update({ libRecursive: v })} />
                 </Row>
-                <Row label={L.settings_lib_watch}>
+                <Row label={L.settings_lib_watch} hint={L.settings_lib_watch_hint}>
                   <SettingsToggle on={settings.libWatch} onChange={(v) => update({ libWatch: v })} />
+                </Row>
+                <Row label={L.settings_exclude} hint={L.settings_exclude_hint}>
+                  <input className="settings-text"
+                         value={settings.excludePatterns}
+                         onChange={(e) => update({ excludePatterns: e.target.value })} />
+                </Row>
+                <Row label={L.settings_sidecar} hint={L.settings_sidecar_hint}>
+                  <Seg value={settings.sidecar}
+                       options={[
+                         { value: "json", label: L.settings_sidecar_json },
+                         { value: "db",   label: L.settings_sidecar_db },
+                         { value: "none", label: L.settings_sidecar_none },
+                       ]}
+                       onChange={(v) => update({ sidecar: v })} />
                 </Row>
                 <Row label={L.settings_lib_size_cap}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -803,6 +1194,34 @@ function SettingsDialog({ open, onClose, settings, update, L }) {
                        ]}
                        onChange={(v) => update({ thumbStyle: v })} />
                 </Row>
+                <Row label={L.settings_thumb_lighting}>
+                  <Seg value={settings.thumbLighting}
+                       options={[
+                         { value: "studio", label: L.settings_lighting_studio },
+                         { value: "even",   label: L.settings_lighting_even },
+                         { value: "rim",    label: L.settings_lighting_rim },
+                       ]}
+                       onChange={(v) => update({ thumbLighting: v })} />
+                </Row>
+                <Row label={L.settings_thumb_aa}>
+                  <Seg value={settings.thumbAA}
+                       options={[
+                         { value: "off",     label: "Off" },
+                         { value: "msaa2x",  label: "MSAA 2×" },
+                         { value: "msaa4x",  label: "MSAA 4×" },
+                         { value: "msaa8x",  label: "MSAA 8×" },
+                       ]}
+                       onChange={(v) => update({ thumbAA: v })} />
+                </Row>
+                <Row label={L.settings_thumb_render_size} hint={L.settings_thumb_render_size_hint}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <input type="range" min="256" max="1024" step="128"
+                           value={settings.thumbRenderSize}
+                           onChange={(e) => update({ thumbRenderSize: +e.target.value })}
+                           style={{ width: 160 }} />
+                    <span className="settings-num-readout">{settings.thumbRenderSize} px</span>
+                  </div>
+                </Row>
                 <Row label={L.settings_thumb_size}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <input type="range" min="1" max="10" step="1"
@@ -812,10 +1231,24 @@ function SettingsDialog({ open, onClose, settings, update, L }) {
                     <span className="settings-num-readout">{settings.thumbCacheGB} GB</span>
                   </div>
                 </Row>
+                <Row label={L.settings_cache_used}>
+                  <div className="settings-meter">
+                    <div className="settings-meter-bar"><div style={{ width: "58%" }} /></div>
+                    <div className="settings-meter-text">
+                      <span>1.16 GB / {settings.thumbCacheGB} GB</span>
+                      <span style={{ color: "var(--fg-3)" }}>34 × 512px</span>
+                    </div>
+                  </div>
+                </Row>
                 <Row>
-                  <button className="settings-action">
-                    <Icon name="refresh" size={12} /> {L.settings_thumb_regen}
-                  </button>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button className="settings-action">
+                      <Icon name="refresh" size={12} /> {L.settings_thumb_regen}
+                    </button>
+                    <button className="settings-action">
+                      <Icon name="close" size={12} stroke={2} /> {L.settings_thumb_clear}
+                    </button>
+                  </div>
                 </Row>
               </>
             )}
@@ -832,12 +1265,74 @@ function SettingsDialog({ open, onClose, settings, update, L }) {
                        onChange={(v) => update({ slicer: v })} />
                 </Row>
                 <Row label={L.settings_slicer_path}>
-                  <input className="settings-text"
-                         placeholder="/Applications/OrcaSlicer.app"
-                         value={settings.slicerPath}
-                         onChange={(e) => update({ slicerPath: e.target.value })} />
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", flex: 1 }}>
+                    <input className="settings-text"
+                           placeholder="/Applications/OrcaSlicer.app"
+                           value={settings.slicerPath}
+                           onChange={(e) => update({ slicerPath: e.target.value })} />
+                    <button className="settings-action"
+                            style={{ flexShrink: 0 }}>
+                      <Icon name="folder" size={12} /> {L.settings_browse}
+                    </button>
+                  </div>
+                </Row>
+                <Row label={L.settings_default_profile} hint={L.settings_default_profile_hint}>
+                  <input className="settings-text" style={{ maxWidth: 280 }}
+                         value={settings.defaultProfile}
+                         onChange={(e) => update({ defaultProfile: e.target.value })} />
+                </Row>
+                <Row label={L.settings_post_export}>
+                  <Seg value={settings.postExport}
+                       options={[
+                         { value: "open",   label: L.settings_post_open },
+                         { value: "reveal", label: L.settings_post_reveal },
+                         { value: "none",   label: L.settings_post_none },
+                       ]}
+                       onChange={(v) => update({ postExport: v })} />
                 </Row>
               </>
+            )}
+
+            {pane === "hotkeys" && (
+              <div className="settings-hotkeys">
+                {[
+                  { group: L.hk_group_global, items: [
+                    { label: L.hk_search,        keys: ["⌘", "F"] },
+                    { label: L.hk_settings,      keys: ["⌘", ","] },
+                    { label: L.hk_new_folder,    keys: ["⌘", "⇧", "N"] },
+                    { label: L.hk_import,        keys: ["⌘", "O"] },
+                    { label: L.hk_quick_action,  keys: ["⌘", "K"] },
+                  ]},
+                  { group: L.hk_group_view, items: [
+                    { label: L.hk_view_grid,     keys: ["⌘", "1"] },
+                    { label: L.hk_view_masonry,  keys: ["⌘", "2"] },
+                    { label: L.hk_view_list,     keys: ["⌘", "3"] },
+                    { label: L.hk_toggle_detail, keys: ["⌘", "I"] },
+                    { label: L.hk_density_up,    keys: ["⌘", "+"] },
+                    { label: L.hk_density_down,  keys: ["⌘", "-"] },
+                  ]},
+                  { group: L.hk_group_model, items: [
+                    { label: L.hk_open_slicer,   keys: ["⌘", "⏎"] },
+                    { label: L.hk_reveal,        keys: ["⌘", "⇧", "R"] },
+                    { label: L.hk_fav,           keys: ["F"] },
+                    { label: L.hk_tag,           keys: ["T"] },
+                    { label: L.hk_rename,        keys: ["⏎"] },
+                    { label: L.hk_delete,        keys: ["⌫"] },
+                  ]},
+                ].map(g => (
+                  <div key={g.group} className="hk-group">
+                    <div className="hk-group-title">{g.group}</div>
+                    {g.items.map(it => (
+                      <div key={it.label} className="hk-row">
+                        <div className="hk-label">{it.label}</div>
+                        <div className="hk-keys">
+                          {it.keys.map((k, i) => <kbd key={i}>{k}</kbd>)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
             )}
 
             {pane === "advanced" && (
@@ -851,15 +1346,39 @@ function SettingsDialog({ open, onClose, settings, update, L }) {
                     <span className="settings-num-readout">{settings.workers}</span>
                   </div>
                 </Row>
-                <Row label={L.settings_adv_gpu}>
+                <Row label={L.settings_adv_gpu} hint={L.settings_adv_gpu_hint}>
                   <SettingsToggle on={settings.gpu} onChange={(v) => update({ gpu: v })} />
                 </Row>
+                <Row label={L.settings_cache_location}>
+                  <input className="settings-text"
+                         value={settings.cacheLocation}
+                         onChange={(e) => update({ cacheLocation: e.target.value })} />
+                </Row>
+                <Row label={L.settings_log_level}>
+                  <select className="settings-text" style={{ maxWidth: 160 }}
+                          value={settings.logLevel}
+                          onChange={(e) => update({ logLevel: e.target.value })}>
+                    <option value="error">error</option>
+                    <option value="warn">warn</option>
+                    <option value="info">info</option>
+                    <option value="debug">debug</option>
+                    <option value="trace">trace</option>
+                  </select>
+                </Row>
+                <Row label={L.settings_dev_menu}>
+                  <SettingsToggle on={settings.devMenu} onChange={(v) => update({ devMenu: v })} />
+                </Row>
                 <Row label={L.settings_adv_telemetry}
-                     hint="Send anonymous crash reports">
+                     hint={L.settings_adv_telemetry_hint}>
                   <SettingsToggle on={settings.telemetry} onChange={(v) => update({ telemetry: v })} />
                 </Row>
                 <Row>
-                  <button className="settings-action danger">{L.settings_adv_reset}</button>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button className="settings-action">
+                      <Icon name="folder" size={12} /> {L.settings_open_logs}
+                    </button>
+                    <button className="settings-action danger">{L.settings_adv_reset}</button>
+                  </div>
                 </Row>
               </>
             )}
@@ -1043,7 +1562,7 @@ function App() {
                        selectedId={selectedId} scanState={scanState} L={L} />
           </div>
 
-          <DetailPanel model={selectedModel} L={L} />
+          <DetailPanel model={selectedModel} L={L} settings={settings} updateSettings={updateSettings} />
         </div>
       </div>
 

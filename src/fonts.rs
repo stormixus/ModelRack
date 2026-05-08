@@ -7,7 +7,6 @@ pub const INTER_FAMILY: &str = "Inter";
 pub const PRETENDARD_FAMILY: &str = "Pretendard";
 pub const MONO_FAMILY: &str = "JetBrains Mono";
 
-#[cfg(feature = "slint-shell")]
 pub fn install_slint_fonts() {
     use std::sync::Arc;
 
