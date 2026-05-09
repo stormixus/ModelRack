@@ -218,6 +218,31 @@ pub fn run() -> Result<(), slint::PlatformError> {
                         label.as_str(),
                     );
                 }
+                "remove" => {
+                    let Some(path) = folder_path_from_filter_key(key.as_str()) else {
+                        ui.set_status_text("No folder path available for that sidebar item".into());
+                        return;
+                    };
+                    remove_sidebar_folder_from_library(
+                        &ui,
+                        &sidebar_context_state,
+                        &path,
+                        label.as_str(),
+                    );
+                }
+                "trash" => {
+                    let Some(path) = folder_path_from_filter_key(key.as_str()) else {
+                        ui.set_status_text("No folder path available for that sidebar item".into());
+                        return;
+                    };
+                    move_sidebar_folder_to_trash(
+                        &ui,
+                        &sidebar_context_state,
+                        &sidebar_context_scan,
+                        &path,
+                        label.as_str(),
+                    );
+                }
                 "copy" => {
                     let text = folder_path_from_filter_key(key.as_str())
                         .map(|path| path.display().to_string())
@@ -229,6 +254,15 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 }
                 _ => {}
             }
+        }
+    });
+
+    let weak = ui.as_weak();
+    let undo_state = state.clone();
+    let undo_scan = scan_runtime.clone();
+    ui.on_undo_library_action(move || {
+        if let Some(ui) = weak.upgrade() {
+            undo_library_action(&ui, &undo_state, &undo_scan);
         }
     });
 
@@ -709,6 +743,10 @@ pub fn run() -> Result<(), slint::PlatformError> {
             if crate::macos::take_open_library_request() {
                 choose_library_folder(&ui, &menu_state, &menu_scan, &menu_watcher);
             }
+
+            if crate::macos::take_undo_request() {
+                undo_library_action(&ui, &menu_state, &menu_scan);
+            }
         },
     );
 
@@ -1149,6 +1187,257 @@ fn rescan_sidebar_folder(
     } else {
         ui.set_status_text(format!("Folder no longer exists: {}", folder.display()).into());
     }
+}
+
+fn remove_sidebar_folder_from_library(
+    ui: &ModelRackWindow,
+    state: &Rc<RefCell<ShellState>>,
+    folder: &Path,
+    label: &str,
+) {
+    let snapshot = {
+        let mut state = state.borrow_mut();
+        state.undo_stack.push(LibraryUndo {
+            folder: folder.to_path_buf(),
+            label: label.to_string(),
+        });
+        state.add_excluded_folder(folder);
+        if state.current_folder.as_deref() == Some(folder) {
+            state.clear_library_state();
+            state.snapshot_idle()
+        } else {
+            state
+                .entries
+                .retain(|entry| !entry.path.starts_with(folder));
+            state.selected_index = None;
+            if matches!(&state.filter, LibraryFilter::Folder(active) if active.starts_with(folder))
+            {
+                state.filter = LibraryFilter::All;
+            }
+            state.snapshot_done()
+        }
+    };
+    apply_snapshot(ui, &snapshot);
+    apply_detail(ui, &state.borrow());
+    apply_settings(ui, &state.borrow());
+    save_prefs_status(ui, &state.borrow());
+    ui.set_status_text(format!("Removed {label} from library").into());
+}
+
+fn move_sidebar_folder_to_trash(
+    ui: &ModelRackWindow,
+    state: &Rc<RefCell<ShellState>>,
+    scan_runtime: &Rc<RefCell<LibraryScanRuntime>>,
+    folder: &Path,
+    label: &str,
+) {
+    if !folder.exists() {
+        ui.set_status_text(format!("Folder no longer exists: {}", folder.display()).into());
+        return;
+    }
+
+    if !confirm_move_folder_to_trash(label, folder) {
+        ui.set_status_text("Move to Trash cancelled".into());
+        return;
+    }
+
+    let active_root = state.borrow().active_real_folder();
+    match move_path_to_trash(folder) {
+        Ok(()) => {
+            ui.set_status_text(format!("Deleted folder {label}").into());
+            {
+                let mut state = state.borrow_mut();
+                state.remove_excluded_folder_tree(folder);
+                state
+                    .undo_stack
+                    .retain(|undo| !undo.folder.starts_with(folder));
+                state
+                    .entries
+                    .retain(|entry| !entry.path.starts_with(folder));
+                state.selected_index = None;
+                if matches!(&state.filter, LibraryFilter::Folder(active) if active.starts_with(folder))
+                {
+                    state.filter = LibraryFilter::All;
+                }
+            }
+            if active_root.as_deref() != Some(folder) {
+                let snapshot = state.borrow_mut().snapshot_done();
+                apply_snapshot(ui, &snapshot);
+                apply_detail(ui, &state.borrow());
+                apply_settings(ui, &state.borrow());
+            }
+            save_prefs_status(ui, &state.borrow());
+            if active_root.as_deref() == Some(folder)
+                || active_root
+                    .as_ref()
+                    .is_some_and(|root| !root.exists() || root.starts_with(folder))
+            {
+                scan_runtime.borrow_mut().invalidate();
+                clear_deleted_library(ui, state);
+                ui.set_status_text(format!("Deleted folder {label}").into());
+            } else if let Some(root) = active_root {
+                match scan_runtime.borrow_mut().request_scan(&root) {
+                    ScanRequest::Started => {
+                        ui.set_scan_progress_percent(0);
+                        ui.set_status_text(
+                            format!("Deleted folder {label}; rescanning library").into(),
+                        );
+                    }
+                    ScanRequest::AlreadyRunning => {
+                        ui.set_status_text("Library rescan already running".into());
+                    }
+                }
+            }
+        }
+        Err(err) => ui.set_status_text(format!("Could not move folder to Trash: {err}").into()),
+    }
+}
+
+fn confirm_move_folder_to_trash(label: &str, folder: &Path) -> bool {
+    match rfd::MessageDialog::new()
+        .set_level(rfd::MessageLevel::Warning)
+        .set_title("Delete folder?")
+        .set_description(format!(
+            "Move “{}” to the Trash and remove it from the library?\n\n{}",
+            label,
+            folder.display()
+        ))
+        .set_buttons(rfd::MessageButtons::OkCancelCustom(
+            "Delete Folder".to_string(),
+            "Cancel".to_string(),
+        ))
+        .show()
+    {
+        rfd::MessageDialogResult::Ok => true,
+        rfd::MessageDialogResult::Custom(value) => value == "Delete Folder",
+        _ => false,
+    }
+}
+
+fn move_path_to_trash(path: &Path) -> io::Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        let script = r#"
+on run argv
+    tell application "Finder"
+        delete POSIX file (item 1 of argv)
+    end tell
+end run
+"#;
+        let status = Command::new("osascript")
+            .arg("-e")
+            .arg(script)
+            .arg(path)
+            .status()?;
+        if status.success() {
+            return Ok(());
+        }
+        return Err(io::Error::other(format!(
+            "osascript exited with status {status}"
+        )));
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let status = Command::new("powershell")
+            .arg("-NoProfile")
+            .arg("-Command")
+            .arg(
+                "Add-Type -AssemblyName Microsoft.VisualBasic; \
+                 [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($args[0], \
+                 'OnlyErrorDialogs', 'SendToRecycleBin')",
+            )
+            .arg(path)
+            .status()?;
+        if status.success() {
+            return Ok(());
+        }
+        return Err(io::Error::other(format!(
+            "powershell exited with status {status}"
+        )));
+    }
+
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        for program in ["gio", "trash-put"] {
+            let mut command = Command::new(program);
+            if program == "gio" {
+                command.arg("trash");
+            }
+            let status = command.arg(path).status();
+            match status {
+                Ok(status) if status.success() => return Ok(()),
+                Ok(_) | Err(_) => {}
+            }
+        }
+
+        Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "no system trash command found",
+        ))
+    }
+}
+
+fn undo_library_action(
+    ui: &ModelRackWindow,
+    state: &Rc<RefCell<ShellState>>,
+    scan_runtime: &Rc<RefCell<LibraryScanRuntime>>,
+) {
+    let Some(undo) = state.borrow_mut().undo_stack.pop() else {
+        ui.set_status_text("Nothing to undo".into());
+        return;
+    };
+
+    let active_root = {
+        let mut state = state.borrow_mut();
+        state.remove_excluded_folder(&undo.folder);
+        state.active_real_folder()
+    };
+    save_prefs_status(ui, &state.borrow());
+
+    if let Some(root) = active_root.filter(|root| undo.folder.starts_with(root)) {
+        match scan_runtime.borrow_mut().request_scan(&root) {
+            ScanRequest::Started => {
+                ui.set_scan_progress_percent(0);
+                ui.set_status_text(format!("Restoring {} to library", undo.label).into());
+            }
+            ScanRequest::AlreadyRunning => {
+                ui.set_status_text("Restore queued after current scan finishes".into());
+            }
+        }
+    } else if undo.folder.is_dir() {
+        start_folder_scan(
+            ui,
+            state,
+            scan_runtime,
+            &undo.folder,
+            &format!("Restoring {}", undo.label),
+        );
+    } else {
+        let snapshot = state.borrow_mut().snapshot_done();
+        apply_snapshot(ui, &snapshot);
+        apply_detail(ui, &state.borrow());
+        apply_settings(ui, &state.borrow());
+        ui.set_status_text(
+            format!(
+                "Undo restored library setting, but folder is missing: {}",
+                undo.folder.display()
+            )
+            .into(),
+        );
+    }
+}
+
+fn clear_deleted_library(ui: &ModelRackWindow, state: &Rc<RefCell<ShellState>>) {
+    let snapshot = {
+        let mut state = state.borrow_mut();
+        state.clear_library_state();
+        state.snapshot_idle()
+    };
+    apply_snapshot(ui, &snapshot);
+    apply_detail(ui, &state.borrow());
+    apply_settings(ui, &state.borrow());
+    save_prefs_status(ui, &state.borrow());
 }
 
 fn apply_scan_result(ui: &ModelRackWindow, state: &Rc<RefCell<ShellState>>, result: ScanResult) {
@@ -1878,12 +2167,39 @@ fn update_model_meta(
     Ok(Some(meta))
 }
 
+fn is_excluded_path(path: &Path, excluded_folders: &[PathBuf]) -> bool {
+    excluded_folders
+        .iter()
+        .any(|excluded| path.starts_with(excluded))
+}
+
+fn filter_excluded_entries(
+    entries: Vec<scanner::StlFileInfo>,
+    excluded_folders: &[PathBuf],
+) -> Vec<scanner::StlFileInfo> {
+    if excluded_folders.is_empty() {
+        return entries;
+    }
+
+    entries
+        .into_iter()
+        .filter(|entry| !is_excluded_path(&entry.path, excluded_folders))
+        .collect()
+}
+
+#[derive(Clone)]
+struct LibraryUndo {
+    folder: PathBuf,
+    label: String,
+}
+
 #[derive(Clone)]
 struct ShellState {
     entries: Vec<scanner::StlFileInfo>,
     displayed: Vec<scanner::StlFileInfo>,
     current_folder: Option<PathBuf>,
     prefs: AppPrefs,
+    undo_stack: Vec<LibraryUndo>,
     search_query: String,
     filter: LibraryFilter,
     sort_by: SortBy,
@@ -1922,6 +2238,7 @@ impl ShellState {
             displayed: Vec::new(),
             current_folder: None,
             prefs,
+            undo_stack: Vec::new(),
             search_query: String::new(),
             filter: LibraryFilter::All,
             sort_by: SortBy::Name,
@@ -2535,6 +2852,7 @@ impl ShellState {
     }
 
     fn begin_folder_scan(&mut self, folder: &Path, current: &str) -> AppViewSnapshot {
+        self.remove_excluded_folder(folder);
         self.entries.clear();
         self.displayed.clear();
         self.current_folder = Some(folder.to_path_buf());
@@ -2573,7 +2891,7 @@ impl ShellState {
         entries: Vec<scanner::StlFileInfo>,
         skipped: usize,
     ) -> AppViewSnapshot {
-        self.entries = entries;
+        self.entries = filter_excluded_entries(entries, &self.prefs.excluded_folders);
         self.current_folder = Some(folder.clone());
         self.prefs.last_folder = Some(folder);
         self.skipped = skipped;
@@ -2598,6 +2916,46 @@ impl ShellState {
             .last_folder
             .clone()
             .filter(|folder| folder.is_dir())
+            .filter(|folder| !is_excluded_path(folder, &self.prefs.excluded_folders))
+    }
+
+    fn add_excluded_folder(&mut self, folder: &Path) {
+        if self
+            .prefs
+            .excluded_folders
+            .iter()
+            .any(|excluded| folder.starts_with(excluded))
+        {
+            return;
+        }
+
+        self.prefs
+            .excluded_folders
+            .retain(|excluded| !excluded.starts_with(folder));
+        self.prefs.excluded_folders.push(folder.to_path_buf());
+    }
+
+    fn remove_excluded_folder(&mut self, folder: &Path) {
+        self.prefs
+            .excluded_folders
+            .retain(|excluded| excluded != folder);
+    }
+
+    fn remove_excluded_folder_tree(&mut self, folder: &Path) {
+        self.prefs
+            .excluded_folders
+            .retain(|excluded| !excluded.starts_with(folder));
+    }
+
+    fn clear_library_state(&mut self) {
+        self.entries.clear();
+        self.displayed.clear();
+        self.current_folder = None;
+        self.prefs.last_folder = None;
+        self.skipped = 0;
+        self.sidecar_writes_enabled = false;
+        self.selected_index = None;
+        self.filter = LibraryFilter::All;
     }
 
     fn cycle_view_mode(&mut self) {
@@ -3538,6 +3896,48 @@ mod tests {
     }
 
     #[test]
+    fn excluded_folders_filter_scan_results_and_can_be_restored() {
+        let root = PathBuf::from("/tmp/modelrack-library");
+        let archived = root.join("archived");
+        let visible = root.join("visible.stl");
+        let hidden = archived.join("hidden.stl");
+        let entries = vec![test_entry(&visible), test_entry(&hidden)];
+
+        let mut state = ShellState::with_prefs(AppPrefs::default());
+        state.add_excluded_folder(&archived);
+        let snapshot = state.apply_scan_parts(root.clone(), entries.clone(), 0);
+
+        assert_eq!(state.entries.len(), 1);
+        assert_eq!(state.entries[0].path, visible);
+        assert_eq!(snapshot.browser.total, 1);
+        assert_eq!(state.prefs.excluded_folders, vec![archived.clone()]);
+
+        state.remove_excluded_folder(&archived);
+        let snapshot = state.apply_scan_parts(root, entries, 0);
+
+        assert_eq!(state.entries.len(), 2);
+        assert_eq!(snapshot.browser.total, 2);
+        assert!(state.prefs.excluded_folders.is_empty());
+    }
+
+    #[test]
+    fn excluded_last_folder_is_not_restored_on_startup() {
+        let root = temp_path("excluded-restored-folder");
+        let models = root.join("models");
+        fs::create_dir_all(&models).unwrap();
+
+        let prefs = AppPrefs {
+            last_folder: Some(models.clone()),
+            excluded_folders: vec![models.clone()],
+            ..AppPrefs::default()
+        };
+        let state = ShellState::with_prefs(prefs);
+
+        assert_eq!(state.restored_real_folder_candidate(), None);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn app_prefs_save_and_load_from_explicit_path() {
         let root = temp_path("prefs-roundtrip");
         let path = root.join("prefs.json");
@@ -3548,6 +3948,7 @@ mod tests {
             language: "ko".to_string(),
             slicer_path: "/Applications/PrusaSlicer.app".to_string(),
             last_folder: Some(root.join("models")),
+            excluded_folders: vec![root.join("models/archived")],
         };
 
         save_app_prefs_to_path(&path, &prefs).unwrap();

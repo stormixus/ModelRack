@@ -291,7 +291,7 @@ component SidebarContextMenu inherits Rectangle {
     callback action(string);
 
     width: 188px;
-    height: target-is-folder ? 164px : 96px;
+    height: target-is-folder ? 232px : 96px;
     background: Theme.bg-2;
     border-color: Theme.line-2;
     border-width: 1px;
@@ -318,6 +318,13 @@ component SidebarContextMenu inherits Rectangle {
         }
 
         if target-is-folder: ContextMenuItem {
+            label: "Remove from Library";
+            hint: "";
+            icon: @image-url("../assets/icons/minus.svg");
+            activated => { root.action("remove"); }
+        }
+
+        if target-is-folder: ContextMenuItem {
             label: "Reveal in Finder";
             hint: "";
             icon: @image-url("../assets/icons/folder-open.svg");
@@ -329,6 +336,13 @@ component SidebarContextMenu inherits Rectangle {
             hint: "";
             icon: @image-url("../assets/icons/refresh.svg");
             activated => { root.action("rescan"); }
+        }
+
+        if target-is-folder: ContextMenuItem {
+            label: "Delete Folder…";
+            hint: "";
+            icon: @image-url("../assets/icons/trash.svg");
+            activated => { root.action("trash"); }
         }
 
         ContextMenuItem {
@@ -822,6 +836,7 @@ export component ModelRackWindow inherits Window {
     callback toggle-sort();
     callback choose-filter(string);
     callback sidebar-context-action(string, string, string);
+    callback undo-library-action();
     callback select-model(int);
     callback toggle-favorite();
     callback save-metadata(string, string, string);
@@ -841,6 +856,23 @@ export component ModelRackWindow inherits Window {
     preferred-height: 920px;
     default-font-family: "Inter";
     background: Theme.bg-0;
+
+    shortcut-scope := FocusScope {
+        x: 0;
+        y: 0;
+        width: 0px;
+        height: 0px;
+
+        KeyBinding {
+            keys: @keys(Control + Z);
+            activated => { undo-library-action(); }
+        }
+
+        KeyBinding {
+            keys: @keys(Meta + Z);
+            activated => { undo-library-action(); }
+        }
+    }
 
     // ─── Root layout ───
     VerticalLayout {
@@ -2482,6 +2514,7 @@ export component ModelRackWindow inherits Window {
         target-label: sidebar-context-label;
         target-is-folder: sidebar-context-is-folder;
         action(action) => {
+            shortcut-scope.focus();
             sidebar-context-open = false;
             sidebar-context-action(action, sidebar-context-key, sidebar-context-label);
         }

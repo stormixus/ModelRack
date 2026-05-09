@@ -11,6 +11,7 @@ mod imp {
 
     static SETTINGS_REQUESTED: AtomicBool = AtomicBool::new(false);
     static OPEN_LIBRARY_REQUESTED: AtomicBool = AtomicBool::new(false);
+    static UNDO_REQUESTED: AtomicBool = AtomicBool::new(false);
     static MENU_INSTALLED: AtomicBool = AtomicBool::new(false);
     static MENU_TARGET: OnceLock<usize> = OnceLock::new();
 
@@ -110,7 +111,13 @@ mod imp {
             let edit_menu: *mut Object = msg_send![class!(NSMenu), new];
             let _: () = msg_send![edit_menu, setTitle: ns_string("Edit")];
             let _: () = msg_send![edit_menu_item, setSubmenu: edit_menu];
-            add_item(edit_menu, "Undo", "z", sel!(undo:), std::ptr::null_mut());
+            add_item(
+                edit_menu,
+                "Undo Remove from Library",
+                "z",
+                sel!(undoModelRackLibraryAction:),
+                target,
+            );
             add_item(edit_menu, "Redo", "Z", sel!(redo:), std::ptr::null_mut());
             add_separator(edit_menu);
             add_item(edit_menu, "Cut", "x", sel!(cut:), std::ptr::null_mut());
@@ -188,6 +195,10 @@ mod imp {
 
     pub fn take_open_library_request() -> bool {
         OPEN_LIBRARY_REQUESTED.swap(false, Ordering::AcqRel)
+    }
+
+    pub fn take_undo_request() -> bool {
+        UNDO_REQUESTED.swap(false, Ordering::AcqRel)
     }
 
     pub fn configure_native_window_chrome() {
@@ -392,6 +403,10 @@ mod imp {
                 open_modelrack_library as extern "C" fn(&Object, Sel, *mut Object),
             );
             decl.add_method(
+                sel!(undoModelRackLibraryAction:),
+                undo_modelrack_library_action as extern "C" fn(&Object, Sel, *mut Object),
+            );
+            decl.add_method(
                 sel!(hideModelRackWindow:),
                 hide_modelrack_window as extern "C" fn(&Object, Sel, *mut Object),
             );
@@ -418,6 +433,10 @@ mod imp {
 
     extern "C" fn open_modelrack_library(_this: &Object, _cmd: Sel, _sender: *mut Object) {
         OPEN_LIBRARY_REQUESTED.store(true, Ordering::Release);
+    }
+
+    extern "C" fn undo_modelrack_library_action(_this: &Object, _cmd: Sel, _sender: *mut Object) {
+        UNDO_REQUESTED.store(true, Ordering::Release);
     }
 
     extern "C" fn hide_modelrack_window(_this: &Object, _cmd: Sel, _sender: *mut Object) {
@@ -467,6 +486,7 @@ mod imp {
 pub use imp::{
     configure_native_window_chrome, fullscreen_window, hide_window, install_app_menu,
     minimize_window, show_windows, take_open_library_request, take_settings_request,
+    take_undo_request,
 };
 
 #[cfg(not(target_os = "macos"))]
@@ -479,6 +499,11 @@ pub fn take_settings_request() -> bool {
 
 #[cfg(not(target_os = "macos"))]
 pub fn take_open_library_request() -> bool {
+    false
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn take_undo_request() -> bool {
     false
 }
 

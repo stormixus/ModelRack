@@ -108,6 +108,8 @@ pub struct AppPrefs {
     pub slicer_path: String,
     #[serde(default)]
     pub last_folder: Option<PathBuf>,
+    #[serde(default)]
+    pub excluded_folders: Vec<PathBuf>,
 }
 
 impl Default for AppPrefs {
@@ -119,6 +121,7 @@ impl Default for AppPrefs {
             language: default_language(),
             slicer_path: String::new(),
             last_folder: None,
+            excluded_folders: Vec::new(),
         }
     }
 }
@@ -799,6 +802,7 @@ mod tests {
             language: "ko".to_string(),
             slicer_path: "/Applications/PrusaSlicer.app".to_string(),
             last_folder: Some(PathBuf::from("/tmp/models")),
+            excluded_folders: vec![PathBuf::from("/tmp/models/archived")],
         };
         let json = serde_json::to_string(&prefs).unwrap();
         let loaded: AppPrefs = serde_json::from_str(&json).unwrap();
@@ -806,6 +810,10 @@ mod tests {
         assert_eq!(Density::from_str(&loaded.density), Density::Large);
         assert_eq!(ViewMode::from_str(&loaded.view_mode), ViewMode::Masonry);
         assert_eq!(loaded.last_folder, Some(PathBuf::from("/tmp/models")));
+        assert_eq!(
+            loaded.excluded_folders,
+            vec![PathBuf::from("/tmp/models/archived")]
+        );
     }
 
     #[test]
@@ -816,6 +824,7 @@ mod tests {
         assert_eq!(ViewMode::from_str(&loaded.view_mode), ViewMode::Grid);
         assert_eq!(loaded.theme, "dark");
         assert_eq!(loaded.language, "en");
+        assert!(loaded.excluded_folders.is_empty());
     }
 
     #[test]
