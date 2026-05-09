@@ -4,6 +4,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::rc::Rc;
+use std::sync::mpsc;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use crate::scanner;
 use crate::strings;
@@ -12,6 +15,7 @@ use crate::view_model::{
     DisplayQuery, LibraryFilter, ScanStatus, SortBy, ViewMode,
 };
 
+use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use slint::winit_030::winit::dpi::PhysicalSize;
 use slint::winit_030::WinitWindowAccessor;
 use slint::Model;
@@ -22,6 +26,8 @@ const DEFAULT_WINDOW_WIDTH: u32 = 1480;
 const DEFAULT_WINDOW_HEIGHT: u32 = 920;
 const MIN_WINDOW_WIDTH: u32 = 960;
 const MIN_WINDOW_HEIGHT: u32 = 640;
+const LIBRARY_WATCH_DEBOUNCE: Duration = Duration::from_millis(750);
+const LIBRARY_WATCH_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
 const DEMO_ROOT: &str = "/Users/hwankishin/Library/3d";
 
@@ -31,27 +37,58 @@ pub fn run() -> Result<(), slint::PlatformError> {
     let ui = ModelRackWindow::new()?;
     crate::fonts::install_slint_fonts();
     let state = Rc::new(RefCell::new(ShellState::load()));
+    let watcher_runtime = Rc::new(RefCell::new(LibraryWatcherRuntime::new()));
+    let scan_runtime = Rc::new(RefCell::new(LibraryScanRuntime::new()));
     let snapshot = state.borrow_mut().snapshot_idle();
 
     apply_snapshot(&ui, &snapshot);
     apply_detail(&ui, &state.borrow());
     apply_settings(&ui, &state.borrow());
+    if let Some(folder) = state.borrow().restored_real_folder_candidate() {
+        start_folder_scan(
+            &ui,
+            &state,
+            &scan_runtime,
+            &folder,
+            "Restoring last library",
+        );
+        set_watch_status(&ui, &watcher_runtime, &folder);
+    }
 
     let weak = ui.as_weak();
     let open_state = state.clone();
+    let open_watcher = watcher_runtime.clone();
+    let open_scan = scan_runtime.clone();
     ui.on_open_folder(move || {
         if let Some(ui) = weak.upgrade() {
             ui.set_status_text("Choose a library folder".into());
             if let Some(folder) = rfd::FileDialog::new().pick_folder() {
-                ui.set_library_label(folder.display().to_string().into());
-                ui.set_status_text("Scanning selected folder".into());
-                let snapshot = {
-                    let mut state = open_state.borrow_mut();
-                    state.scan_folder(&folder)
-                };
-                apply_snapshot(&ui, &snapshot);
-                apply_settings(&ui, &open_state.borrow());
-                save_prefs_status(&ui, &open_state.borrow());
+                open_scan.borrow_mut().invalidate();
+                start_folder_scan(
+                    &ui,
+                    &open_state,
+                    &open_scan,
+                    &folder,
+                    "Scanning selected folder",
+                );
+                set_watch_status(&ui, &open_watcher, &folder);
+            }
+        }
+    });
+
+    let weak = ui.as_weak();
+    let refresh_state = state.clone();
+    let refresh_watcher = watcher_runtime.clone();
+    let refresh_scan = scan_runtime.clone();
+    ui.on_refresh_library(move || {
+        if let Some(ui) = weak.upgrade() {
+            if let Some(folder) = request_active_real_folder_scan(
+                &ui,
+                &refresh_state,
+                &refresh_scan,
+                "Refreshing library",
+            ) {
+                set_watch_status(&ui, &refresh_watcher, &folder);
             }
         }
     });
@@ -597,6 +634,40 @@ pub fn run() -> Result<(), slint::PlatformError> {
         }
     });
 
+    let weak = ui.as_weak();
+    let auto_state = state.clone();
+    let auto_watcher = watcher_runtime.clone();
+    let auto_scan = scan_runtime.clone();
+    let watch_poll_timer = Rc::new(slint::Timer::default());
+    watch_poll_timer.start(
+        slint::TimerMode::Repeated,
+        LIBRARY_WATCH_POLL_INTERVAL,
+        move || {
+            let Some(ui) = weak.upgrade() else {
+                return;
+            };
+            let watch_poll = auto_watcher
+                .borrow_mut()
+                .poll(Instant::now(), LIBRARY_WATCH_DEBOUNCE);
+            if watch_poll.refresh_due {
+                let _ = request_active_real_folder_scan(
+                    &ui,
+                    &auto_state,
+                    &auto_scan,
+                    "Auto-refreshing library after file change",
+                );
+            }
+            if let Some(error) = watch_poll.error {
+                ui.set_status_text(
+                    format!("File watcher error: {error}; use Refresh manually").into(),
+                );
+            }
+            if let Some(result) = auto_scan.borrow_mut().poll() {
+                apply_scan_result(&ui, &auto_state, result);
+            }
+        },
+    );
+
     let _ = ui.window().with_winit_window(|window| {
         // The Slint shell draws its own macOS-style chrome; keep the native
         // frame decoration disabled so packaged captures do not show a second
@@ -627,7 +698,314 @@ pub fn run() -> Result<(), slint::PlatformError> {
     });
 
     slint::run_event_loop()?;
+    drop(watch_poll_timer);
     Ok(())
+}
+
+#[derive(Debug)]
+enum WatchMessage {
+    Changed {
+        generation: u64,
+        paths: Vec<PathBuf>,
+    },
+    Error {
+        generation: u64,
+        message: String,
+    },
+}
+
+#[derive(Default, Debug, PartialEq, Eq)]
+struct WatchPoll {
+    refresh_due: bool,
+    error: Option<String>,
+}
+
+#[derive(Default, Debug)]
+struct WatchDebounce {
+    pending_since: Option<Instant>,
+}
+
+impl WatchDebounce {
+    fn record(&mut self, now: Instant) {
+        self.pending_since = Some(now);
+    }
+
+    fn consume_if_due(&mut self, now: Instant, debounce: Duration) -> bool {
+        let Some(pending_since) = self.pending_since else {
+            return false;
+        };
+        if now.duration_since(pending_since) >= debounce {
+            self.pending_since = None;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+struct ScanResult {
+    generation: u64,
+    folder: PathBuf,
+    entries: Vec<scanner::StlFileInfo>,
+    skipped: usize,
+}
+
+struct LibraryScanRuntime {
+    next_generation: u64,
+    active_generation: Option<u64>,
+    active_folder: Option<PathBuf>,
+    tx: mpsc::Sender<ScanResult>,
+    rx: mpsc::Receiver<ScanResult>,
+}
+
+impl LibraryScanRuntime {
+    fn new() -> Self {
+        let (tx, rx) = mpsc::channel();
+        Self {
+            next_generation: 0,
+            active_generation: None,
+            active_folder: None,
+            tx,
+            rx,
+        }
+    }
+
+    fn request_scan(&mut self, folder: &Path) -> ScanRequest {
+        if self.active_generation.is_some() && self.active_folder.as_deref() == Some(folder) {
+            return ScanRequest::AlreadyRunning;
+        }
+
+        self.next_generation += 1;
+        let generation = self.next_generation;
+        self.active_generation = Some(generation);
+        self.active_folder = Some(folder.to_path_buf());
+        let folder = folder.to_path_buf();
+        let tx = self.tx.clone();
+        thread::spawn(move || {
+            let (entries, skipped) = scan_folder_entries(&folder);
+            let _ = tx.send(ScanResult {
+                generation,
+                folder,
+                entries,
+                skipped,
+            });
+        });
+        ScanRequest::Started
+    }
+
+    fn poll(&mut self) -> Option<ScanResult> {
+        let mut latest = None;
+        while let Ok(result) = self.rx.try_recv() {
+            if Some(result.generation) == self.active_generation
+                && Some(result.folder.as_path()) == self.active_folder.as_deref()
+            {
+                self.active_generation = None;
+                self.active_folder = None;
+                latest = Some(result);
+            }
+        }
+        latest
+    }
+
+    fn invalidate(&mut self) {
+        self.next_generation += 1;
+        self.active_generation = None;
+        self.active_folder = None;
+        while self.rx.try_recv().is_ok() {}
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum ScanRequest {
+    Started,
+    AlreadyRunning,
+}
+
+struct LibraryWatcherRuntime {
+    watcher: Option<RecommendedWatcher>,
+    watched_folder: Option<PathBuf>,
+    generation: u64,
+    tx: mpsc::Sender<WatchMessage>,
+    rx: mpsc::Receiver<WatchMessage>,
+    debounce: WatchDebounce,
+}
+
+impl LibraryWatcherRuntime {
+    fn new() -> Self {
+        let (tx, rx) = mpsc::channel();
+        Self {
+            watcher: None,
+            watched_folder: None,
+            generation: 0,
+            tx,
+            rx,
+            debounce: WatchDebounce::default(),
+        }
+    }
+
+    fn watch_folder(&mut self, folder: &Path) -> Result<(), String> {
+        if self.watched_folder.as_deref() == Some(folder) && self.watcher.is_some() {
+            return Ok(());
+        }
+
+        self.watcher = None;
+        self.watched_folder = None;
+        self.reset_pending_messages();
+        self.generation += 1;
+        let generation = self.generation;
+
+        let tx = self.tx.clone();
+        let mut watcher = notify::recommended_watcher(
+            move |result: notify::Result<notify::Event>| match result {
+                Ok(event)
+                    if event
+                        .paths
+                        .iter()
+                        .any(|path| is_refresh_relevant_path(path)) =>
+                {
+                    let _ = tx.send(WatchMessage::Changed {
+                        generation,
+                        paths: event.paths,
+                    });
+                }
+                Ok(_) => {}
+                Err(err) => {
+                    let _ = tx.send(WatchMessage::Error {
+                        generation,
+                        message: err.to_string(),
+                    });
+                }
+            },
+        )
+        .map_err(|err| format!("Could not create file watcher: {err}"))?;
+
+        watcher
+            .watch(folder, RecursiveMode::Recursive)
+            .map_err(|err| format!("Could not watch {}: {err}", folder.display()))?;
+
+        self.watcher = Some(watcher);
+        self.watched_folder = Some(folder.to_path_buf());
+        Ok(())
+    }
+
+    fn poll(&mut self, now: Instant, debounce: Duration) -> WatchPoll {
+        let mut saw_relevant = false;
+        let mut poll = WatchPoll::default();
+        while let Ok(message) = self.rx.try_recv() {
+            match message {
+                WatchMessage::Changed { generation, paths }
+                    if generation == self.generation
+                        && paths.iter().any(|path| is_refresh_relevant_path(path)) =>
+                {
+                    saw_relevant = true;
+                }
+                WatchMessage::Changed { .. } => {}
+                WatchMessage::Error {
+                    generation,
+                    message,
+                } if generation == self.generation => {
+                    poll.error = Some(message);
+                    self.watcher = None;
+                    self.watched_folder = None;
+                    self.debounce = WatchDebounce::default();
+                }
+                WatchMessage::Error { .. } => {}
+            }
+        }
+        if saw_relevant {
+            self.debounce.record(now);
+        }
+        poll.refresh_due = self.debounce.consume_if_due(now, debounce);
+        poll
+    }
+
+    fn reset_pending_messages(&mut self) {
+        while self.rx.try_recv().is_ok() {}
+        self.debounce = WatchDebounce::default();
+    }
+}
+
+fn is_refresh_relevant_path(path: &Path) -> bool {
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if file_name.ends_with(".modelrack.json") {
+        return true;
+    }
+
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| {
+            matches!(
+                ext.to_ascii_lowercase().as_str(),
+                "stl" | "3mf" | "obj" | "step" | "stp"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn set_watch_status(
+    ui: &ModelRackWindow,
+    watcher_runtime: &Rc<RefCell<LibraryWatcherRuntime>>,
+    folder: &Path,
+) {
+    match watcher_runtime.borrow_mut().watch_folder(folder) {
+        Ok(()) => ui.set_status_text("Watching library for changes".into()),
+        Err(err) => ui.set_status_text(format!("{err}; use Refresh manually").into()),
+    }
+}
+
+fn start_folder_scan(
+    ui: &ModelRackWindow,
+    state: &Rc<RefCell<ShellState>>,
+    scan_runtime: &Rc<RefCell<LibraryScanRuntime>>,
+    folder: &Path,
+    status: &str,
+) {
+    let snapshot = state.borrow_mut().begin_folder_scan(folder, status);
+    apply_snapshot(ui, &snapshot);
+    apply_detail(ui, &state.borrow());
+    apply_settings(ui, &state.borrow());
+    save_prefs_status(ui, &state.borrow());
+    match scan_runtime.borrow_mut().request_scan(folder) {
+        ScanRequest::Started => {}
+        ScanRequest::AlreadyRunning => {
+            ui.set_status_text("Scan already running for this library".into())
+        }
+    }
+}
+
+fn request_active_real_folder_scan(
+    ui: &ModelRackWindow,
+    state: &Rc<RefCell<ShellState>>,
+    scan_runtime: &Rc<RefCell<LibraryScanRuntime>>,
+    status: &str,
+) -> Option<PathBuf> {
+    let Some(folder) = state.borrow().active_real_folder() else {
+        ui.set_status_text("Choose a real library folder before refreshing".into());
+        return None;
+    };
+
+    match scan_runtime.borrow_mut().request_scan(&folder) {
+        ScanRequest::Started => ui.set_status_text(status.into()),
+        ScanRequest::AlreadyRunning => {
+            ui.set_status_text("Refresh already running for this library".into())
+        }
+    }
+    Some(folder)
+}
+
+fn apply_scan_result(ui: &ModelRackWindow, state: &Rc<RefCell<ShellState>>, result: ScanResult) {
+    if state.borrow().active_real_folder().as_deref() != Some(result.folder.as_path()) {
+        return;
+    }
+    let snapshot = state.borrow_mut().apply_scan_result(result);
+    apply_snapshot(ui, &snapshot);
+    apply_detail(ui, &state.borrow());
+    apply_settings(ui, &state.borrow());
+    save_prefs_status(ui, &state.borrow());
 }
 
 fn apply_detail(ui: &ModelRackWindow, state: &ShellState) {
@@ -637,14 +1015,7 @@ fn apply_detail(ui: &ModelRackWindow, state: &ShellState) {
             ui.set_has_selection(true);
             ui.set_selected_thumb_key(crate::view_model::thumbnail_key(&entry.filename).into());
             ui.set_detail_name(entry.filename.clone().into());
-            ui.set_detail_path(
-                entry
-                    .path
-                    .parent()
-                    .map(|p| format!("{}/", p.display()))
-                    .unwrap_or_default()
-                    .into(),
-            );
+            ui.set_detail_path(detail_parent_label(entry, state).into());
             ui.set_detail_format(
                 match entry.stl_type {
                     scanner::StlType::Binary => "Binary STL",
@@ -1296,12 +1667,7 @@ impl ShellState {
     }
 
     fn from_loaded_prefs(prefs: AppPrefs) -> Self {
-        let last_folder = prefs.last_folder.clone();
-        let mut state = Self::with_prefs(prefs);
-        if let Some(folder) = last_folder.filter(|folder| folder.is_dir()) {
-            state.scan_folder(&folder);
-        }
-        state
+        Self::with_prefs(prefs)
     }
 
     fn with_prefs(prefs: AppPrefs) -> Self {
@@ -1309,7 +1675,7 @@ impl ShellState {
         Self {
             entries,
             displayed: Vec::new(),
-            current_folder: Some(PathBuf::from(DEMO_ROOT)),
+            current_folder: None,
             prefs,
             search_query: String::new(),
             filter: LibraryFilter::All,
@@ -1920,11 +2286,48 @@ impl ShellState {
         )
     }
 
-    fn scan_folder(&mut self, folder: &Path) -> AppViewSnapshot {
-        let (entries, skipped) = scan_folder_entries(folder);
-        self.entries = entries;
+    fn begin_folder_scan(&mut self, folder: &Path, current: &str) -> AppViewSnapshot {
+        self.entries.clear();
+        self.displayed.clear();
         self.current_folder = Some(folder.to_path_buf());
         self.prefs.last_folder = Some(folder.to_path_buf());
+        self.skipped = 0;
+        self.sidecar_writes_enabled = true;
+        self.selected_index = None;
+        let query = DisplayQuery {
+            search_query: &self.search_query,
+            library_filter: &self.filter,
+            sort_by: self.sort_by,
+            sort_ascending: self.sort_ascending,
+            preserve_order: false,
+        };
+        AppViewSnapshot::from_parts(
+            &self.entries,
+            self.current_folder.as_deref(),
+            &ScanStatus::Scanning {
+                found: 0,
+                scanned: 0,
+                skipped: 0,
+                current: current.to_string(),
+            },
+            &self.prefs,
+            query,
+        )
+    }
+
+    fn apply_scan_result(&mut self, result: ScanResult) -> AppViewSnapshot {
+        self.apply_scan_parts(result.folder, result.entries, result.skipped)
+    }
+
+    fn apply_scan_parts(
+        &mut self,
+        folder: PathBuf,
+        entries: Vec<scanner::StlFileInfo>,
+        skipped: usize,
+    ) -> AppViewSnapshot {
+        self.entries = entries;
+        self.current_folder = Some(folder.clone());
+        self.prefs.last_folder = Some(folder);
         self.skipped = skipped;
         self.sidecar_writes_enabled = true;
         self.selected_index = if self.entries.is_empty() {
@@ -1933,6 +2336,20 @@ impl ShellState {
             Some(0)
         };
         self.snapshot_done()
+    }
+
+    fn active_real_folder(&self) -> Option<PathBuf> {
+        self.sidecar_writes_enabled
+            .then(|| self.current_folder.clone())
+            .flatten()
+            .filter(|folder| folder.is_dir())
+    }
+
+    fn restored_real_folder_candidate(&self) -> Option<PathBuf> {
+        self.prefs
+            .last_folder
+            .clone()
+            .filter(|folder| folder.is_dir())
     }
 
     fn cycle_view_mode(&mut self) {
@@ -2073,6 +2490,36 @@ fn sync_browser_cards(ui: &ModelRackWindow, cards: Vec<BrowserCard>) {
     }
 }
 
+fn detail_parent_label(entry: &scanner::StlFileInfo, state: &ShellState) -> String {
+    let Some(parent) = entry.path.parent() else {
+        return String::new();
+    };
+
+    if !state.sidecar_writes_enabled {
+        let demo_root = Path::new(DEMO_ROOT);
+        let relative = parent.strip_prefix(demo_root).unwrap_or(parent);
+        if relative.as_os_str().is_empty() {
+            "Sample library/".to_string()
+        } else {
+            format!("Sample library/{}/", relative.display())
+        }
+    } else {
+        format!("{}/", parent.display())
+    }
+}
+
+fn settings_folder_label(state: &ShellState) -> String {
+    if state.sidecar_writes_enabled {
+        state
+            .current_folder
+            .as_ref()
+            .map(|folder| folder.display().to_string())
+            .unwrap_or_else(|| "No folder selected".to_string())
+    } else {
+        "Sample library (demo, memory-only)".to_string()
+    }
+}
+
 fn apply_settings(ui: &ModelRackWindow, state: &ShellState) {
     let discovered_slicers = discover_slicer_candidates();
     let slicer_rows = slicer_choice_rows(&state.prefs.slicer_path, &discovered_slicers);
@@ -2080,14 +2527,7 @@ fn apply_settings(ui: &ModelRackWindow, state: &ShellState) {
     ui.set_settings_tab(state.settings_tab.clone().into());
     ui.set_settings_language_label(language_label(&state.prefs.language).into());
     ui.set_settings_theme_label(theme_label(&state.prefs.theme).into());
-    ui.set_settings_folder_label(
-        state
-            .current_folder
-            .as_ref()
-            .map(|folder| folder.display().to_string())
-            .unwrap_or_else(|| "No folder selected".to_string())
-            .into(),
-    );
+    ui.set_settings_folder_label(settings_folder_label(state).into());
     ui.set_settings_density_label(Density::from_str(&state.prefs.density).as_str().into());
     ui.set_settings_slicer_label(
         slicer_label_for_path(&state.prefs.slicer_path, &slicer_rows).into(),
@@ -2424,6 +2864,352 @@ mod tests {
     }
 
     #[test]
+    fn watcher_relevance_includes_models_and_sidecars_only() {
+        assert!(is_refresh_relevant_path(Path::new("part.stl")));
+        assert!(is_refresh_relevant_path(Path::new("assembly.3mf")));
+        assert!(is_refresh_relevant_path(Path::new("mount.obj")));
+        assert!(is_refresh_relevant_path(Path::new("bracket.step")));
+        assert!(is_refresh_relevant_path(Path::new("bracket.stp")));
+        assert!(is_refresh_relevant_path(Path::new(
+            "part.stl.modelrack.json"
+        )));
+
+        assert!(!is_refresh_relevant_path(Path::new("notes.json")));
+        assert!(!is_refresh_relevant_path(Path::new("render.png")));
+        assert!(!is_refresh_relevant_path(Path::new("README.md")));
+    }
+
+    #[test]
+    fn watcher_debounce_coalesces_relevant_bursts() {
+        let mut debounce = WatchDebounce::default();
+        let start = Instant::now();
+        debounce.record(start);
+        debounce.record(start + Duration::from_millis(100));
+
+        assert!(
+            !debounce.consume_if_due(start + Duration::from_millis(749), LIBRARY_WATCH_DEBOUNCE)
+        );
+        assert!(
+            !debounce.consume_if_due(start + Duration::from_millis(849), LIBRARY_WATCH_DEBOUNCE)
+        );
+        assert!(debounce.consume_if_due(start + Duration::from_millis(850), LIBRARY_WATCH_DEBOUNCE));
+        assert!(
+            !debounce.consume_if_due(start + Duration::from_millis(1500), LIBRARY_WATCH_DEBOUNCE)
+        );
+    }
+
+    #[test]
+    fn watcher_runtime_ignores_unrelated_events_and_debounces_relevant_events() {
+        let mut runtime = LibraryWatcherRuntime::new();
+        let start = Instant::now();
+        let root = temp_path("watcher-synthetic");
+        fs::create_dir_all(&root).unwrap();
+        runtime.watch_folder(&root).unwrap();
+        let generation = runtime.generation;
+
+        runtime
+            .tx
+            .send(WatchMessage::Changed {
+                generation,
+                paths: vec![PathBuf::from("notes.txt")],
+            })
+            .unwrap();
+        assert_eq!(
+            runtime.poll(start + Duration::from_millis(1000), LIBRARY_WATCH_DEBOUNCE),
+            WatchPoll::default()
+        );
+
+        runtime
+            .tx
+            .send(WatchMessage::Changed {
+                generation,
+                paths: vec![PathBuf::from("part.stl.modelrack.json")],
+            })
+            .unwrap();
+        assert_eq!(
+            runtime.poll(start, LIBRARY_WATCH_DEBOUNCE),
+            WatchPoll::default()
+        );
+        assert_eq!(
+            runtime.poll(start + Duration::from_millis(700), LIBRARY_WATCH_DEBOUNCE),
+            WatchPoll::default()
+        );
+        assert_eq!(
+            runtime.poll(start + Duration::from_millis(800), LIBRARY_WATCH_DEBOUNCE),
+            WatchPoll {
+                refresh_due: true,
+                error: None
+            }
+        );
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn watcher_runtime_surfaces_notify_errors_without_refreshing() {
+        let mut runtime = LibraryWatcherRuntime::new();
+        let start = Instant::now();
+        let root = temp_path("watcher-error-recreate");
+        fs::create_dir_all(&root).unwrap();
+        runtime.watch_folder(&root).unwrap();
+        assert!(runtime.watcher.is_some());
+        assert_eq!(runtime.watched_folder.as_deref(), Some(root.as_path()));
+
+        runtime
+            .tx
+            .send(WatchMessage::Error {
+                generation: runtime.generation,
+                message: "backend disconnected".to_string(),
+            })
+            .unwrap();
+
+        assert_eq!(
+            runtime.poll(start, LIBRARY_WATCH_DEBOUNCE),
+            WatchPoll {
+                refresh_due: false,
+                error: Some("backend disconnected".to_string())
+            }
+        );
+        assert!(runtime.watcher.is_none());
+        assert!(runtime.watched_folder.is_none());
+
+        runtime.watch_folder(&root).unwrap();
+        assert!(runtime.watcher.is_some());
+        assert_eq!(runtime.watched_folder.as_deref(), Some(root.as_path()));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn watcher_runtime_resets_pending_messages_when_folder_changes() {
+        let mut runtime = LibraryWatcherRuntime::new();
+        let start = Instant::now();
+        let first = temp_path("watcher-first");
+        let second = temp_path("watcher-second");
+        fs::create_dir_all(&first).unwrap();
+        fs::create_dir_all(&second).unwrap();
+
+        runtime.watch_folder(&first).unwrap();
+        let first_generation = runtime.generation;
+        runtime
+            .tx
+            .send(WatchMessage::Changed {
+                generation: first_generation,
+                paths: vec![first.join("part.stl")],
+            })
+            .unwrap();
+        runtime.watch_folder(&second).unwrap();
+
+        assert_eq!(
+            runtime.poll(start + Duration::from_millis(1000), LIBRARY_WATCH_DEBOUNCE),
+            WatchPoll::default()
+        );
+        let _ = fs::remove_dir_all(first);
+        let _ = fs::remove_dir_all(second);
+    }
+
+    #[test]
+    fn watcher_runtime_ignores_late_messages_from_old_generation() {
+        let mut runtime = LibraryWatcherRuntime::new();
+        let start = Instant::now();
+        let first = temp_path("watcher-old-gen");
+        let second = temp_path("watcher-new-gen");
+        fs::create_dir_all(&first).unwrap();
+        fs::create_dir_all(&second).unwrap();
+
+        runtime.watch_folder(&first).unwrap();
+        let old_generation = runtime.generation;
+        runtime.watch_folder(&second).unwrap();
+
+        runtime
+            .tx
+            .send(WatchMessage::Changed {
+                generation: old_generation,
+                paths: vec![first.join("part.stl")],
+            })
+            .unwrap();
+        runtime
+            .tx
+            .send(WatchMessage::Error {
+                generation: old_generation,
+                message: "old watcher failed late".to_string(),
+            })
+            .unwrap();
+
+        assert_eq!(
+            runtime.poll(start + Duration::from_millis(1000), LIBRARY_WATCH_DEBOUNCE),
+            WatchPoll::default()
+        );
+        assert!(runtime.watcher.is_some());
+        assert_eq!(runtime.watched_folder.as_deref(), Some(second.as_path()));
+        let _ = fs::remove_dir_all(first);
+        let _ = fs::remove_dir_all(second);
+    }
+
+    #[test]
+    fn watcher_runtime_observes_real_notify_event_for_model_file() {
+        let mut runtime = LibraryWatcherRuntime::new();
+        let root = temp_path("watcher-real-event");
+        fs::create_dir_all(&root).unwrap();
+        runtime.watch_folder(&root).unwrap();
+
+        fs::write(root.join("part.stl"), b"solid test\nendsolid test\n").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(4);
+        let mut observed = false;
+        while Instant::now() < deadline {
+            if runtime.poll(Instant::now(), Duration::ZERO).refresh_due {
+                observed = true;
+                break;
+            }
+            thread::sleep(Duration::from_millis(50));
+        }
+
+        let _ = fs::remove_dir_all(root);
+        assert!(
+            observed,
+            "notify did not deliver a model file event before timeout"
+        );
+    }
+
+    #[test]
+    fn library_scan_runtime_returns_background_scan_result() {
+        let mut runtime = LibraryScanRuntime::new();
+        let root = temp_path("async-scan");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("part.stl"), b"solid test\nendsolid test\n").unwrap();
+
+        assert_eq!(runtime.request_scan(&root), ScanRequest::Started);
+        let deadline = Instant::now() + Duration::from_secs(4);
+        let mut result = None;
+        while Instant::now() < deadline {
+            result = runtime.poll();
+            if result.is_some() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+
+        let result = result.expect("background scan did not finish before timeout");
+        assert_eq!(result.folder, root);
+        assert_eq!(result.entries.len(), 1);
+        assert_eq!(result.entries[0].filename, "part.stl");
+        let _ = fs::remove_dir_all(result.folder);
+    }
+
+    #[test]
+    fn library_scan_runtime_ignores_stale_generations() {
+        let mut runtime = LibraryScanRuntime::new();
+        runtime.active_generation = Some(2);
+        runtime.active_folder = Some(PathBuf::from("/tmp/new"));
+        runtime
+            .tx
+            .send(ScanResult {
+                generation: 1,
+                folder: PathBuf::from("/tmp/old"),
+                entries: Vec::new(),
+                skipped: 0,
+            })
+            .unwrap();
+        runtime
+            .tx
+            .send(ScanResult {
+                generation: 2,
+                folder: PathBuf::from("/tmp/new"),
+                entries: Vec::new(),
+                skipped: 0,
+            })
+            .unwrap();
+
+        let result = runtime
+            .poll()
+            .expect("latest generation should be returned");
+        assert_eq!(result.generation, 2);
+        assert_eq!(result.folder, PathBuf::from("/tmp/new"));
+        assert_eq!(runtime.active_generation, None);
+        assert_eq!(runtime.active_folder, None);
+    }
+
+    #[test]
+    fn library_scan_runtime_invalidates_inflight_scan_on_folder_switch() {
+        let mut runtime = LibraryScanRuntime::new();
+        assert_eq!(
+            runtime.request_scan(Path::new("/tmp/old-library")),
+            ScanRequest::Started
+        );
+        runtime.invalidate();
+        runtime
+            .tx
+            .send(ScanResult {
+                generation: 1,
+                folder: PathBuf::from("/tmp/old-library"),
+                entries: Vec::new(),
+                skipped: 0,
+            })
+            .unwrap();
+
+        assert!(runtime.poll().is_none());
+        assert_eq!(runtime.active_generation, None);
+        assert_eq!(runtime.active_folder, None);
+    }
+
+    #[test]
+    fn library_scan_runtime_coalesces_duplicate_active_folder_requests() {
+        let mut runtime = LibraryScanRuntime::new();
+        let folder = Path::new("/tmp/current-library");
+
+        assert_eq!(runtime.request_scan(folder), ScanRequest::Started);
+        assert_eq!(runtime.request_scan(folder), ScanRequest::AlreadyRunning);
+        assert_eq!(runtime.next_generation, 1);
+    }
+
+    #[test]
+    fn demo_fallback_has_no_active_real_folder_for_refresh_or_watch() {
+        let mut state = ShellState::with_prefs(AppPrefs::default());
+        let snapshot = state.snapshot_idle();
+
+        assert_eq!(state.current_folder, None);
+        assert!(!state.sidecar_writes_enabled);
+        assert_eq!(state.active_real_folder(), None);
+        assert_eq!(snapshot.library_label, "Sample library");
+        assert!(snapshot.folders.is_empty());
+        assert!(!snapshot.library_label.contains(DEMO_ROOT));
+        assert_eq!(
+            settings_folder_label(&state),
+            "Sample library (demo, memory-only)"
+        );
+        assert!(detail_parent_label(&state.entries[0], &state).starts_with("Sample library/"));
+    }
+
+    #[test]
+    fn restored_real_folder_has_active_real_folder_and_watcher_intent() {
+        let root = temp_path("watcher-restored-folder");
+        let models = root.join("models");
+        fs::create_dir_all(&models).unwrap();
+        fs::write(models.join("part.stl"), b"solid test\nendsolid test\n").unwrap();
+
+        let prefs = AppPrefs {
+            last_folder: Some(models.clone()),
+            ..AppPrefs::default()
+        };
+        let path = root.join("prefs.json");
+        save_app_prefs_to_path(&path, &prefs).unwrap();
+
+        let mut state = ShellState::load_from_path(&path);
+        assert_eq!(state.restored_real_folder_candidate(), Some(models.clone()));
+        assert_eq!(state.active_real_folder(), None);
+
+        let snapshot = state.begin_folder_scan(&models, "Restoring last library");
+        assert_eq!(snapshot.library_label, models.display().to_string());
+        assert!(snapshot.cards.is_empty());
+        assert!(snapshot.status_text.contains("Restoring last library"));
+        assert_eq!(state.active_real_folder(), Some(models.clone()));
+
+        let mut runtime = LibraryWatcherRuntime::new();
+        runtime.watch_folder(&models).unwrap();
+        assert_eq!(runtime.watched_folder.as_deref(), Some(models.as_path()));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn app_prefs_save_and_load_from_explicit_path() {
         let root = temp_path("prefs-roundtrip");
         let path = root.join("prefs.json");
@@ -2531,8 +3317,13 @@ mod tests {
         let existing_path = root.join("existing-prefs.json");
         save_app_prefs_to_path(&existing_path, &existing_prefs).unwrap();
         let existing_state = ShellState::load_from_path(&existing_path);
-        assert_eq!(existing_state.current_folder, Some(existing.clone()));
-        assert!(existing_state.sidecar_writes_enabled);
+        assert_eq!(existing_state.prefs.last_folder, Some(existing.clone()));
+        assert_eq!(
+            existing_state.restored_real_folder_candidate(),
+            Some(existing)
+        );
+        assert_eq!(existing_state.current_folder, None);
+        assert!(!existing_state.sidecar_writes_enabled);
 
         let missing_prefs = AppPrefs {
             last_folder: Some(missing.clone()),
@@ -2542,7 +3333,8 @@ mod tests {
         save_app_prefs_to_path(&missing_path, &missing_prefs).unwrap();
         let missing_state = ShellState::load_from_path(&missing_path);
         assert_eq!(missing_state.prefs.last_folder, Some(missing));
-        assert_eq!(missing_state.current_folder, Some(PathBuf::from(DEMO_ROOT)));
+        assert_eq!(missing_state.restored_real_folder_candidate(), None);
+        assert_eq!(missing_state.current_folder, None);
         assert!(!missing_state.sidecar_writes_enabled);
 
         let _ = fs::remove_dir_all(root);

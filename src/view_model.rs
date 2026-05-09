@@ -332,10 +332,6 @@ pub fn sidebar_folders(
         return Vec::new();
     };
 
-    if is_reference_demo_root(root, entries) {
-        return reference_demo_folders(entries, root);
-    }
-
     let mut counts: BTreeMap<PathBuf, usize> = BTreeMap::new();
     for entry in entries {
         let Some(parent) = entry.path.parent() else {
@@ -365,54 +361,6 @@ pub fn sidebar_folders(
             }
         })
         .collect()
-}
-
-fn is_reference_demo_root(root: &Path, entries: &[scanner::StlFileInfo]) -> bool {
-    root == Path::new("/Users/hwankishin/Library/3d")
-        && entries
-            .first()
-            .is_some_and(|entry| entry.filename == "raspberry_pi_5_poe_rackmount_v2_final.stl")
-}
-
-fn reference_demo_folders(entries: &[scanner::StlFileInfo], root: &Path) -> Vec<SidebarFolder> {
-    [
-        ("homelab", 0),
-        ("homelab/rackmount", 1),
-        ("homelab/mini-pc", 1),
-        ("homelab/network", 1),
-        ("homelab/storage", 1),
-        ("homelab/power", 1),
-        ("homelab/cooling", 1),
-        ("printer/upgrades", 0),
-        ("decorative", 0),
-        ("decorative/articulated", 1),
-        ("test_prints", 0),
-        ("organization", 0),
-        ("organization/gridfinity", 1),
-        ("mounts", 0),
-        ("한국어_프로젝트", 0),
-        ("한국어_프로젝트/keycaps", 1),
-        ("downloads", 0),
-    ]
-    .into_iter()
-    .filter_map(|(relative, depth)| {
-        let path = root.join(relative);
-        let count = entries
-            .iter()
-            .filter(|entry| entry.path.starts_with(&path))
-            .count();
-        (count > 0).then(|| SidebarFolder {
-            label: path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or("Folder")
-                .to_string(),
-            path,
-            count,
-            depth,
-        })
-    })
-    .collect()
 }
 
 pub fn sidebar_tags(entries: &[scanner::StlFileInfo]) -> Vec<SidebarTag> {
@@ -596,7 +544,7 @@ fn empty_message(entries: &[scanner::StlFileInfo], displayed: &[scanner::StlFile
 
 fn titlebar_path(current_folder: Option<&Path>) -> String {
     let Some(path) = current_folder else {
-        return "~/Library/3d".to_string();
+        return "Sample library".to_string();
     };
 
     if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
@@ -944,6 +892,29 @@ mod tests {
         assert_eq!(snapshot.view_mode_label, "List");
         assert_eq!(snapshot.sort_label, "Name ↑");
         assert_eq!(snapshot.active_filter_key, "all");
+    }
+
+    #[test]
+    fn app_snapshot_labels_missing_folder_as_sample_library() {
+        let entries = vec![entry("/tmp/demo/a.stl", 1)];
+        let prefs = AppPrefs::default();
+
+        let snapshot = AppViewSnapshot::from_parts(
+            &entries,
+            None,
+            &ScanStatus::Idle,
+            &prefs,
+            DisplayQuery {
+                search_query: "",
+                library_filter: &LibraryFilter::All,
+                sort_by: SortBy::Name,
+                sort_ascending: true,
+                preserve_order: false,
+            },
+        );
+
+        assert_eq!(snapshot.library_label, "Sample library");
+        assert!(snapshot.folders.is_empty());
     }
 
     #[test]

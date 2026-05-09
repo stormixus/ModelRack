@@ -73,14 +73,14 @@
 **Target:** v0.2.0
 **What:** Add notify-based watching for the selected library folder and debounce rescans when STL or sidecar files change.
 **Why:** A model library manager should notice new downloads/exports without forcing manual Refresh.
-**Status:** Implemented with `notify` recursive watching for model files and `.modelrack.json` sidecars, plus a 750ms debounce before automatic rescan. Manual Refresh remains available.
+**Status:** Implemented in the active Slint shell for real selected/restored folders. Startup restore, Open Folder, manual Refresh, and debounced watcher refresh all route scans through the background scan runtime with generation/folder guards so stale results cannot overwrite the active library. The existing toolbar Refresh icon is wired to a real `refresh-library()` callback, real folders start a recursive `notify` watcher, and relevant model/sidecar events (`.stl`, `.3mf`, `.obj`, `.step`, `.stp`, `.modelrack.json`) are coalesced behind a 750ms debounce. Demo fallback stays memory-only, is labeled as a sample library instead of a fake filesystem folder, and does not start a watcher or enable sidecar writes. Verified with watcher relevance/debounce/restored-folder tests plus `cargo test watcher`.
 
-### TODO-11: Thumbnail disk cache ✅
+### TODO-11: Thumbnail disk cache
 **Added:** 2026-05-07 (via /autopilot)
 **Target:** v0.2.0
 **What:** Persist generated thumbnails by hash under the platform cache directory and invalidate when file hash changes.
 **Why:** Large libraries should not regenerate every thumbnail on each app launch.
-**Status:** Implemented as hash-addressed PNG files under the platform cache directory. Scans reuse cached thumbnails when the file hash matches and only render missing cache entries.
+**Status:** Not implemented yet. Current thumbnails are static Slint SVG assets selected by filename/`thumb-key` heuristics; there is no real rendered thumbnail generation, hash-addressed PNG cache, cache invalidation, or arbitrary cached-image binding in the active app. This remains core future work.
 
 ### TODO-12: Cross-platform release QA
 **Added:** 2026-05-07 (via /autopilot)

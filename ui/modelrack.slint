@@ -524,7 +524,7 @@ export component ModelRackWindow inherits Window {
     // Core properties
     in property <string> app-title: "ModelRack";
     in property <string> app-version: "v0.1.0";
-    in property <string> library-label: "~/Library/3d";
+    in property <string> library-label: "Sample library";
     in property <int> selected-card-index: -1;
     in property <string> selected-thumb-key: "rack";
     in property <string> status-text: "Ready";
@@ -591,6 +591,7 @@ export component ModelRackWindow inherits Window {
 
     // Callbacks
     callback open-folder();
+    callback refresh-library();
     callback open-settings();
     callback close-settings();
     callback choose-settings-tab(string);
@@ -1093,10 +1094,11 @@ export component ModelRackWindow inherits Window {
                         Rectangle {
                             width: 28px;
                             height: 28px;
-                            background: Theme.bg-1;
+                            background: ta-refresh.has-hover ? Theme.bg-3 : Theme.bg-1;
                             border-color: Theme.line;
                             border-width: 1px;
                             border-radius: Theme.radius-btn;
+                            animate background { duration: 120ms; easing: ease-in-out; }
 
                             SvgIcon {
                                 x: (parent.width - 14px) / 2;
@@ -1106,6 +1108,8 @@ export component ModelRackWindow inherits Window {
                                 icon: @image-url("../assets/icons/refresh.svg");
                                 tint: Theme.fg-1;
                             }
+
+                            ta-refresh := TouchArea { clicked => { refresh-library(); } }
                         }
 
                         // Add Folder
