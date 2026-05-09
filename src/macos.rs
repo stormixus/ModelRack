@@ -2,6 +2,7 @@
 
 #[cfg(target_os = "macos")]
 mod imp {
+    use std::path::PathBuf;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::OnceLock;
 
@@ -12,11 +13,34 @@ mod imp {
     static SETTINGS_REQUESTED: AtomicBool = AtomicBool::new(false);
     static OPEN_LIBRARY_REQUESTED: AtomicBool = AtomicBool::new(false);
     static UNDO_REQUESTED: AtomicBool = AtomicBool::new(false);
+    static ICON_INSTALLED: AtomicBool = AtomicBool::new(false);
     static MENU_INSTALLED: AtomicBool = AtomicBool::new(false);
     static MENU_TARGET: OnceLock<usize> = OnceLock::new();
 
+    pub fn install_app_icon() {
+        if ICON_INSTALLED.swap(true, Ordering::AcqRel) {
+            return;
+        }
+
+        let Some(path) = app_icon_path() else {
+            return;
+        };
+        let path = path.to_string_lossy();
+        unsafe {
+            let image: *mut Object = msg_send![class!(NSImage), alloc];
+            let image: *mut Object = msg_send![image, initWithContentsOfFile: ns_string(&path)];
+            if image.is_null() {
+                return;
+            }
+
+            let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
+            let _: () = msg_send![app, setApplicationIconImage: image];
+        }
+    }
+
     pub fn install_app_menu() {
         unsafe {
+            install_app_icon();
             let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
             let _: () = msg_send![app, setActivationPolicy: 0isize];
             let target = menu_target();
@@ -187,6 +211,24 @@ mod imp {
             let _: () = msg_send![app, setMainMenu: main_menu];
             let _: () = msg_send![app, activateIgnoringOtherApps: true];
         }
+    }
+
+    fn app_icon_path() -> Option<PathBuf> {
+        let bundled = std::env::current_exe()
+            .ok()
+            .and_then(|exe| {
+                let contents = exe.parent()?.parent()?;
+                Some(contents.join("Resources").join("AppIcon.icns"))
+            })
+            .filter(|path| path.exists());
+        if bundled.is_some() {
+            return bundled;
+        }
+
+        let source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("assets")
+            .join("AppIcon.icns");
+        source.exists().then_some(source)
     }
 
     pub fn take_settings_request() -> bool {
@@ -484,13 +526,16 @@ mod imp {
 
 #[cfg(target_os = "macos")]
 pub use imp::{
-    configure_native_window_chrome, fullscreen_window, hide_window, install_app_menu,
-    minimize_window, show_windows, take_open_library_request, take_settings_request,
-    take_undo_request,
+    configure_native_window_chrome, fullscreen_window, hide_window, install_app_icon,
+    install_app_menu, minimize_window, show_windows, take_open_library_request,
+    take_settings_request, take_undo_request,
 };
 
 #[cfg(not(target_os = "macos"))]
 pub fn install_app_menu() {}
+
+#[cfg(not(target_os = "macos"))]
+pub fn install_app_icon() {}
 
 #[cfg(not(target_os = "macos"))]
 pub fn take_settings_request() -> bool {

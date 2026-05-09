@@ -11,9 +11,9 @@ use std::time::{Duration, Instant};
 use crate::scanner;
 use crate::strings;
 use crate::view_model::{
-    display_path_label, smart_filter_from_key, AppPrefs, AppViewSnapshot,
-    BrowserCard as BrowserCardVm, Density, DisplayQuery, LibraryFilter, ScanStatus, SortBy,
-    ViewMode,
+    browser_count_label_for_language, display_path_label, smart_filter_from_key, AppPrefs,
+    AppViewSnapshot, BrowserCard as BrowserCardVm, Density, DisplayQuery, LibraryFilter,
+    ScanStatus, SortBy, ViewMode,
 };
 
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
@@ -320,10 +320,13 @@ pub fn run() -> Result<(), slint::PlatformError> {
     let settings_state = state.clone();
     ui.on_choose_settings_language(move |language| {
         if let Some(ui) = weak.upgrade() {
-            {
+            let snapshot = {
                 let mut state = settings_state.borrow_mut();
                 state.choose_language(language.as_str());
-            }
+                state.snapshot_done()
+            };
+            apply_snapshot(&ui, &snapshot);
+            apply_detail_rc(&ui, &settings_state);
             apply_settings(&ui, &settings_state.borrow());
             save_prefs_status(&ui, &settings_state.borrow());
         }
@@ -404,8 +407,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
     let weak = ui.as_weak();
     ui.on_check_updates(move || {
         if let Some(ui) = weak.upgrade() {
-            ui.set_status_text(update_status_text().into());
-            ui.set_settings_update_status(update_status_text().into());
+            let language = ui.get_settings_language_key().to_string();
+            ui.set_status_text(update_status_text_for_language(&language).into());
+            ui.set_settings_update_status(update_status_text_for_language(&language).into());
         }
     });
 
@@ -586,6 +590,125 @@ pub fn run() -> Result<(), slint::PlatformError> {
             state.reset_preview_plate();
             apply_detail(&ui, &mut state);
         }
+    });
+
+    let weak = ui.as_weak();
+    let model_context_state = state.clone();
+    ui.on_model_context_action(move |action, index| {
+        let Some(ui) = weak.upgrade() else {
+            return;
+        };
+        if index < 0 {
+            ui.set_status_text("Model context action has no target".into());
+            return;
+        }
+
+        let mut state = model_context_state.borrow_mut();
+        let index = index as usize;
+        let Some(path) = state.displayed.get(index).map(|entry| entry.path.clone()) else {
+            ui.set_status_text("Model is no longer available".into());
+            return;
+        };
+        state.selected_index = Some(index);
+
+        match action.as_str() {
+            "open" => match launch_model(&path, &state.prefs.slicer_path) {
+                Ok(()) => ui.set_status_text(format!("Opening {}", path.display()).into()),
+                Err(err) => ui.set_status_text(format!("Could not open slicer: {}", err).into()),
+            },
+            "reveal" => match reveal_path_in_file_manager(&path) {
+                Ok(()) => ui.set_status_text(format!("Revealed {}", path.display()).into()),
+                Err(err) => ui.set_status_text(format!("Could not reveal model: {}", err).into()),
+            },
+            "favorite" => {
+                let allow_sidecar_writes = state.sidecar_writes_enabled;
+                match persist_favorite_toggle(&mut state.entries, &path, allow_sidecar_writes) {
+                    Ok(Some(favorite)) if allow_sidecar_writes => {
+                        ui.set_status_text(
+                            if favorite {
+                                "Favorite saved"
+                            } else {
+                                "Favorite removed"
+                            }
+                            .into(),
+                        );
+                    }
+                    Ok(Some(favorite)) => ui.set_status_text(
+                        if favorite {
+                            "Favorite updated for demo model"
+                        } else {
+                            "Favorite removed for demo model"
+                        }
+                        .into(),
+                    ),
+                    Ok(None) => ui.set_status_text("Selected model is no longer available".into()),
+                    Err(err) => {
+                        ui.set_status_text(format!("Could not save favorite: {}", err).into());
+                        return;
+                    }
+                }
+
+                let snapshot = state.snapshot_done();
+                state.reselect_path(&path);
+                apply_snapshot(&ui, &snapshot);
+                apply_detail(&ui, &mut state);
+                apply_settings(&ui, &state);
+                return;
+            }
+            "print-plus" | "print-minus" => {
+                let delta = if action.as_str() == "print-minus" {
+                    -1
+                } else {
+                    1
+                };
+                let allow_sidecar_writes = state.sidecar_writes_enabled;
+                match persist_print_count_delta(
+                    &mut state.entries,
+                    &path,
+                    allow_sidecar_writes,
+                    delta,
+                ) {
+                    Ok(Some(count)) if allow_sidecar_writes => {
+                        ui.set_status_text(format!("Print count saved: {}", count).into())
+                    }
+                    Ok(Some(count)) => {
+                        ui.set_status_text(format!("Demo print count updated: {}", count).into())
+                    }
+                    Ok(None) => ui.set_status_text("Selected model is no longer available".into()),
+                    Err(err) => {
+                        ui.set_status_text(format!("Could not update print count: {}", err).into());
+                        return;
+                    }
+                }
+
+                let snapshot = state.snapshot_done();
+                state.reselect_path(&path);
+                apply_snapshot(&ui, &snapshot);
+                apply_detail(&ui, &mut state);
+                apply_settings(&ui, &state);
+                return;
+            }
+            "copy-path" => match copy_text_to_clipboard(&path.display().to_string()) {
+                Ok(()) => ui.set_status_text("Copied model path".into()),
+                Err(err) => ui.set_status_text(format!("Could not copy path: {}", err).into()),
+            },
+            "copy-name" => {
+                let file_name = path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or_default()
+                    .to_string();
+                match copy_text_to_clipboard(&file_name) {
+                    Ok(()) => ui.set_status_text("Copied model filename".into()),
+                    Err(err) => {
+                        ui.set_status_text(format!("Could not copy filename: {}", err).into())
+                    }
+                }
+            }
+            _ => ui.set_status_text(format!("Unknown model action: {}", action).into()),
+        }
+
+        apply_detail(&ui, &mut state);
     });
 
     let weak = ui.as_weak();
@@ -1102,6 +1225,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
         },
     );
 
+    crate::macos::install_app_icon();
     ui.show()?;
     crate::macos::install_app_menu();
 
@@ -1448,9 +1572,25 @@ fn set_watch_status(
     watcher_runtime: &Rc<RefCell<LibraryWatcherRuntime>>,
     folder: &Path,
 ) {
+    let language = ui.get_settings_language_key().to_string();
     match watcher_runtime.borrow_mut().watch_folder(folder) {
-        Ok(()) => ui.set_status_text("Watching library for changes".into()),
-        Err(err) => ui.set_status_text(format!("{err}; use Refresh manually").into()),
+        Ok(()) => ui.set_status_text(
+            localized(
+                "Watching library for changes",
+                "라이브러리 변경 감시 중",
+                "ライブラリの変更を監視中",
+                &language,
+            )
+            .into(),
+        ),
+        Err(err) => ui.set_status_text(
+            match language_key(&language) {
+                "ko" => format!("{err}; 새로고침을 수동으로 사용하세요"),
+                "ja" => format!("{err}; 手動で更新してください"),
+                _ => format!("{err}; use Refresh manually"),
+            }
+            .into(),
+        ),
     }
 }
 
@@ -1513,6 +1653,7 @@ fn request_active_real_folder_scan(
 }
 
 fn apply_scan_progress(ui: &ModelRackWindow, progress: &ScanProgress) {
+    let language = ui.get_settings_language_key().to_string();
     let percent = if progress.total == 0 {
         0
     } else {
@@ -1520,10 +1661,32 @@ fn apply_scan_progress(ui: &ModelRackWindow, progress: &ScanProgress) {
     };
     ui.set_scan_progress_percent(percent as i32);
     ui.set_status_text(
-        format!(
-            "Scanning {} · found {} · {} / {} · {} skipped",
-            progress.current, progress.found, progress.scanned, progress.total, progress.skipped
-        )
+        match language_key(&language) {
+            "ko" => format!(
+                "스캔 중 {} · 발견 {} · {} / {} · {}개 건너뜀",
+                progress.current,
+                progress.found,
+                progress.scanned,
+                progress.total,
+                progress.skipped
+            ),
+            "ja" => format!(
+                "スキャン中 {} · 検出 {} · {} / {} · {} 件スキップ",
+                progress.current,
+                progress.found,
+                progress.scanned,
+                progress.total,
+                progress.skipped
+            ),
+            _ => format!(
+                "Scanning {} · found {} · {} / {} · {} skipped",
+                progress.current,
+                progress.found,
+                progress.scanned,
+                progress.total,
+                progress.skipped
+            ),
+        }
         .into(),
     );
 }
@@ -1852,6 +2015,7 @@ fn apply_detail_with_quality(
     ui.set_selected_card_index(state.selected_index.map(|i| i as i32).unwrap_or(-1));
     if let Some(idx) = state.selected_index {
         if let Some(entry) = state.displayed.get(idx).cloned() {
+            let language = state.prefs.language.clone();
             ui.set_has_selection(true);
             ui.set_selected_thumb_key(crate::view_model::thumbnail_key(&entry.filename).into());
             let yaw = state.preview_orbit_yaw;
@@ -1886,11 +2050,25 @@ fn apply_detail_with_quality(
                 preview
                     .as_ref()
                     .filter(|preview| preview.plate_count > 1)
-                    .map(|preview| {
-                        format!(
-                            "{} plates · showing {}",
-                            preview.plate_count, preview.selected_label
-                        )
+                    .map(|preview| match language_key(&language) {
+                        "ko" => {
+                            format!(
+                                "{}개 플레이트 · {} 표시 중",
+                                preview.plate_count, preview.selected_label
+                            )
+                        }
+                        "ja" => {
+                            format!(
+                                "{} プレート · {} を表示中",
+                                preview.plate_count, preview.selected_label
+                            )
+                        }
+                        _ => {
+                            format!(
+                                "{} plates · showing {}",
+                                preview.plate_count, preview.selected_label
+                            )
+                        }
                     })
                     .unwrap_or_default()
                     .into(),
@@ -3673,7 +3851,13 @@ impl ShellState {
                 found: self.entries.len(),
                 scanned: self.entries.len(),
                 skipped: self.skipped,
-                current: "loading models".to_string(),
+                current: localized(
+                    "loading models",
+                    "모델 불러오는 중",
+                    "モデルを読み込み中",
+                    &self.prefs.language,
+                )
+                .to_string(),
             },
             |progress| ScanStatus::Scanning {
                 found: self.entries.len(),
@@ -4101,7 +4285,7 @@ impl ShellState {
                 volume_cm3: scanner::mesh_volume_cm3(&mesh),
                 mesh,
                 plate_count: 1,
-                selected_label: plates[0].label.clone(),
+                selected_label: localized_plate_label(&plates[0].label, 0, &self.prefs.language),
                 tab_rows: Vec::new(),
             });
         }
@@ -4113,12 +4297,16 @@ impl ShellState {
         }
 
         let selected_plate_index = self.preview_plate_index;
+        let language = self.prefs.language.clone();
         let (mesh, selected_label) = if let Some(index) = selected_plate_index {
-            (plates[index].mesh.clone(), plates[index].label.clone())
+            (
+                plates[index].mesh.clone(),
+                localized_plate_label(&plates[index].label, index, &language),
+            )
         } else {
             (
                 scanner::arranged_three_mf_overview_mesh(&plates)?,
-                "All plates".to_string(),
+                localized("All plates", "전체 플레이트", "全プレート", &language).to_string(),
             )
         };
         let triangle_count = if selected_plate_index.is_some() {
@@ -4128,7 +4316,7 @@ impl ShellState {
         };
         let mut tab_rows = Vec::with_capacity(plates.len() + 1);
         tab_rows.push(PreviewPlateTab {
-            label: "All plates".to_string(),
+            label: localized("All plates", "전체 플레이트", "全プレート", &language).to_string(),
             index: -1,
             selected: selected_plate_index.is_none(),
         });
@@ -4137,7 +4325,7 @@ impl ShellState {
                 .iter()
                 .enumerate()
                 .map(|(index, plate)| PreviewPlateTab {
-                    label: plate.label.clone(),
+                    label: localized_plate_label(&plate.label, index, &language),
                     index: index as i32,
                     selected: selected_plate_index == Some(index),
                 }),
@@ -4169,7 +4357,12 @@ fn apply_snapshot(ui: &ModelRackWindow, snapshot: &AppViewSnapshot) {
     ui.set_browser_message(snapshot.browser.empty_message.clone().into());
     ui.set_sort_label(snapshot.sort_label.clone().into());
     ui.set_browser_count_label(
-        browser_count_label(snapshot.browser.displayed, snapshot.browser.total).into(),
+        browser_count_label(
+            snapshot.browser.displayed,
+            snapshot.browser.total,
+            &snapshot.language,
+        )
+        .into(),
     );
     ui.set_all_count(snapshot.sidebar.all as i32);
     ui.set_recent_count(snapshot.sidebar.recent as i32);
@@ -4195,6 +4388,7 @@ fn apply_snapshot(ui: &ModelRackWindow, snapshot: &AppViewSnapshot) {
             depth: folder.depth as i32,
             expandable: folder.expandable,
             expanded: folder.expanded,
+            visible: folder.visible,
         })
         .collect::<Vec<SidebarItem>>();
     ui.set_folder_items(slint::ModelRc::new(slint::VecModel::from(folders)));
@@ -4208,17 +4402,14 @@ fn apply_snapshot(ui: &ModelRackWindow, snapshot: &AppViewSnapshot) {
             depth: 0,
             expandable: false,
             expanded: false,
+            visible: true,
         })
         .collect::<Vec<SidebarItem>>();
     ui.set_tag_items(slint::ModelRc::new(slint::VecModel::from(tags)));
 }
 
-fn browser_count_label(displayed: usize, total: usize) -> String {
-    if displayed == total {
-        format!("{} items", total)
-    } else {
-        format!("{} of {} items", displayed, total)
-    }
+fn browser_count_label(displayed: usize, total: usize, language: &str) -> String {
+    browser_count_label_for_language(displayed, total, language)
 }
 
 fn sync_browser_cards(ui: &ModelRackWindow, cards: Vec<BrowserCard>) {
@@ -4272,9 +4463,23 @@ fn settings_folder_label(state: &ShellState) -> String {
             .current_folder
             .as_ref()
             .map(|folder| display_path_label(folder))
-            .unwrap_or_else(|| "No folder selected".to_string())
+            .unwrap_or_else(|| {
+                localized(
+                    "No folder selected",
+                    "선택한 폴더 없음",
+                    "フォルダ未選択",
+                    &state.prefs.language,
+                )
+                .to_string()
+            })
     } else {
-        "Sample library (demo, memory-only)".to_string()
+        localized(
+            "Sample library (demo, memory-only)",
+            "샘플 라이브러리 (데모, 메모리 전용)",
+            "サンプルライブラリ（デモ、メモリのみ）",
+            &state.prefs.language,
+        )
+        .to_string()
     }
 }
 
@@ -4416,7 +4621,7 @@ fn apply_settings(ui: &ModelRackWindow, state: &ShellState) {
             })
             .collect::<Vec<ChoiceRow>>(),
     )));
-    ui.set_settings_update_status(update_status_text().into());
+    ui.set_settings_update_status(update_status_text_for_language(&state.prefs.language).into());
 }
 
 fn apply_theme(ui: &ModelRackWindow, theme: &str) {
@@ -4460,11 +4665,49 @@ fn rgba(r: u8, g: u8, b: u8, a: u8) -> Color {
     Color::from_argb_u8(a, r, g, b)
 }
 
-fn update_status_text() -> String {
-    format!(
-        "Release channel: GitHub Releases · current {} · not checked",
-        env!("CARGO_PKG_VERSION")
-    )
+fn language_key(language: &str) -> &str {
+    match language {
+        "ko" => "ko",
+        "ja" => "ja",
+        _ => "en",
+    }
+}
+
+fn localized<'a>(en: &'a str, ko: &'a str, ja: &'a str, language: &str) -> &'a str {
+    match language_key(language) {
+        "ko" => ko,
+        "ja" => ja,
+        _ => en,
+    }
+}
+
+fn localized_plate_label(label: &str, index: usize, language: &str) -> String {
+    if label == format!("Plate {}", index + 1) {
+        match language_key(language) {
+            "ko" => format!("플레이트 {}", index + 1),
+            "ja" => format!("プレート {}", index + 1),
+            _ => label.to_string(),
+        }
+    } else {
+        label.to_string()
+    }
+}
+
+fn update_status_text_for_language(language: &str) -> String {
+    match language_key(language) {
+        "ko" => format!(
+            "릴리스 채널: GitHub Releases · 현재 {} · 아직 확인 안 함",
+            env!("CARGO_PKG_VERSION")
+        ),
+        "ja" => format!(
+            "リリースチャンネル: GitHub Releases · 現在 {} · 未確認",
+            env!("CARGO_PKG_VERSION")
+        ),
+        _ => format!(
+            "Release channel: GitHub Releases · current {} · not checked",
+            env!("CARGO_PKG_VERSION")
+        ),
+    }
 }
 
 fn bundled_printer_profiles_json() -> &'static str {
@@ -5215,8 +5458,8 @@ fn discover_unix_slicer_candidates() -> Vec<DiscoveredSlicer> {
 
 fn language_label(language: &str) -> &'static str {
     match language {
-        "ko" => "Korean",
-        "ja" => "Japanese",
+        "ko" => "한국어",
+        "ja" => "日本語",
         _ => "English",
     }
 }
@@ -6828,8 +7071,10 @@ mod tests {
 
     #[test]
     fn browser_count_label_matches_mockup_language() {
-        assert_eq!(browser_count_label(36, 36), "36 items");
-        assert_eq!(browser_count_label(9, 36), "9 of 36 items");
+        assert_eq!(browser_count_label(36, 36, "en"), "36 items");
+        assert_eq!(browser_count_label(9, 36, "en"), "9 of 36 items");
+        assert_eq!(browser_count_label(36, 36, "ko"), "36개 항목");
+        assert_eq!(browser_count_label(9, 36, "ko"), "9 / 36개 항목");
     }
 
     #[cfg(target_os = "macos")]

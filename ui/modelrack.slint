@@ -1,4 +1,4 @@
-import { Button, LineEdit, ScrollView, TextEdit } from "std-widgets.slint";
+import { Button, LineEdit, ScrollView } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 export { Theme } from "theme.slint";
 
@@ -28,6 +28,7 @@ export struct SidebarItem {
     depth: int,
     expandable: bool,
     expanded: bool,
+    visible: bool,
 }
 
 export struct PrintHistoryRow {
@@ -160,17 +161,22 @@ component SidebarLine inherits Rectangle {
     in property <bool> expandable: false;
     in property <bool> expanded: false;
     in property <bool> selected: false;
+    in property <bool> row-visible: true;
     in property <bool> drop-enabled: false;
     callback activated();
     callback toggle-requested();
     callback context-requested(length, length);
     callback model-dropped(string, string);
 
-    height: 26px;
+    height: row-visible ? 26px : 0px;
+    opacity: row-visible ? 1 : 0;
+    clip: true;
     background: tag-drop.contains-drag ? Theme.accent-dim : selected ? Theme.accent-dim : ta-line.has-hover ? Theme.bg-3 : transparent;
     border-color: tag-drop.contains-drag ? Theme.accent-line : transparent;
     border-width: tag-drop.contains-drag ? 1px : 0px;
     border-radius: Theme.radius-btn;
+    animate height { duration: 180ms; easing: ease-in-out; }
+    animate opacity { duration: 120ms; easing: ease-in-out; }
 
     // Active indicator bar
     if selected: Rectangle {
@@ -233,7 +239,7 @@ component SidebarLine inherits Rectangle {
         }
         pointer-event(event) => {
             if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
-                root.context-requested(ta-line.mouse-x, ta-line.mouse-y);
+                root.context-requested(ta-line.absolute-position.x + ta-line.mouse-x, ta-line.absolute-position.y + ta-line.mouse-y);
             }
         }
     }
@@ -322,7 +328,7 @@ component ContextMenuItem inherits Rectangle {
         y: 21px;
         width: parent.width - 38px;
         text: hint;
-        color: Theme.fg-3;
+        color: Theme.fg-2;
         font-family: "JetBrains Mono";
         font-size: Theme.font-overline;
         overflow: elide;
@@ -410,6 +416,113 @@ component SidebarContextMenu inherits Rectangle {
     }
 }
 
+component ModelContextMenu inherits Rectangle {
+    in property <string> target-label;
+    in property <bool> favorite;
+    in property <int> printed-count;
+    in property <length> menu-width: 214px;
+    in property <length> menu-height: printed-count > 0 ? 312px : 283px;
+    in property <string> rename-label;
+    in property <string> open-label;
+    in property <string> reveal-label;
+    in property <string> details-label;
+    in property <string> add-favorite-label;
+    in property <string> remove-favorite-label;
+    in property <string> add-print-label;
+    in property <string> remove-print-label;
+    in property <string> copy-name-label;
+    in property <string> copy-path-label;
+    callback action(string);
+
+    width: menu-width;
+    height: menu-height;
+    background: Theme.bg-2;
+    border-color: Theme.line-2;
+    border-width: 1px;
+    border-radius: 8px;
+
+    VerticalLayout {
+        padding: 4px;
+        spacing: 1px;
+
+        Text {
+            height: 22px;
+            text: target-label;
+            color: Theme.fg-3;
+            font-family: "JetBrains Mono";
+            font-size: Theme.font-overline;
+            overflow: elide;
+        }
+
+        ContextMenuItem {
+            label: rename-label;
+            hint: "";
+            icon: @image-url("../assets/icons/document.svg");
+            activated => { root.action("rename"); }
+        }
+
+        ContextMenuItem {
+            label: open-label;
+            hint: "";
+            icon: @image-url("../assets/icons/slicer.svg");
+            activated => { root.action("open"); }
+        }
+
+        ContextMenuItem {
+            label: reveal-label;
+            hint: "";
+            icon: @image-url("../assets/icons/folder-open.svg");
+            activated => { root.action("reveal"); }
+        }
+
+        ContextMenuItem {
+            label: details-label;
+            hint: "";
+            icon: @image-url("../assets/icons/eye.svg");
+            activated => { root.action("details"); }
+        }
+
+        Rectangle { height: 1px; background: Theme.line; }
+
+        ContextMenuItem {
+            label: favorite ? remove-favorite-label : add-favorite-label;
+            hint: "";
+            icon: @image-url("../assets/icons/star.svg");
+            activated => { root.action("favorite"); }
+        }
+
+        ContextMenuItem {
+            label: add-print-label;
+            hint: "";
+            icon: @image-url("../assets/icons/print.svg");
+            activated => { root.action("print-plus"); }
+        }
+
+        if printed-count > 0: ContextMenuItem {
+            label: remove-print-label;
+            hint: "";
+            icon: @image-url("../assets/icons/minus.svg");
+            activated => { root.action("print-minus"); }
+        }
+
+        Rectangle { height: 1px; background: Theme.line; }
+
+        ContextMenuItem {
+            label: copy-name-label;
+            hint: "";
+            icon: @image-url("../assets/icons/duplicate.svg");
+            activated => { root.action("copy-name"); }
+        }
+
+        ContextMenuItem {
+            label: copy-path-label;
+            hint: "";
+            icon: @image-url("../assets/icons/link.svg");
+            activated => { root.action("copy-path"); }
+        }
+    }
+}
+
 component SlicerMenuItem inherits Rectangle {
     in property <string> label;
     in property <string> detail;
@@ -470,7 +583,7 @@ component SlicerMenuItem inherits Rectangle {
         y: 22px;
         width: parent.width - 62px;
         text: detail;
-        color: Theme.fg-3;
+        color: Theme.fg-2;
         font-family: "JetBrains Mono";
         font-size: Theme.font-overline;
         overflow: elide;
@@ -544,8 +657,8 @@ component PlateDropdown inherits Rectangle {
     Rectangle {
         width: parent.width;
         height: 28px;
-        background: plate-dropdown-touch.has-hover || root.open ? #000000cc : #00000088;
-        border-color: root.open ? Theme.accent-line : #ffffff24;
+        background: plate-dropdown-touch.has-hover || root.open ? Theme.bg-3 : Theme.bg-2;
+        border-color: root.open ? Theme.accent-line : Theme.line-2;
         border-width: 1px;
         border-radius: 6px;
 
@@ -589,7 +702,7 @@ component PlateDropdown inherits Rectangle {
         width: parent.width;
         height: root.menu-height;
         z: 20;
-        background: #202329fa;
+        background: Theme.bg-2;
         border-color: Theme.line-3;
         border-width: 1px;
         border-radius: 8px;
@@ -766,6 +879,7 @@ component ModelCard inherits Rectangle {
     in property <bool> layout-motion: true;
     in property <int> card-index;
     callback clicked(int);
+    callback context-requested(int, length, length);
 
     background: selected ? Theme.bg-5 : Theme.bg-3;
     border-color: card.error ? Theme.error :
@@ -903,6 +1017,11 @@ component ModelCard inherits Rectangle {
             width: parent.width;
             height: parent.height;
             clicked => { root.clicked(root.card-index); }
+            pointer-event(event) => {
+                if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                    root.context-requested(root.card-index, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+                }
+            }
         }
     }
 }
@@ -1163,6 +1282,7 @@ component ModelListRow inherits Rectangle {
     in property <int> card-index;
     in property <bool> selected: false;
     callback clicked(int);
+    callback context-requested(int, length, length);
 
     height: 58px;
     background: selected ? Theme.bg-5 : list-touch.has-hover ? Theme.bg-3 : Theme.bg-1;
@@ -1234,6 +1354,11 @@ component ModelListRow inherits Rectangle {
             width: parent.width;
             height: parent.height;
             clicked => { root.clicked(root.card-index); }
+            pointer-event(event) => {
+                if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                    root.context-requested(root.card-index, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+                }
+            }
         }
     }
 }
@@ -1260,6 +1385,105 @@ component DetailKV inherits Rectangle {
         color: Theme.fg-0;
         font-family: "JetBrains Mono";
         font-size: 11.5px;
+    }
+}
+
+component ThemedLineEdit inherits Rectangle {
+    in-out property <string> text;
+    in property <string> placeholder-text: "";
+    in property <string> font-family: "";
+    in property <length> font-size: 12px;
+    in property <int> font-weight: 400;
+    in property <InputType> input-type: InputType.text;
+    in property <TextHorizontalAlignment> horizontal-alignment: TextHorizontalAlignment.left;
+    in property <bool> read-only: false;
+    callback accepted(string);
+    callback edited(string);
+    callback key-pressed(KeyEvent) -> EventResult;
+
+    min-width: 24px;
+    min-height: 24px;
+    horizontal-stretch: 1;
+    background: input.has-focus ? Theme.bg-0 : Theme.bg-2;
+    border-color: input.has-focus ? Theme.accent-line : Theme.line-2;
+    border-width: input.has-focus ? 2px : 1px;
+    border-radius: Theme.radius-btn;
+    clip: true;
+
+    Text {
+        x: 8px;
+        y: 0;
+        width: parent.width - 16px;
+        height: parent.height;
+        text: root.text == "" && input.preedit-text == "" ? root.placeholder-text : "";
+        color: Theme.fg-3;
+        font-family: root.font-family;
+        font-size: root.font-size;
+        font-weight: root.font-weight;
+        horizontal-alignment: root.horizontal-alignment;
+        vertical-alignment: center;
+    }
+
+    input := TextInput {
+        x: 8px;
+        y: 0;
+        width: parent.width - 16px;
+        height: parent.height;
+        text <=> root.text;
+        color: Theme.fg-0;
+        font-family: root.font-family;
+        font-size: root.font-size;
+        font-weight: root.font-weight;
+        input-type: root.input-type;
+        horizontal-alignment: root.horizontal-alignment;
+        vertical-alignment: center;
+        single-line: true;
+        read-only: root.read-only;
+        selection-background-color: Theme.accent;
+        selection-foreground-color: #0e2a32;
+        accepted => { root.accepted(self.text); }
+        edited => { root.edited(self.text); }
+        key-pressed(event) => { root.key-pressed(event) }
+    }
+}
+
+component ThemedTextEdit inherits Rectangle {
+    in-out property <string> text;
+    in property <string> placeholder-text: "";
+    in property <length> font-size: 12px;
+    in property <TextWrap> wrap: word-wrap;
+    callback edited(string);
+
+    background: input.has-focus ? Theme.bg-0 : Theme.bg-2;
+    border-color: input.has-focus ? Theme.accent-line : Theme.line-2;
+    border-width: input.has-focus ? 2px : 1px;
+    border-radius: Theme.radius-btn;
+    clip: true;
+
+    Text {
+        x: 8px;
+        y: 7px;
+        width: parent.width - 16px;
+        text: root.text == "" && input.preedit-text == "" ? root.placeholder-text : "";
+        color: Theme.fg-3;
+        font-size: root.font-size;
+        wrap: word-wrap;
+    }
+
+    input := TextInput {
+        x: 8px;
+        y: 6px;
+        width: parent.width - 16px;
+        height: parent.height - 12px;
+        text <=> root.text;
+        color: Theme.fg-0;
+        font-size: root.font-size;
+        vertical-alignment: top;
+        wrap: root.wrap;
+        single-line: false;
+        selection-background-color: Theme.accent;
+        selection-foreground-color: #0e2a32;
+        edited => { root.edited(self.text); }
     }
 }
 
@@ -1296,6 +1520,8 @@ component TrafficLightButton inherits Rectangle {
 // ─── Main window ─────────────────────────────────────────
 
 export component ModelRackWindow inherits Window {
+    icon: @image-url("../assets/AppIcon.iconset/icon_128x128.png");
+
     // Core properties
     in property <string> app-title: "ModelRack";
     in property <string> app-version: "v0.1.0";
@@ -1385,8 +1611,9 @@ export component ModelRackWindow inherits Window {
     property <string> tr-open-with-suffix: settings-language-key == "ko" ? "에서 열기" : settings-language-key == "ja" ? "で開く" : "";
     property <string> tr-open-with-menu: settings-language-key == "ko" ? "다음으로 열기…" : settings-language-key == "ja" ? "アプリで開く…" : "Open with…";
     property <string> tr-choose-another-slicer: settings-language-key == "ko" ? "다른 슬라이서 선택…" : settings-language-key == "ja" ? "別のスライサーを選択…" : "Choose another slicer…";
-    property <string> tr-orbit-hint: settings-language-key == "ko" ? "orbit · 드래그로 회전" : settings-language-key == "ja" ? "orbit · ドラッグで回転" : "orbit · drag to rotate";
-    property <string> tr-geometry: settings-language-key == "ko" ? "GEOMETRY" : settings-language-key == "ja" ? "GEOMETRY" : "GEOMETRY";
+    property <string> tr-orbit-hint: settings-language-key == "ko" ? "궤도 · 드래그로 회전" : settings-language-key == "ja" ? "軌道 · ドラッグで回転" : "orbit · drag to rotate";
+    property <string> tr-fullscreen-orbit-hint: settings-language-key == "ko" ? "드래그로 회전 · 더블클릭으로 초기화" : settings-language-key == "ja" ? "ドラッグで回転 · ダブルクリックでリセット" : "drag to orbit · double-click to reset";
+    property <string> tr-geometry: settings-language-key == "ko" ? "형상" : settings-language-key == "ja" ? "ジオメトリ" : "GEOMETRY";
     property <string> tr-format: settings-language-key == "ko" ? "형식" : settings-language-key == "ja" ? "形式" : "Format";
     property <string> tr-triangles: settings-language-key == "ko" ? "삼각형" : settings-language-key == "ja" ? "三角形" : "Triangles";
     property <string> tr-dimensions: settings-language-key == "ko" ? "치수" : settings-language-key == "ja" ? "寸法" : "Dimensions";
@@ -1438,6 +1665,112 @@ export component ModelRackWindow inherits Window {
     property <string> tr-delete-folder: settings-language-key == "ko" ? "폴더 삭제…" : settings-language-key == "ja" ? "フォルダを削除…" : "Delete Folder…";
     property <string> tr-copy-path: settings-language-key == "ko" ? "경로 복사" : settings-language-key == "ja" ? "パスをコピー" : "Copy path";
     property <string> tr-copy-tag: settings-language-key == "ko" ? "태그 복사" : settings-language-key == "ja" ? "タグをコピー" : "Copy tag";
+    property <string> tr-rename-model: settings-language-key == "ko" ? "이름 변경" : settings-language-key == "ja" ? "名前を変更" : "Rename";
+    property <string> tr-show-details: settings-language-key == "ko" ? "디테일 보기" : settings-language-key == "ja" ? "詳細を表示" : "Show Details";
+    property <string> tr-add-favorite: settings-language-key == "ko" ? "즐겨찾기 추가" : settings-language-key == "ja" ? "お気に入りに追加" : "Add to Favorites";
+    property <string> tr-remove-favorite: settings-language-key == "ko" ? "즐겨찾기 제거" : settings-language-key == "ja" ? "お気に入りから削除" : "Remove Favorite";
+    property <string> tr-add-print-count: settings-language-key == "ko" ? "출력 횟수 +1" : settings-language-key == "ja" ? "印刷回数 +1" : "Add Printed Count";
+    property <string> tr-remove-print-count: settings-language-key == "ko" ? "출력 횟수 -1" : settings-language-key == "ja" ? "印刷回数 -1" : "Remove Printed Count";
+    property <string> tr-copy-file-name: settings-language-key == "ko" ? "파일명 복사" : settings-language-key == "ja" ? "ファイル名をコピー" : "Copy File Name";
+    property <string> tr-copy-file-path: settings-language-key == "ko" ? "파일 경로 복사" : settings-language-key == "ja" ? "ファイルパスをコピー" : "Copy File Path";
+    property <string> tr-settings-general: settings-language-key == "ko" ? "일반" : settings-language-key == "ja" ? "一般" : "General";
+    property <string> tr-settings-appearance: settings-language-key == "ko" ? "모양" : settings-language-key == "ja" ? "外観" : "Appearance";
+    property <string> tr-settings-library: settings-language-key == "ko" ? "라이브러리" : settings-language-key == "ja" ? "ライブラリ" : "Library";
+    property <string> tr-settings-thumbnails: settings-language-key == "ko" ? "썸네일" : settings-language-key == "ja" ? "サムネイル" : "Thumbnails";
+    property <string> tr-settings-printers: settings-language-key == "ko" ? "프린터" : settings-language-key == "ja" ? "プリンタ" : "Printers";
+    property <string> tr-settings-slicer: settings-language-key == "ko" ? "슬라이서" : settings-language-key == "ja" ? "スライサー" : "Slicer";
+    property <string> tr-settings-hotkeys: settings-language-key == "ko" ? "단축키" : settings-language-key == "ja" ? "ショートカット" : "Hotkeys";
+    property <string> tr-settings-advanced: settings-language-key == "ko" ? "고급" : settings-language-key == "ja" ? "詳細" : "Advanced";
+    property <string> tr-settings-about: settings-language-key == "ko" ? "정보" : settings-language-key == "ja" ? "情報" : "About";
+    property <string> tr-settings-title: settings-tab == "general" ? tr-settings-general : settings-tab == "appearance" ? tr-settings-appearance : settings-tab == "library" ? tr-settings-library : settings-tab == "thumbnails" ? tr-settings-thumbnails : settings-tab == "printers" ? tr-settings-printers : settings-tab == "slicer" ? tr-settings-slicer : settings-tab == "hotkeys" ? tr-settings-hotkeys : settings-tab == "advanced" ? tr-settings-advanced : tr-settings-about;
+    property <string> tr-language: settings-language-key == "ko" ? "언어" : settings-language-key == "ja" ? "言語" : "Language";
+    property <string> tr-english: settings-language-key == "ko" ? "영어" : settings-language-key == "ja" ? "英語" : "English";
+    property <string> tr-on-startup: settings-language-key == "ko" ? "시작 시" : settings-language-key == "ja" ? "起動時" : "On startup";
+    property <string> tr-startup-hint: settings-language-key == "ko" ? "ModelRack 실행 시 표시할 화면" : settings-language-key == "ja" ? "ModelRack起動時に表示する内容" : "What to show when ModelRack opens";
+    property <string> tr-last-library: settings-language-key == "ko" ? "마지막 라이브러리" : settings-language-key == "ja" ? "前回のライブラリ" : "Last library";
+    property <string> tr-empty-state: settings-language-key == "ko" ? "빈 상태" : settings-language-key == "ja" ? "空の状態" : "Empty state";
+    property <string> tr-default-view: settings-language-key == "ko" ? "기본 보기" : settings-language-key == "ja" ? "既定の表示" : "Default view";
+    property <string> tr-grid: settings-language-key == "ko" ? "그리드" : settings-language-key == "ja" ? "グリッド" : "Grid";
+    property <string> tr-masonry: settings-language-key == "ko" ? "메이슨리" : settings-language-key == "ja" ? "メイソンリー" : "Masonry";
+    property <string> tr-list: settings-language-key == "ko" ? "리스트" : settings-language-key == "ja" ? "リスト" : "List";
+    property <string> tr-default-sort: settings-language-key == "ko" ? "기본 정렬" : settings-language-key == "ja" ? "既定の並び順" : "Default sort";
+    property <string> tr-name: settings-language-key == "ko" ? "이름" : settings-language-key == "ja" ? "名前" : "Name";
+    property <string> tr-sort-modified: settings-language-key == "ko" ? "수정일" : settings-language-key == "ja" ? "更新日" : "Modified";
+    property <string> tr-sort-added: settings-language-key == "ko" ? "추가일" : settings-language-key == "ja" ? "追加日" : "Added";
+    property <string> tr-date-format: settings-language-key == "ko" ? "날짜 형식" : settings-language-key == "ja" ? "日付形式" : "Date format";
+    property <string> tr-auto: settings-language-key == "ko" ? "자동" : settings-language-key == "ja" ? "自動" : "Auto";
+    property <string> tr-us-date-example: settings-language-key == "ko" ? "2026년 5월 8일" : settings-language-key == "ja" ? "2026年5月8日" : "May 8, 2026";
+    property <string> tr-show-file-extensions: settings-language-key == "ko" ? "파일 확장자 표시" : settings-language-key == "ja" ? "拡張子を表示" : "Show file extensions";
+    property <string> tr-theme: settings-language-key == "ko" ? "테마" : settings-language-key == "ja" ? "テーマ" : "Theme";
+    property <string> tr-dark: settings-language-key == "ko" ? "다크" : settings-language-key == "ja" ? "ダーク" : "Dark";
+    property <string> tr-light: settings-language-key == "ko" ? "라이트" : settings-language-key == "ja" ? "ライト" : "Light";
+    property <string> tr-accent-color: settings-language-key == "ko" ? "강조 색상" : settings-language-key == "ja" ? "アクセントカラー" : "Accent color";
+    property <string> tr-density: settings-language-key == "ko" ? "밀도" : settings-language-key == "ja" ? "密度" : "Density";
+    property <string> tr-small: settings-language-key == "ko" ? "작게" : settings-language-key == "ja" ? "小" : "Small";
+    property <string> tr-medium: settings-language-key == "ko" ? "보통" : settings-language-key == "ja" ? "中" : "Medium";
+    property <string> tr-large: settings-language-key == "ko" ? "크게" : settings-language-key == "ja" ? "大" : "Large";
+    property <string> tr-card-label: settings-language-key == "ko" ? "카드 라벨" : settings-language-key == "ja" ? "カードラベル" : "Card label";
+    property <string> tr-card-label-hint: settings-language-key == "ko" ? "모델 이름 표시 방식" : settings-language-key == "ja" ? "モデル名の表示方法" : "How model names appear";
+    property <string> tr-filename: settings-language-key == "ko" ? "파일명" : settings-language-key == "ja" ? "ファイル名" : "Filename";
+    property <string> tr-title-cased: settings-language-key == "ko" ? "제목식" : settings-language-key == "ja" ? "タイトル形式" : "Title-cased";
+    property <string> tr-library-folders: settings-language-key == "ko" ? "라이브러리 폴더" : settings-language-key == "ja" ? "ライブラリフォルダ" : "Library folders";
+    property <string> tr-active: settings-language-key == "ko" ? "활성" : settings-language-key == "ja" ? "有効" : "active";
+    property <string> tr-add-folder: settings-language-key == "ko" ? "폴더 추가" : settings-language-key == "ja" ? "フォルダを追加" : "Add Folder";
+    property <string> tr-file-types: settings-language-key == "ko" ? "파일 형식" : settings-language-key == "ja" ? "ファイル形式" : "File types";
+    property <string> tr-watch-for-changes: settings-language-key == "ko" ? "변경 감시" : settings-language-key == "ja" ? "変更を監視" : "Watch for changes";
+    property <string> tr-rescan-on-change: settings-language-key == "ko" ? "파일 변경 시 다시 스캔" : settings-language-key == "ja" ? "ファイル変更時に再スキャン" : "Re-scan when files change";
+    property <string> tr-metadata-storage: settings-language-key == "ko" ? "메타데이터 저장" : settings-language-key == "ja" ? "メタデータ保存先" : "Metadata storage";
+    property <string> tr-metadata-storage-hint: settings-language-key == "ko" ? "태그, 메모, 기록 저장 위치" : settings-language-key == "ja" ? "タグ、メモ、履歴の保存場所" : "Where tags, notes and history are saved";
+    property <string> tr-thumbnail-style: settings-language-key == "ko" ? "썸네일 스타일" : settings-language-key == "ja" ? "サムネイルスタイル" : "Thumbnail style";
+    property <string> tr-isometric: settings-language-key == "ko" ? "아이소메트릭" : settings-language-key == "ja" ? "アイソメ" : "Isometric";
+    property <string> tr-wireframe: settings-language-key == "ko" ? "와이어프레임" : settings-language-key == "ja" ? "ワイヤーフレーム" : "Wireframe";
+    property <string> tr-normal-map: settings-language-key == "ko" ? "노멀맵" : settings-language-key == "ja" ? "法線マップ" : "Normal map";
+    property <string> tr-lighting: settings-language-key == "ko" ? "조명" : settings-language-key == "ja" ? "ライティング" : "Lighting";
+    property <string> tr-studio: settings-language-key == "ko" ? "스튜디오" : settings-language-key == "ja" ? "スタジオ" : "Studio";
+    property <string> tr-even: settings-language-key == "ko" ? "균일" : settings-language-key == "ja" ? "均一" : "Even";
+    property <string> tr-rim: settings-language-key == "ko" ? "림" : settings-language-key == "ja" ? "リム" : "Rim";
+    property <string> tr-render-density: settings-language-key == "ko" ? "렌더 밀도" : settings-language-key == "ja" ? "レンダー密度" : "Render density";
+    property <string> tr-anti-aliasing: settings-language-key == "ko" ? "안티앨리어싱" : settings-language-key == "ja" ? "アンチエイリアス" : "Anti-aliasing";
+    property <string> tr-off: settings-language-key == "ko" ? "끔" : settings-language-key == "ja" ? "オフ" : "Off";
+    property <string> tr-cache-usage: settings-language-key == "ko" ? "캐시 사용량" : settings-language-key == "ja" ? "キャッシュ使用量" : "Cache usage";
+    property <string> tr-thumbnail-cache-renderer: settings-language-key == "ko" ? "썸네일 캐시 · 렌더러 v9" : settings-language-key == "ja" ? "サムネイルキャッシュ · レンダラー v9" : "thumbnail cache · renderer v9";
+    property <string> tr-regenerate-thumbnails: settings-language-key == "ko" ? "썸네일 재생성" : settings-language-key == "ja" ? "サムネイルを再生成" : "Regenerate thumbnails";
+    property <string> tr-clear-cache: settings-language-key == "ko" ? "캐시 지우기" : settings-language-key == "ja" ? "キャッシュを削除" : "Clear cache";
+    property <string> tr-enabled-profiles: settings-language-key == "ko" ? "활성 프로파일" : settings-language-key == "ja" ? "有効なプロファイル" : "Enabled profiles";
+    property <string> tr-default-estimate: settings-language-key == "ko" ? "기본 출력 예상" : settings-language-key == "ja" ? "既定の見積" : "Default estimate";
+    property <string> tr-printer-selector: settings-language-key == "ko" ? "프린터 선택" : settings-language-key == "ja" ? "プリンタ選択" : "Printer selector";
+    property <string> tr-maker-model-nozzle: settings-language-key == "ko" ? "제조사 → 모델 → 노즐" : settings-language-key == "ja" ? "メーカー → モデル → ノズル" : "Maker → model → nozzle";
+    property <string> tr-maker: settings-language-key == "ko" ? "제조사" : settings-language-key == "ja" ? "メーカー" : "Maker";
+    property <string> tr-model: settings-language-key == "ko" ? "모델" : settings-language-key == "ja" ? "モデル" : "Model";
+    property <string> tr-nozzle: settings-language-key == "ko" ? "노즐" : settings-language-key == "ja" ? "ノズル" : "Nozzle";
+    property <string> tr-default: settings-language-key == "ko" ? "기본" : settings-language-key == "ja" ? "既定" : "Default";
+    property <string> tr-set-default: settings-language-key == "ko" ? "기본 설정" : settings-language-key == "ja" ? "既定に設定" : "Set default";
+    property <string> tr-default-slicer: settings-language-key == "ko" ? "기본 슬라이서" : settings-language-key == "ja" ? "既定のスライサー" : "Default slicer";
+    property <string> tr-detected-apps: settings-language-key == "ko" ? "감지된 앱" : settings-language-key == "ja" ? "検出したアプリ" : "Detected apps";
+    property <string> tr-choices-suffix: settings-language-key == "ko" ? "개 선택지" : settings-language-key == "ja" ? " 件" : " choices";
+    property <string> tr-custom-path: settings-language-key == "ko" ? "사용자 지정 경로" : settings-language-key == "ja" ? "カスタムパス" : "Custom path";
+    property <string> tr-browse: settings-language-key == "ko" ? "찾아보기…" : settings-language-key == "ja" ? "参照…" : "Browse…";
+    property <string> tr-after-export: settings-language-key == "ko" ? "내보낸 후" : settings-language-key == "ja" ? "エクスポート後" : "After export";
+    property <string> tr-global: settings-language-key == "ko" ? "전역" : settings-language-key == "ja" ? "全体" : "GLOBAL";
+    property <string> tr-view: settings-language-key == "ko" ? "보기" : settings-language-key == "ja" ? "表示" : "VIEW";
+    property <string> tr-focus-search: settings-language-key == "ko" ? "검색 포커스" : settings-language-key == "ja" ? "検索にフォーカス" : "Focus search";
+    property <string> tr-open-settings: settings-language-key == "ko" ? "설정 열기" : settings-language-key == "ja" ? "設定を開く" : "Open settings";
+    property <string> tr-import-folder: settings-language-key == "ko" ? "폴더 가져오기" : settings-language-key == "ja" ? "フォルダを取り込む" : "Import folder";
+    property <string> tr-grid-view: settings-language-key == "ko" ? "그리드 보기" : settings-language-key == "ja" ? "グリッド表示" : "Grid view";
+    property <string> tr-masonry-view: settings-language-key == "ko" ? "메이슨리 보기" : settings-language-key == "ja" ? "メイソンリー表示" : "Masonry view";
+    property <string> tr-list-view: settings-language-key == "ko" ? "리스트 보기" : settings-language-key == "ja" ? "リスト表示" : "List view";
+    property <string> tr-gpu-rendering: settings-language-key == "ko" ? "GPU 렌더링" : settings-language-key == "ja" ? "GPUレンダリング" : "GPU rendering";
+    property <string> tr-use-gpu-thumbnails: settings-language-key == "ko" ? "썸네일에 GPU 사용" : settings-language-key == "ja" ? "サムネイルにGPUを使用" : "Use GPU for thumbnails";
+    property <string> tr-log-level: settings-language-key == "ko" ? "로그 레벨" : settings-language-key == "ja" ? "ログレベル" : "Log level";
+    property <string> tr-cache-location: settings-language-key == "ko" ? "캐시 위치" : settings-language-key == "ja" ? "キャッシュ場所" : "Cache location";
+    property <string> tr-open-logs: settings-language-key == "ko" ? "로그 열기" : settings-language-key == "ja" ? "ログを開く" : "Open logs";
+    property <string> tr-reset-settings: settings-language-key == "ko" ? "설정 초기화" : settings-language-key == "ja" ? "設定をリセット" : "Reset settings";
+    property <string> tr-about-subtitle: settings-language-key == "ko" ? "3D 모델 라이브러리를 위한 작업실 도구" : settings-language-key == "ja" ? "3Dモデルライブラリのための工房ツール" : "A workshop tool for your 3D model library";
+    property <string> tr-version: settings-language-key == "ko" ? "버전" : settings-language-key == "ja" ? "バージョン" : "Version";
+    property <string> tr-build: settings-language-key == "ko" ? "빌드" : settings-language-key == "ja" ? "ビルド" : "Build";
+    property <string> tr-stack: settings-language-key == "ko" ? "스택" : settings-language-key == "ja" ? "スタック" : "Stack";
+    property <string> tr-updates: settings-language-key == "ko" ? "업데이트" : settings-language-key == "ja" ? "アップデート" : "Updates";
+    property <string> tr-check: settings-language-key == "ko" ? "확인" : settings-language-key == "ja" ? "確認" : "Check";
     in property <string> settings-theme-key: "dark";
     in property <string> settings-theme-label: "Dark";
     in property <string> settings-sort-key: "name";
@@ -1467,6 +1800,15 @@ export component ModelRackWindow inherits Window {
     property <bool> sidebar-context-is-folder: false;
     property <length> sidebar-context-x: 0px;
     property <length> sidebar-context-y: 0px;
+    property <bool> model-context-open: false;
+    property <int> model-context-index: -1;
+    property <string> model-context-label;
+    property <bool> model-context-favorite: false;
+    property <int> model-context-printed-count: 0;
+    property <length> model-context-x: 0px;
+    property <length> model-context-y: 0px;
+    property <length> model-context-menu-width: 214px;
+    property <length> model-context-menu-height: model-context-printed-count > 0 ? 312px : 283px;
     property <bool> slicer-menu-open: false;
     property <bool> preview-dragging: false;
     property <length> preview-last-x: 0px;
@@ -1525,6 +1867,7 @@ export component ModelRackWindow inherits Window {
     callback choose-filter(string);
     callback toggle-sidebar-folder(string);
     callback sidebar-context-action(string, string, string);
+    callback model-context-action(string, int);
     callback undo-library-action();
     callback select-model(int);
     callback add-tag-to-model(string, string) -> bool;
@@ -1799,16 +2142,25 @@ export component ModelRackWindow inherits Window {
                             reserve-leading: true;
                             expandable: folder.expandable;
                             expanded: folder.expanded;
+                            row-visible: folder.visible;
                             selected: active-filter-key == folder.key;
-                            activated => { choose-filter(folder.key); }
+                            activated => {
+                                sidebar-context-open = false;
+                                model-context-open = false;
+                                choose-filter(folder.key);
+                            }
                             toggle-requested => { toggle-sidebar-folder(folder.key); }
                             context-requested(x, y) => {
                                 sidebar-context-key = folder.key;
                                 sidebar-context-label = folder.label;
                                 sidebar-context-is-folder = true;
-                                sidebar-context-x = folder-row.absolute-position.x - root.absolute-position.x + x + 12px;
-                                sidebar-context-y = folder-row.absolute-position.y - root.absolute-position.y + y + 12px;
+                                sidebar-context-x = x + 4px;
+                                sidebar-context-y = y + 4px;
                                 sidebar-context-open = true;
+                                model-context-open = false;
+                                slicer-menu-open = false;
+                                sort-menu-open = false;
+                                preview-plate-menu-open = false;
                             }
                         }
 
@@ -1820,15 +2172,23 @@ export component ModelRackWindow inherits Window {
                             count: tag.count;
                             drop-enabled: true;
                             selected: active-filter-key == tag.key;
-                            activated => { choose-filter(tag.key); }
+                            activated => {
+                                sidebar-context-open = false;
+                                model-context-open = false;
+                                choose-filter(tag.key);
+                            }
                             model-dropped(model, tag) => { add-tag-to-model(model, tag); }
                             context-requested(x, y) => {
                                 sidebar-context-key = tag.key;
                                 sidebar-context-label = tag.label;
                                 sidebar-context-is-folder = false;
-                                sidebar-context-x = tag-row.absolute-position.x - root.absolute-position.x + x + 12px;
-                                sidebar-context-y = tag-row.absolute-position.y - root.absolute-position.y + y + 12px;
+                                sidebar-context-x = x + 4px;
+                                sidebar-context-y = y + 4px;
                                 sidebar-context-open = true;
+                                model-context-open = false;
+                                slicer-menu-open = false;
+                                sort-menu-open = false;
+                                preview-plate-menu-open = false;
                             }
                         }
                     }
@@ -1866,7 +2226,13 @@ export component ModelRackWindow inherits Window {
             }
 
             // ─── Center content ───
-            VerticalLayout {
+            center-content := Rectangle {
+                horizontal-stretch: 1;
+
+                VerticalLayout {
+                    width: parent.width;
+                    height: parent.height;
+
                 // Toolbar
                 Rectangle {
                     height: Theme.toolbar-height;
@@ -1899,43 +2265,60 @@ export component ModelRackWindow inherits Window {
                             border-color: Theme.line;
                             border-width: 1px;
                             border-radius: Theme.radius-btn;
+                            clip: true;
 
-                            HorizontalLayout {
-                                padding-left: 10px;
-                                padding-right: 8px;
-                                spacing: 6px;
-                                alignment: center;
+                            SvgIcon {
+                                x: 10px;
+                                y: (parent.height - self.height) / 2;
+                                width: 14px;
+                                height: 14px;
+                                icon: @image-url("../assets/icons/search.svg");
+                                tint: Theme.fg-2;
+                            }
 
-                                SvgIcon {
-                                    width: 14px;
-                                    height: 14px;
-                                    icon: @image-url("../assets/icons/search.svg");
-                                    tint: Theme.fg-2;
-                                }
+                            Text {
+                                x: 32px;
+                                y: 0;
+                                width: parent.width - 78px;
+                                height: parent.height;
+                                text: search-text == "" && search-field.preedit-text == "" ? settings-language-key == "ko" ? "파일명, 태그, 메모 검색…" : settings-language-key == "ja" ? "ファイル名、タグ、メモを検索…" : "Search filename, tag, notes…" : "";
+                                color: Theme.fg-2;
+                                font-size: 12px;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
 
-                                search-field := LineEdit {
-                                    horizontal-stretch: 1;
-                                    placeholder-text: settings-language-key == "ko" ? "파일명, 태그, 메모 검색…" : settings-language-key == "ja" ? "ファイル名、タグ、メモを検索…" : "Search filename, tag, notes…";
-                                    text <=> search-text;
-                                    accepted(text) => { apply-search(text); }
-                                }
+                            search-field := TextInput {
+                                x: 32px;
+                                y: 0;
+                                width: parent.width - 78px;
+                                height: parent.height;
+                                text <=> search-text;
+                                color: Theme.fg-0;
+                                font-size: 12px;
+                                vertical-alignment: center;
+                                selection-background-color: Theme.accent;
+                                selection-foreground-color: #0e2a32;
+                                accepted => { apply-search(self.text); }
+                            }
 
-                                Rectangle {
-                                    width: 31px;
-                                    height: 18px;
-                                    background: Theme.bg-2;
-                                    border-color: Theme.line-2;
-                                    border-width: 1px;
-                                    border-radius: 4px;
+                            Rectangle {
+                                x: parent.width - self.width - 8px;
+                                y: (parent.height - self.height) / 2;
+                                width: 31px;
+                                height: 18px;
+                                background: Theme.bg-2;
+                                border-color: Theme.line-2;
+                                border-width: 1px;
+                                border-radius: 4px;
 
-                                    Text {
-                                        x: (parent.width - self.width) / 2;
-                                        y: (parent.height - self.height) / 2;
-                                        text: "⌘K";
-                                        color: Theme.fg-3;
-                                        font-family: "JetBrains Mono";
-                                        font-size: 10px;
-                                    }
+                                Text {
+                                    x: (parent.width - self.width) / 2;
+                                    y: (parent.height - self.height) / 2;
+                                    text: "⌘K";
+                                    color: Theme.fg-3;
+                                    font-family: "JetBrains Mono";
+                                    font-size: 10px;
                                 }
                             }
                         }
@@ -1971,7 +2354,7 @@ export component ModelRackWindow inherits Window {
                                     x: (parent.width - 16px - self.width) / 2 + 16px;
                                     y: 0;
                                     height: parent.height;
-                                    text: "Grid";
+                                    text: tr-grid;
                                     color: view-mode-label == "Grid" ? Theme.fg-0 : Theme.fg-1;
                                     font-size: 12px;
                                     vertical-alignment: center;
@@ -2002,7 +2385,7 @@ export component ModelRackWindow inherits Window {
                                     x: (parent.width - 16px - self.width) / 2 + 16px;
                                     y: 0;
                                     height: parent.height;
-                                    text: "Masonry";
+                                    text: tr-masonry;
                                     color: view-mode-label == "Masonry" ? Theme.fg-0 : Theme.fg-1;
                                     font-size: 12px;
                                     vertical-alignment: center;
@@ -2033,7 +2416,7 @@ export component ModelRackWindow inherits Window {
                                     x: (parent.width - 16px - self.width) / 2 + 16px;
                                     y: 0;
                                     height: parent.height;
-                                    text: "List";
+                                    text: tr-list;
                                     color: view-mode-label == "List" ? Theme.fg-0 : Theme.fg-1;
                                     font-size: 12px;
                                     vertical-alignment: center;
@@ -2130,7 +2513,7 @@ export component ModelRackWindow inherits Window {
                                     x: 28px;
                                     y: 7px;
                                     width: 78px;
-                                    text: settings-sort-key == "modified" || settings-sort-key == "date" ? "Modified" : settings-sort-key == "added" ? "Added" : settings-sort-key == "format" ? "Format" : settings-sort-key == "size" ? "File size" : settings-sort-key == "triangles" ? "Triangles" : settings-sort-key == "dimensions" ? "Dimensions" : settings-sort-key == "volume" ? "Volume" : "Name";
+                                    text: settings-sort-key == "modified" || settings-sort-key == "date" ? tr-sort-modified : settings-sort-key == "added" ? tr-sort-added : settings-sort-key == "format" ? tr-format : settings-sort-key == "size" ? tr-file-size : settings-sort-key == "triangles" ? tr-triangles : settings-sort-key == "dimensions" ? tr-dimensions : settings-sort-key == "volume" ? tr-volume-est : tr-name;
                                     color: Theme.fg-1;
                                     font-size: 12px;
                                     overflow: elide;
@@ -2140,34 +2523,8 @@ export component ModelRackWindow inherits Window {
                                 Rectangle { x: 119px; y: 5px; width: 1px; height: 18px; background: Theme.line-2; }
                                 Text { x: 120px; y: 6px; width: 29px; text: settings-sort-ascending ? "↑" : "↓"; color: Theme.fg-1; font-size: 15px; horizontal-alignment: center; }
 
-                                sort-button-touch := TouchArea { x: 0; y: 0; width: 120px; height: parent.height; clicked => { sort-menu-open = !sort-menu-open; } }
+                                sort-button-touch := TouchArea { x: 0; y: 0; width: 120px; height: parent.height; clicked => { sort-menu-open = !sort-menu-open; slicer-menu-open = false; preview-plate-menu-open = false; estimate-printer-menu-open = false; model-context-open = false; sidebar-context-open = false; } }
                                 sort-dir-touch := TouchArea { x: 120px; y: 0; width: 30px; height: parent.height; clicked => { toggle-sort(); } }
-                            }
-
-                            if sort-menu-open: Rectangle {
-                                x: 0;
-                                y: 32px;
-                                width: 150px;
-                                height: 236px;
-                                background: Theme.bg-1;
-                                border-color: Theme.line-3;
-                                border-width: 1px;
-                                border-radius: 7px;
-                                clip: true;
-
-                                VerticalLayout {
-                                    padding: 4px;
-                                    spacing: 1px;
-
-                                    SettingsOptionButton { width: 140px; label: "Name"; key: "name"; selected: settings-sort-key == "name"; activated(key) => { choose-settings-sort(key); sort-menu-open = false; } }
-                                    SettingsOptionButton { width: 140px; label: "Date modified"; key: "modified"; selected: settings-sort-key == "modified" || settings-sort-key == "date"; activated(key) => { choose-settings-sort(key); sort-menu-open = false; } }
-                                    SettingsOptionButton { width: 140px; label: "Date added"; key: "added"; selected: settings-sort-key == "added"; activated(key) => { choose-settings-sort(key); sort-menu-open = false; } }
-                                    SettingsOptionButton { width: 140px; label: "Format"; key: "format"; selected: settings-sort-key == "format"; activated(key) => { choose-settings-sort(key); sort-menu-open = false; } }
-                                    SettingsOptionButton { width: 140px; label: "Triangles"; key: "triangles"; selected: settings-sort-key == "triangles"; activated(key) => { choose-settings-sort(key); sort-menu-open = false; } }
-                                    SettingsOptionButton { width: 140px; label: "Dimensions"; key: "dimensions"; selected: settings-sort-key == "dimensions"; activated(key) => { choose-settings-sort(key); sort-menu-open = false; } }
-                                    SettingsOptionButton { width: 140px; label: "Volume est."; key: "volume"; selected: settings-sort-key == "volume"; activated(key) => { choose-settings-sort(key); sort-menu-open = false; } }
-                                    SettingsOptionButton { width: 140px; label: "File size"; key: "size"; selected: settings-sort-key == "size"; activated(key) => { choose-settings-sort(key); sort-menu-open = false; } }
-                                }
                             }
                         }
 
@@ -2324,7 +2681,7 @@ export component ModelRackWindow inherits Window {
                         viewport-height: rows * card-h + max(0, rows - 1) * gap;
                         animate card-w { duration: full-layout-motion ? 260ms : 120ms; easing: ease-in-out; }
 
-                        for card[index] in model-cards: ModelCard {
+                        for card[index] in model-cards: model-card := ModelCard {
                             property <length> target-y: floor(card.slot-index / cols) * (grid-flick.card-h + grid-flick.gap);
                             x: mod(card.slot-index, cols) * (card-w + gap);
                             y: target-y;
@@ -2338,7 +2695,27 @@ export component ModelRackWindow inherits Window {
                             card: card;
                             card-index: card.slot-index;
                             selected: card.slot-index == selected-card-index;
-                            clicked(idx) => { rename-editing = false; select-model(idx); }
+                            clicked(idx) => {
+                                rename-editing = false;
+                                model-context-open = false;
+                                sidebar-context-open = false;
+                                select-model(idx);
+                            }
+                            context-requested(idx, x, y) => {
+                                rename-editing = false;
+                                select-model(idx);
+                                model-context-index = idx;
+                                model-context-label = card.title;
+                                model-context-favorite = card.favorite;
+                                model-context-printed-count = card.printed-count;
+                                model-context-x = x + 2px;
+                                model-context-y = y + 2px;
+                                model-context-open = true;
+                                sidebar-context-open = false;
+                                slicer-menu-open = false;
+                                sort-menu-open = false;
+                                preview-plate-menu-open = false;
+                            }
                         }
                     }
 
@@ -2353,7 +2730,7 @@ export component ModelRackWindow inherits Window {
 
                         viewport-height: model-cards.length * (row-h + gap);
 
-                        for card[index] in model-cards: ModelListRow {
+                        for card[index] in model-cards: model-row := ModelListRow {
                             x: 0;
                             y: card.slot-index * (list-flick.row-h + list-flick.gap);
                             width: list-flick.width;
@@ -2361,7 +2738,27 @@ export component ModelRackWindow inherits Window {
                             card: card;
                             card-index: card.slot-index;
                             selected: card.slot-index == selected-card-index;
-                            clicked(idx) => { rename-editing = false; select-model(idx); }
+                            clicked(idx) => {
+                                rename-editing = false;
+                                model-context-open = false;
+                                sidebar-context-open = false;
+                                select-model(idx);
+                            }
+                            context-requested(idx, x, y) => {
+                                rename-editing = false;
+                                select-model(idx);
+                                model-context-index = idx;
+                                model-context-label = card.title;
+                                model-context-favorite = card.favorite;
+                                model-context-printed-count = card.printed-count;
+                                model-context-x = x + 2px;
+                                model-context-y = y + 2px;
+                                model-context-open = true;
+                                sidebar-context-open = false;
+                                slicer-menu-open = false;
+                                sort-menu-open = false;
+                                preview-plate-menu-open = false;
+                            }
                         }
                     }
                 }
@@ -2433,6 +2830,34 @@ export component ModelRackWindow inherits Window {
                             font-family: "JetBrains Mono";
                             font-size: Theme.font-overline;
                         }
+                    }
+                }
+                }
+
+                if sort-menu-open: Rectangle {
+                    x: 555px;
+                    y: 40px;
+                    width: 150px;
+                    height: 236px;
+                    z: 400;
+                    background: Theme.bg-1;
+                    border-color: Theme.line-3;
+                    border-width: 1px;
+                    border-radius: 7px;
+                    clip: true;
+
+                    VerticalLayout {
+                        padding: 4px;
+                        spacing: 1px;
+
+                        SettingsOptionButton { width: 140px; label: tr-name; key: "name"; selected: settings-sort-key == "name"; activated(key) => { choose-settings-sort(key); sort-menu-open = false; } }
+                        SettingsOptionButton { width: 140px; label: tr-sort-modified; key: "modified"; selected: settings-sort-key == "modified" || settings-sort-key == "date"; activated(key) => { choose-settings-sort(key); sort-menu-open = false; } }
+                        SettingsOptionButton { width: 140px; label: tr-sort-added; key: "added"; selected: settings-sort-key == "added"; activated(key) => { choose-settings-sort(key); sort-menu-open = false; } }
+                        SettingsOptionButton { width: 140px; label: tr-format; key: "format"; selected: settings-sort-key == "format"; activated(key) => { choose-settings-sort(key); sort-menu-open = false; } }
+                        SettingsOptionButton { width: 140px; label: tr-triangles; key: "triangles"; selected: settings-sort-key == "triangles"; activated(key) => { choose-settings-sort(key); sort-menu-open = false; } }
+                        SettingsOptionButton { width: 140px; label: tr-dimensions; key: "dimensions"; selected: settings-sort-key == "dimensions"; activated(key) => { choose-settings-sort(key); sort-menu-open = false; } }
+                        SettingsOptionButton { width: 140px; label: tr-volume-est; key: "volume"; selected: settings-sort-key == "volume"; activated(key) => { choose-settings-sort(key); sort-menu-open = false; } }
+                        SettingsOptionButton { width: 140px; label: tr-file-size; key: "size"; selected: settings-sort-key == "size"; activated(key) => { choose-settings-sort(key); sort-menu-open = false; } }
                     }
                 }
             }
@@ -2594,8 +3019,8 @@ export component ModelRackWindow inherits Window {
 
                             Rectangle {
                                 width: 24px; height: 24px;
-                                background: reset-preview.has-hover ? #000000cc : #00000080;
-                                border-color: Theme.line;
+                                background: reset-preview.has-hover ? Theme.bg-3 : Theme.bg-2;
+                                border-color: Theme.line-2;
                                 border-width: 1px;
                                 border-radius: 4px;
                                 SvgIcon { x: (parent.width - 13px) / 2; y: (parent.height - 13px) / 2; width: 13px; height: 13px; icon: @image-url("../assets/icons/rotate.svg"); tint: Theme.fg-1; }
@@ -2607,8 +3032,8 @@ export component ModelRackWindow inherits Window {
                             }
                             Rectangle {
                                 width: 24px; height: 24px;
-                                background: fullscreen-preview.has-hover ? #000000cc : #00000080;
-                                border-color: Theme.line;
+                                background: fullscreen-preview.has-hover ? Theme.bg-3 : Theme.bg-2;
+                                border-color: Theme.line-2;
                                 border-width: 1px;
                                 border-radius: 4px;
                                 SvgIcon { x: (parent.width - 13px) / 2; y: (parent.height - 13px) / 2; width: 13px; height: 13px; icon: @image-url("../assets/icons/fullscreen.svg"); tint: Theme.fg-1; }
@@ -2628,19 +3053,25 @@ export component ModelRackWindow inherits Window {
 
                             Rectangle {
                                 width: 18px; height: 16px;
-                                background: #00000080;
+                                background: Theme.bg-2;
+                                border-color: Theme.line-2;
+                                border-width: 1px;
                                 border-radius: 2px;
                                 Text { x: 5px; y: 2px; text: "X"; color: #c95040; font-family: "JetBrains Mono"; font-size: 10px; }
                             }
                             Rectangle {
                                 width: 18px; height: 16px;
-                                background: #00000080;
+                                background: Theme.bg-2;
+                                border-color: Theme.line-2;
+                                border-width: 1px;
                                 border-radius: 2px;
                                 Text { x: 5px; y: 2px; text: "Y"; color: #5fb87a; font-family: "JetBrains Mono"; font-size: 10px; }
                             }
                             Rectangle {
                                 width: 18px; height: 16px;
-                                background: #00000080;
+                                background: Theme.bg-2;
+                                border-color: Theme.line-2;
+                                border-width: 1px;
                                 border-radius: 2px;
                                 Text { x: 5px; y: 2px; text: "Z"; color: #5fb8d4; font-family: "JetBrains Mono"; font-size: 10px; }
                             }
@@ -3116,7 +3547,7 @@ export component ModelRackWindow inherits Window {
                             Rectangle {
                                 height: 30px;
 
-                                add-tag-edit := LineEdit {
+                                add-tag-edit := ThemedLineEdit {
                                     x: 0;
                                     y: 0;
                                     width: parent.width - 58px;
@@ -3157,7 +3588,7 @@ export component ModelRackWindow inherits Window {
                                 }
                             }
 
-                            tags-edit := LineEdit {
+                            tags-edit := ThemedLineEdit {
                                 height: 30px;
                                 text: detail-tags-input;
                                 placeholder-text: tr-bulk-edit-placeholder;
@@ -3332,7 +3763,7 @@ export component ModelRackWindow inherits Window {
                             Rectangle {
                                 height: 94px;
 
-                                material-edit := LineEdit {
+                                material-edit := ThemedLineEdit {
                                     x: 0;
                                     y: 0;
                                     width: 82px;
@@ -3341,7 +3772,7 @@ export component ModelRackWindow inherits Window {
                                     font-size: 12px;
                                 }
 
-                                printer-edit := LineEdit {
+                                printer-edit := ThemedLineEdit {
                                     x: 90px;
                                     y: 0;
                                     width: parent.width - 150px;
@@ -3383,7 +3814,7 @@ export component ModelRackWindow inherits Window {
                                     }
                                 }
 
-                                profile-edit := LineEdit {
+                                profile-edit := ThemedLineEdit {
                                     x: 0;
                                     y: 32px;
                                     width: parent.width - 186px;
@@ -3392,7 +3823,7 @@ export component ModelRackWindow inherits Window {
                                     font-size: 12px;
                                 }
 
-                                nozzle-edit := LineEdit {
+                                nozzle-edit := ThemedLineEdit {
                                     x: parent.width - 178px;
                                     y: 32px;
                                     width: 54px;
@@ -3401,7 +3832,7 @@ export component ModelRackWindow inherits Window {
                                     font-size: 12px;
                                 }
 
-                                layer-edit := LineEdit {
+                                layer-edit := ThemedLineEdit {
                                     x: parent.width - 116px;
                                     y: 32px;
                                     width: 54px;
@@ -3410,7 +3841,7 @@ export component ModelRackWindow inherits Window {
                                     font-size: 12px;
                                 }
 
-                                duration-edit := LineEdit {
+                                duration-edit := ThemedLineEdit {
                                     x: parent.width - 54px;
                                     y: 32px;
                                     width: 54px;
@@ -3419,7 +3850,7 @@ export component ModelRackWindow inherits Window {
                                     font-size: 12px;
                                 }
 
-                                print-note-edit := LineEdit {
+                                print-note-edit := ThemedLineEdit {
                                     x: 0;
                                     y: 64px;
                                     width: parent.width;
@@ -3430,7 +3861,7 @@ export component ModelRackWindow inherits Window {
                             }
 
                             SectionHeader { label: tr-notes-heading; }
-                            notes-edit := TextEdit {
+                            notes-edit := ThemedTextEdit {
                                 height: 72px;
                                 text: detail-notes == "Add notes..." ? "" : detail-notes;
                                 placeholder-text: tr-add-notes;
@@ -3439,7 +3870,7 @@ export component ModelRackWindow inherits Window {
                             }
 
                             SectionHeader { label: tr-author-heading; }
-                            author-edit := LineEdit {
+                            author-edit := ThemedLineEdit {
                                 height: 30px;
                                 text: detail-author;
                                 placeholder-text: tr-author-or-source;
@@ -3578,7 +4009,7 @@ export component ModelRackWindow inherits Window {
         if preview-fullscreen-open: Text {
             x: parent.width - self.width - 68px;
             y: parent.height - 30px;
-            text: "drag to orbit · double-click to reset";
+            text: tr-fullscreen-orbit-hint;
             color: Theme.fg-3;
             font-family: "JetBrains Mono";
             font-size: 11px;
@@ -3611,27 +4042,6 @@ export component ModelRackWindow inherits Window {
         }
     }
 
-    if sidebar-context-open: TouchArea {
-        x: 0;
-        y: 0;
-        width: parent.width;
-        height: Theme.titlebar-height;
-        clicked => { sidebar-context-open = false; }
-    }
-
-    if sidebar-context-open: TouchArea {
-        x: visible-left-sidebar-width;
-        y: Theme.titlebar-height;
-        width: parent.width - visible-left-sidebar-width;
-        height: parent.height - Theme.titlebar-height;
-        clicked => { sidebar-context-open = false; }
-        pointer-event(event) => {
-            if (event.kind == PointerEventKind.down) {
-                sidebar-context-open = false;
-            }
-        }
-    }
-
     if sidebar-context-open: SidebarContextMenu {
         x: sidebar-context-x + self.width > parent.width - 8px ? parent.width - self.width - 8px : sidebar-context-x;
         y: sidebar-context-y + self.height > parent.height - 8px ? parent.height - self.height - 8px : sidebar-context-y;
@@ -3649,6 +4059,42 @@ export component ModelRackWindow inherits Window {
             shortcut-scope.focus();
             sidebar-context-open = false;
             sidebar-context-action(action, sidebar-context-key, sidebar-context-label);
+        }
+    }
+
+    if model-context-open: ModelContextMenu {
+        z: 520;
+        menu-width: model-context-menu-width;
+        menu-height: model-context-menu-height;
+        x: min(parent.width - model-context-menu-width - 8px, max(8px, model-context-x));
+        y: min(parent.height - model-context-menu-height - 8px, max(Theme.titlebar-height + 8px, model-context-y));
+        target-label: model-context-label;
+        favorite: model-context-favorite;
+        printed-count: model-context-printed-count;
+        rename-label: tr-rename-model;
+        open-label: tr-open-in-slicer;
+        reveal-label: tr-reveal-in-finder;
+        details-label: tr-show-details;
+        add-favorite-label: tr-add-favorite;
+        remove-favorite-label: tr-remove-favorite;
+        add-print-label: tr-add-print-count;
+        remove-print-label: tr-remove-print-count;
+        copy-name-label: tr-copy-file-name;
+        copy-path-label: tr-copy-file-path;
+        action(action) => {
+            shortcut-scope.focus();
+            model-context-open = false;
+            rename-editing = false;
+            select-model(model-context-index);
+            if action == "rename" {
+                right-detail-open = true;
+                rename-draft = detail-name;
+                rename-editing = true;
+            } else if action == "details" {
+                right-detail-open = true;
+            } else {
+                model-context-action(action, model-context-index);
+            }
         }
     }
 
@@ -3754,15 +4200,15 @@ export component ModelRackWindow inherits Window {
 
                     Rectangle { height: 6px; }
 
-                    SettingsTabButton { icon: @image-url("../assets/icons/sparkle.svg"); label: settings-language-key == "ko" ? "일반" : settings-language-key == "ja" ? "一般" : "General"; key: "general"; selected: settings-tab == "general"; activated(tab) => { choose-settings-tab(tab); } }
-                    SettingsTabButton { icon: @image-url("../assets/icons/sun.svg"); label: settings-language-key == "ko" ? "모양" : settings-language-key == "ja" ? "外観" : "Appearance"; key: "appearance"; selected: settings-tab == "appearance"; activated(tab) => { choose-settings-tab(tab); } }
-                    SettingsTabButton { icon: @image-url("../assets/icons/folder.svg"); label: settings-language-key == "ko" ? "라이브러리" : settings-language-key == "ja" ? "ライブラリ" : "Library"; key: "library"; selected: settings-tab == "library"; activated(tab) => { choose-settings-tab(tab); } }
-                    SettingsTabButton { icon: @image-url("../assets/icons/box.svg"); label: settings-language-key == "ko" ? "썸네일" : settings-language-key == "ja" ? "サムネイル" : "Thumbnails"; key: "thumbnails"; selected: settings-tab == "thumbnails"; activated(tab) => { choose-settings-tab(tab); } }
-                    SettingsTabButton { icon: @image-url("../assets/icons/print.svg"); label: settings-language-key == "ko" ? "프린터" : settings-language-key == "ja" ? "プリンタ" : "Printers"; key: "printers"; selected: settings-tab == "printers"; activated(tab) => { choose-settings-tab(tab); } }
-                    SettingsTabButton { icon: @image-url("../assets/icons/slicer.svg"); label: settings-language-key == "ko" ? "슬라이서" : settings-language-key == "ja" ? "スライサー" : "Slicer"; key: "slicer"; selected: settings-tab == "slicer"; activated(tab) => { choose-settings-tab(tab); } }
-                    SettingsTabButton { icon: @image-url("../assets/icons/cmd.svg"); label: settings-language-key == "ko" ? "단축키" : settings-language-key == "ja" ? "ショートカット" : "Hotkeys"; key: "hotkeys"; selected: settings-tab == "hotkeys"; activated(tab) => { choose-settings-tab(tab); } }
-                    SettingsTabButton { icon: @image-url("../assets/icons/sparkle.svg"); label: settings-language-key == "ko" ? "고급" : settings-language-key == "ja" ? "詳細" : "Advanced"; key: "advanced"; selected: settings-tab == "advanced"; activated(tab) => { choose-settings-tab(tab); } }
-                    SettingsTabButton { icon: @image-url("../assets/icons/info.svg"); label: settings-language-key == "ko" ? "정보" : settings-language-key == "ja" ? "情報" : "About"; key: "about"; selected: settings-tab == "about"; activated(tab) => { choose-settings-tab(tab); } }
+                    SettingsTabButton { icon: @image-url("../assets/icons/sparkle.svg"); label: tr-settings-general; key: "general"; selected: settings-tab == "general"; activated(tab) => { choose-settings-tab(tab); } }
+                    SettingsTabButton { icon: @image-url("../assets/icons/sun.svg"); label: tr-settings-appearance; key: "appearance"; selected: settings-tab == "appearance"; activated(tab) => { choose-settings-tab(tab); } }
+                    SettingsTabButton { icon: @image-url("../assets/icons/folder.svg"); label: tr-settings-library; key: "library"; selected: settings-tab == "library"; activated(tab) => { choose-settings-tab(tab); } }
+                    SettingsTabButton { icon: @image-url("../assets/icons/box.svg"); label: tr-settings-thumbnails; key: "thumbnails"; selected: settings-tab == "thumbnails"; activated(tab) => { choose-settings-tab(tab); } }
+                    SettingsTabButton { icon: @image-url("../assets/icons/print.svg"); label: tr-settings-printers; key: "printers"; selected: settings-tab == "printers"; activated(tab) => { choose-settings-tab(tab); } }
+                    SettingsTabButton { icon: @image-url("../assets/icons/slicer.svg"); label: tr-settings-slicer; key: "slicer"; selected: settings-tab == "slicer"; activated(tab) => { choose-settings-tab(tab); } }
+                    SettingsTabButton { icon: @image-url("../assets/icons/cmd.svg"); label: tr-settings-hotkeys; key: "hotkeys"; selected: settings-tab == "hotkeys"; activated(tab) => { choose-settings-tab(tab); } }
+                    SettingsTabButton { icon: @image-url("../assets/icons/sparkle.svg"); label: tr-settings-advanced; key: "advanced"; selected: settings-tab == "advanced"; activated(tab) => { choose-settings-tab(tab); } }
+                    SettingsTabButton { icon: @image-url("../assets/icons/info.svg"); label: tr-settings-about; key: "about"; selected: settings-tab == "about"; activated(tab) => { choose-settings-tab(tab); } }
                 }
             }
 
@@ -3790,14 +4236,7 @@ export component ModelRackWindow inherits Window {
                     Text {
                         x: 18px;
                         y: (parent.height - self.height) / 2;
-                        text: settings-tab == "general" ? "General" :
-                              settings-tab == "appearance" ? "Appearance" :
-                              settings-tab == "library" ? "Library" :
-                              settings-tab == "thumbnails" ? "Thumbnails" :
-                              settings-tab == "printers" ? "Printers" :
-                              settings-tab == "slicer" ? "Slicer" :
-                              settings-tab == "hotkeys" ? "Hotkeys" :
-                              settings-tab == "advanced" ? "Advanced" : "About";
+                        text: tr-settings-title;
                         color: Theme.fg-0;
                         font-size: Theme.font-heading;
                         font-weight: 600;
@@ -3848,132 +4287,132 @@ export component ModelRackWindow inherits Window {
                         if settings-tab == "general": Rectangle {
                             height: 54px;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
-                            Text { x: 0; y: 18px; width: 180px; text: "Language"; color: Theme.fg-1; font-size: Theme.font-body; }
-                            SettingsSegment { x: 196px; y: 12px; button-width: 74px; a-label: "English"; a-key: "en"; b-label: "한국어"; b-key: "ko"; c-label: "日本語"; c-key: "ja"; selected-key: settings-language-key; activated(key) => { choose-settings-language(key); } }
+                            Text { x: 0; y: 18px; width: 180px; text: tr-language; color: Theme.fg-1; font-size: Theme.font-body; }
+                            SettingsSegment { x: 196px; y: 12px; button-width: 74px; a-label: tr-english; a-key: "en"; b-label: "한국어"; b-key: "ko"; c-label: "日本語"; c-key: "ja"; selected-key: settings-language-key; activated(key) => { choose-settings-language(key); } }
                         }
                         if settings-tab == "general": Rectangle {
                             height: 58px;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
-                            Text { x: 0; y: 13px; width: 180px; text: "On startup"; color: Theme.fg-1; font-size: Theme.font-body; }
-                            Text { x: 0; y: 31px; width: 180px; text: "What to show when ModelRack opens"; color: Theme.fg-3; font-size: Theme.font-meta; overflow: elide; }
-                            SettingsSegment { x: 196px; y: 14px; button-width: 104px; a-label: "Last library"; a-key: "last"; b-label: "Empty state"; b-key: "empty"; selected-key: "last"; activated(key) => { } }
+                            Text { x: 0; y: 13px; width: 180px; text: tr-on-startup; color: Theme.fg-1; font-size: Theme.font-body; }
+                            Text { x: 0; y: 31px; width: 180px; text: tr-startup-hint; color: Theme.fg-3; font-size: Theme.font-meta; overflow: elide; }
+                            SettingsSegment { x: 196px; y: 14px; button-width: 104px; a-label: tr-last-library; a-key: "last"; b-label: tr-empty-state; b-key: "empty"; selected-key: "last"; activated(key) => { } }
                         }
                         if settings-tab == "general": Rectangle {
                             height: 54px;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
-                            Text { x: 0; y: 18px; width: 180px; text: "Default view"; color: Theme.fg-1; font-size: Theme.font-body; }
-                            SettingsSegment { x: 196px; y: 12px; button-width: 78px; a-label: "Grid"; a-key: "grid"; b-label: "Masonry"; b-key: "masonry"; c-label: "List"; c-key: "list"; selected-key: view-mode-label == "Grid" ? "grid" : view-mode-label == "Masonry" ? "masonry" : "list"; activated(key) => { choose-view-mode(key); } }
+                            Text { x: 0; y: 18px; width: 180px; text: tr-default-view; color: Theme.fg-1; font-size: Theme.font-body; }
+                            SettingsSegment { x: 196px; y: 12px; button-width: 78px; a-label: tr-grid; a-key: "grid"; b-label: tr-masonry; b-key: "masonry"; c-label: tr-list; c-key: "list"; selected-key: view-mode-label == "Grid" ? "grid" : view-mode-label == "Masonry" ? "masonry" : "list"; activated(key) => { choose-view-mode(key); } }
                         }
                         if settings-tab == "general": Rectangle {
                             height: 54px;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
-                            Text { x: 0; y: 18px; width: 180px; text: "Default sort"; color: Theme.fg-1; font-size: Theme.font-body; }
-                            SettingsSegment { x: 196px; y: 12px; button-width: 88px; a-label: "Name"; a-key: "name"; b-label: "Modified"; b-key: "modified"; c-label: "Added"; c-key: "added"; d-label: "Triangles"; d-key: "triangles"; selected-key: settings-sort-key; activated(key) => { choose-settings-sort(key); } }
+                            Text { x: 0; y: 18px; width: 180px; text: tr-default-sort; color: Theme.fg-1; font-size: Theme.font-body; }
+                            SettingsSegment { x: 196px; y: 12px; button-width: 88px; a-label: tr-name; a-key: "name"; b-label: tr-sort-modified; b-key: "modified"; c-label: tr-sort-added; c-key: "added"; d-label: tr-triangles; d-key: "triangles"; selected-key: settings-sort-key; activated(key) => { choose-settings-sort(key); } }
                         }
                         if settings-tab == "general": Rectangle {
                             height: 54px;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
-                            Text { x: 0; y: 18px; width: 180px; text: "Date format"; color: Theme.fg-1; font-size: Theme.font-body; }
-                            SettingsSegment { x: 196px; y: 12px; button-width: 92px; a-label: "Auto"; a-key: "auto"; b-label: "2026-05-08"; b-key: "iso"; c-label: "May 8, 2026"; c-key: "us"; selected-key: "auto"; activated(key) => { } }
+                            Text { x: 0; y: 18px; width: 180px; text: tr-date-format; color: Theme.fg-1; font-size: Theme.font-body; }
+                            SettingsSegment { x: 196px; y: 12px; button-width: 92px; a-label: tr-auto; a-key: "auto"; b-label: "2026-05-08"; b-key: "iso"; c-label: tr-us-date-example; c-key: "us"; selected-key: "auto"; activated(key) => { } }
                         }
                         if settings-tab == "general": Rectangle {
                             height: 54px;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
-                            Text { x: 0; y: 18px; width: 180px; text: "Show file extensions"; color: Theme.fg-1; font-size: Theme.font-body; }
+                            Text { x: 0; y: 18px; width: 180px; text: tr-show-file-extensions; color: Theme.fg-1; font-size: Theme.font-body; }
                             SettingsToggle { x: 196px; y: 17px; on: true; interactive: false; }
                         }
 
                         if settings-tab == "appearance": Rectangle {
                             height: 54px;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
-                            Text { x: 0; y: 18px; width: 180px; text: "Theme"; color: Theme.fg-1; font-size: Theme.font-body; }
-                            SettingsSegment { x: 196px; y: 12px; button-width: 82px; a-label: "Dark"; a-key: "dark"; b-label: "Light"; b-key: "light"; selected-key: settings-theme-key; activated(key) => { choose-settings-theme(key); } }
+                            Text { x: 0; y: 18px; width: 180px; text: tr-theme; color: Theme.fg-1; font-size: Theme.font-body; }
+                            SettingsSegment { x: 196px; y: 12px; button-width: 82px; a-label: tr-dark; a-key: "dark"; b-label: tr-light; b-key: "light"; selected-key: settings-theme-key; activated(key) => { choose-settings-theme(key); } }
                         }
                         if settings-tab == "appearance": Rectangle {
                             height: 54px;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
-                            Text { x: 0; y: 18px; width: 180px; text: "Accent color"; color: Theme.fg-1; font-size: Theme.font-body; }
+                            Text { x: 0; y: 18px; width: 180px; text: tr-accent-color; color: Theme.fg-1; font-size: Theme.font-body; }
                             HorizontalLayout { x: 196px; y: 14px; width: 160px; height: 26px; spacing: 8px; SettingsSwatch { fill: Theme.accent; selected: true; } SettingsSwatch { fill: #a779d9; } SettingsSwatch { fill: #d99057; } SettingsSwatch { fill: #5fb87a; } }
                         }
                         if settings-tab == "appearance": Rectangle {
                             height: 54px;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
-                            Text { x: 0; y: 18px; width: 180px; text: "Density"; color: Theme.fg-1; font-size: Theme.font-body; }
-                            SettingsSegment { x: 196px; y: 12px; button-width: 92px; a-label: "Small"; a-key: "small"; b-label: "Medium"; b-key: "medium"; c-label: "Large"; c-key: "large"; selected-key: settings-density-label; activated(key) => { choose-density(key); } }
+                            Text { x: 0; y: 18px; width: 180px; text: tr-density; color: Theme.fg-1; font-size: Theme.font-body; }
+                            SettingsSegment { x: 196px; y: 12px; button-width: 92px; a-label: tr-small; a-key: "small"; b-label: tr-medium; b-key: "medium"; c-label: tr-large; c-key: "large"; selected-key: settings-density-label; activated(key) => { choose-density(key); } }
                         }
                         if settings-tab == "appearance": Rectangle {
                             height: 58px;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
-                            Text { x: 0; y: 13px; width: 180px; text: "Card label"; color: Theme.fg-1; font-size: Theme.font-body; }
-                            Text { x: 0; y: 31px; width: 180px; text: "How model names appear"; color: Theme.fg-3; font-size: Theme.font-meta; overflow: elide; }
-                            SettingsSegment { x: 196px; y: 14px; button-width: 92px; a-label: "Filename"; a-key: "filename"; b-label: "Title-cased"; b-key: "titled"; selected-key: "filename"; activated(key) => { } }
+                            Text { x: 0; y: 13px; width: 180px; text: tr-card-label; color: Theme.fg-1; font-size: Theme.font-body; }
+                            Text { x: 0; y: 31px; width: 180px; text: tr-card-label-hint; color: Theme.fg-3; font-size: Theme.font-meta; overflow: elide; }
+                            SettingsSegment { x: 196px; y: 14px; button-width: 92px; a-label: tr-filename; a-key: "filename"; b-label: tr-title-cased; b-key: "titled"; selected-key: "filename"; activated(key) => { } }
                         }
 
                         if settings-tab == "library": Rectangle {
                             height: 78px;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
-                            Text { x: 0; y: 14px; width: 180px; text: "Library folders"; color: Theme.fg-1; font-size: Theme.font-body; }
-                            Rectangle { x: 196px; y: 11px; width: parent.width - 196px; height: 28px; background: Theme.bg-2; border-color: Theme.line; border-width: 1px; border-radius: 5px; SvgIcon { x: 9px; y: 8px; width: 12px; height: 12px; icon: @image-url("../assets/icons/folder.svg"); tint: Theme.fg-2; } Text { x: 29px; y: 7px; width: parent.width - 86px; text: settings-folder-label; color: Theme.fg-0; font-family: "JetBrains Mono"; font-size: 12px; overflow: elide; } Text { x: parent.width - 48px; y: 7px; text: "active"; color: Theme.fg-2; font-size: Theme.font-overline; } }
-                            SettingsActionButton { x: 196px; y: 45px; button-width: 110px; label: "Add Folder"; icon: @image-url("../assets/icons/plus.svg"); activated => { open-folder(); } }
+                            Text { x: 0; y: 14px; width: 180px; text: tr-library-folders; color: Theme.fg-1; font-size: Theme.font-body; }
+                            Rectangle { x: 196px; y: 11px; width: parent.width - 196px; height: 28px; background: Theme.bg-2; border-color: Theme.line; border-width: 1px; border-radius: 5px; SvgIcon { x: 9px; y: 8px; width: 12px; height: 12px; icon: @image-url("../assets/icons/folder.svg"); tint: Theme.fg-2; } Text { x: 29px; y: 7px; width: parent.width - 86px; text: settings-folder-label; color: Theme.fg-0; font-family: "JetBrains Mono"; font-size: 12px; overflow: elide; } Text { x: parent.width - 48px; y: 7px; text: tr-active; color: Theme.fg-2; font-size: Theme.font-overline; } }
+                            SettingsActionButton { x: 196px; y: 45px; button-width: 110px; label: tr-add-folder; icon: @image-url("../assets/icons/plus.svg"); activated => { open-folder(); } }
                         }
                         if settings-tab == "library": Rectangle {
                             height: 54px;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
-                            Text { x: 0; y: 18px; width: 180px; text: "File types"; color: Theme.fg-1; font-size: Theme.font-body; }
+                            Text { x: 0; y: 18px; width: 180px; text: tr-file-types; color: Theme.fg-1; font-size: Theme.font-body; }
                             HorizontalLayout { x: 196px; y: 16px; spacing: 14px; Text { text: "✓ STL"; color: Theme.fg-1; font-size: 12px; } Text { text: "✓ 3MF"; color: Theme.fg-1; font-size: 12px; } Text { text: "✓ STEP"; color: Theme.fg-1; font-size: 12px; } Text { text: "✓ OBJ"; color: Theme.fg-1; font-size: 12px; } }
                         }
                         if settings-tab == "library": Rectangle {
                             height: 58px;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
-                            Text { x: 0; y: 13px; width: 180px; text: "Watch for changes"; color: Theme.fg-1; font-size: Theme.font-body; }
-                            Text { x: 0; y: 31px; width: 180px; text: "Re-scan when files change"; color: Theme.fg-3; font-size: Theme.font-meta; }
+                            Text { x: 0; y: 13px; width: 180px; text: tr-watch-for-changes; color: Theme.fg-1; font-size: Theme.font-body; }
+                            Text { x: 0; y: 31px; width: 180px; text: tr-rescan-on-change; color: Theme.fg-3; font-size: Theme.font-meta; }
                             SettingsToggle { x: 196px; y: 19px; on: true; interactive: false; }
                         }
-                        if settings-tab == "library": SettingsRow { label: "Metadata storage"; hint: "Where tags, notes and history are saved"; value: ".modelrack.json"; }
+                        if settings-tab == "library": SettingsRow { label: tr-metadata-storage; hint: tr-metadata-storage-hint; value: ".modelrack.json"; }
 
                         if settings-tab == "thumbnails": Rectangle {
                             height: 54px;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
-                            Text { x: 0; y: 18px; width: 180px; text: "Thumbnail style"; color: Theme.fg-1; font-size: Theme.font-body; }
-                            SettingsSegment { x: 196px; y: 12px; button-width: 94px; a-label: "Isometric"; a-key: "iso"; b-label: "Wireframe"; b-key: "wire"; c-label: "Normal map"; c-key: "normal"; selected-key: settings-thumbnail-style; activated(key) => { choose-settings-thumbnail-style(key); } }
+                            Text { x: 0; y: 18px; width: 180px; text: tr-thumbnail-style; color: Theme.fg-1; font-size: Theme.font-body; }
+                            SettingsSegment { x: 196px; y: 12px; button-width: 94px; a-label: tr-isometric; a-key: "iso"; b-label: tr-wireframe; b-key: "wire"; c-label: tr-normal-map; c-key: "normal"; selected-key: settings-thumbnail-style; activated(key) => { choose-settings-thumbnail-style(key); } }
                         }
                         if settings-tab == "thumbnails": Rectangle {
                             height: 54px;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
-                            Text { x: 0; y: 18px; width: 180px; text: "Lighting"; color: Theme.fg-1; font-size: Theme.font-body; }
-                            SettingsSegment { x: 196px; y: 12px; button-width: 74px; a-label: "Studio"; a-key: "studio"; b-label: "Even"; b-key: "even"; c-label: "Rim"; c-key: "rim"; selected-key: settings-thumbnail-lighting; activated(key) => { choose-settings-thumbnail-lighting(key); } }
+                            Text { x: 0; y: 18px; width: 180px; text: tr-lighting; color: Theme.fg-1; font-size: Theme.font-body; }
+                            SettingsSegment { x: 196px; y: 12px; button-width: 74px; a-label: tr-studio; a-key: "studio"; b-label: tr-even; b-key: "even"; c-label: tr-rim; c-key: "rim"; selected-key: settings-thumbnail-lighting; activated(key) => { choose-settings-thumbnail-lighting(key); } }
                         }
                         if settings-tab == "thumbnails": Rectangle {
                             height: 54px;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
-                            Text { x: 0; y: 18px; width: 180px; text: "Render density"; color: Theme.fg-1; font-size: Theme.font-body; }
-                            SettingsSegment { x: 196px; y: 12px; button-width: 92px; a-label: "Small"; a-key: "small"; b-label: "Medium"; b-key: "medium"; c-label: "Large"; c-key: "large"; selected-key: settings-density-label; activated(key) => { choose-density(key); } }
+                            Text { x: 0; y: 18px; width: 180px; text: tr-render-density; color: Theme.fg-1; font-size: Theme.font-body; }
+                            SettingsSegment { x: 196px; y: 12px; button-width: 92px; a-label: tr-small; a-key: "small"; b-label: tr-medium; b-key: "medium"; c-label: tr-large; c-key: "large"; selected-key: settings-density-label; activated(key) => { choose-density(key); } }
                         }
                         if settings-tab == "thumbnails": Rectangle {
                             height: 54px;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
-                            Text { x: 0; y: 18px; width: 180px; text: "Anti-aliasing"; color: Theme.fg-1; font-size: Theme.font-body; }
-                            SettingsSegment { x: 196px; y: 12px; button-width: 72px; a-label: "Off"; a-key: "off"; b-label: "2×"; b-key: "msaa2x"; c-label: "4×"; c-key: "msaa4x"; d-label: "8×"; d-key: "msaa8x"; selected-key: settings-thumbnail-aa; activated(key) => { choose-settings-thumbnail-aa(key); } }
+                            Text { x: 0; y: 18px; width: 180px; text: tr-anti-aliasing; color: Theme.fg-1; font-size: Theme.font-body; }
+                            SettingsSegment { x: 196px; y: 12px; button-width: 72px; a-label: tr-off; a-key: "off"; b-label: "2×"; b-key: "msaa2x"; c-label: "4×"; c-key: "msaa4x"; d-label: "8×"; d-key: "msaa8x"; selected-key: settings-thumbnail-aa; activated(key) => { choose-settings-thumbnail-aa(key); } }
                         }
                         if settings-tab == "thumbnails": Rectangle {
                             height: 64px;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
-                            Text { x: 0; y: 16px; width: 180px; text: "Cache usage"; color: Theme.fg-1; font-size: Theme.font-body; }
+                            Text { x: 0; y: 16px; width: 180px; text: tr-cache-usage; color: Theme.fg-1; font-size: Theme.font-body; }
                             Rectangle { x: 196px; y: 18px; width: 320px; height: 8px; background: Theme.bg-3; border-color: Theme.line; border-width: 1px; border-radius: 4px; Rectangle { x: 0; y: 0; width: 185px; height: parent.height; background: Theme.accent; border-radius: 4px; } }
-                            Text { x: 196px; y: 34px; text: "thumbnail cache · renderer v9"; color: Theme.fg-2; font-size: 11px; }
+                            Text { x: 196px; y: 34px; text: tr-thumbnail-cache-renderer; color: Theme.fg-2; font-size: 11px; }
                         }
                         if settings-tab == "thumbnails": Rectangle {
                             height: 48px;
-                            HorizontalLayout { x: 196px; y: 10px; spacing: 8px; SettingsActionButton { button-width: 170px; label: "Regenerate thumbnails"; icon: @image-url("../assets/icons/refresh.svg"); activated => { } } SettingsActionButton { button-width: 108px; label: "Clear cache"; icon: @image-url("../assets/icons/close.svg"); activated => { } } }
+                            HorizontalLayout { x: 196px; y: 10px; spacing: 8px; SettingsActionButton { button-width: 170px; label: tr-regenerate-thumbnails; icon: @image-url("../assets/icons/refresh.svg"); activated => { } } SettingsActionButton { button-width: 108px; label: tr-clear-cache; icon: @image-url("../assets/icons/close.svg"); activated => { } } }
                         }
 
-                        if settings-tab == "printers": SettingsRow { label: "Enabled profiles"; value: settings-printer-summary; }
-                        if settings-tab == "printers": SettingsRow { label: "Default estimate"; value: settings-default-printer-label; }
+                        if settings-tab == "printers": SettingsRow { label: tr-enabled-profiles; value: settings-printer-summary; }
+                        if settings-tab == "printers": SettingsRow { label: tr-default-estimate; value: settings-default-printer-label; }
                         if settings-tab == "printers": Rectangle {
                             height: 136px;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
-                            Text { x: 0; y: 14px; width: 180px; text: "Printer selector"; color: Theme.fg-1; font-size: Theme.font-body; }
-                            Text { x: 0; y: 32px; width: 180px; text: "Maker → model → nozzle"; color: Theme.fg-3; font-size: Theme.font-meta; }
+                            Text { x: 0; y: 14px; width: 180px; text: tr-printer-selector; color: Theme.fg-1; font-size: Theme.font-body; }
+                            Text { x: 0; y: 32px; width: 180px; text: tr-maker-model-nozzle; color: Theme.fg-3; font-size: Theme.font-meta; }
                             HorizontalLayout {
                                 x: 196px;
                                 y: 12px;
@@ -3983,21 +4422,21 @@ export component ModelRackWindow inherits Window {
 
                                 Rectangle {
                                     width: 104px; height: parent.height; background: Theme.bg-2; border-color: Theme.line; border-width: 1px; border-radius: 7px; clip: true;
-                                    Text { x: 8px; y: 7px; text: "Maker"; color: Theme.fg-3; font-size: Theme.font-overline; font-weight: 600; }
+                                    Text { x: 8px; y: 7px; text: tr-maker; color: Theme.fg-3; font-size: Theme.font-overline; font-weight: 600; }
                                     VerticalLayout { x: 4px; y: 26px; width: parent.width - 8px; spacing: 1px;
                                         for maker in settings-printer-makers: SettingsOptionButton { width: parent.width; label: maker.label; key: maker.key; selected: maker.selected; activated(key) => { choose-settings-printer-maker(key); } }
                                     }
                                 }
                                 Rectangle {
                                     width: 112px; height: parent.height; background: Theme.bg-2; border-color: Theme.line; border-width: 1px; border-radius: 7px; clip: true;
-                                    Text { x: 8px; y: 7px; text: "Model"; color: Theme.fg-3; font-size: Theme.font-overline; font-weight: 600; }
+                                    Text { x: 8px; y: 7px; text: tr-model; color: Theme.fg-3; font-size: Theme.font-overline; font-weight: 600; }
                                     VerticalLayout { x: 4px; y: 26px; width: parent.width - 8px; spacing: 1px;
                                         for model in settings-printer-models: SettingsOptionButton { width: parent.width; label: model.label; key: model.key; selected: model.selected; activated(key) => { choose-settings-printer-model(key); } }
                                     }
                                 }
                                 Rectangle {
                                     width: 118px; height: parent.height; background: Theme.bg-2; border-color: Theme.line; border-width: 1px; border-radius: 7px; clip: true;
-                                    Text { x: 8px; y: 7px; text: "Nozzle"; color: Theme.fg-3; font-size: Theme.font-overline; font-weight: 600; }
+                                    Text { x: 8px; y: 7px; text: tr-nozzle; color: Theme.fg-3; font-size: Theme.font-overline; font-weight: 600; }
                                     VerticalLayout { x: 4px; y: 26px; width: parent.width - 8px; spacing: 1px;
                                         for nozzle in settings-printer-nozzles: SettingsOptionButton { width: parent.width; label: nozzle.label; key: nozzle.key; selected: nozzle.selected; activated(key) => { choose-settings-printer-nozzle(key); } }
                                     }
@@ -4019,13 +4458,13 @@ export component ModelRackWindow inherits Window {
                                 Rectangle { x: 8px; y: 12px; width: 20px; height: 20px; background: printer.selected ? Theme.accent : Theme.bg-3; border-color: printer.selected ? Theme.accent : Theme.line; border-width: 1px; border-radius: 5px; Text { x: 0; y: 1px; width: parent.width; height: parent.height; text: printer.selected ? "✓" : ""; color: #0e2a32; font-size: 12px; font-weight: 700; horizontal-alignment: center; } }
                                 Text { x: 36px; y: 7px; width: parent.width - 150px; text: printer.label; color: Theme.fg-0; font-size: Theme.font-body; font-weight: 600; overflow: elide; }
                                 Text { x: 36px; y: 24px; width: parent.width - 150px; text: printer.detail; color: Theme.fg-2; font-family: "JetBrains Mono"; font-size: Theme.font-overline; overflow: elide; }
-                                if printer.selected: Rectangle { x: parent.width - 104px; y: 10px; width: 96px; height: 24px; background: printer.defaulted ? Theme.bg-4 : set-default-touch.has-hover ? Theme.bg-4 : Theme.bg-3; border-color: printer.defaulted ? Theme.accent-line : Theme.line; border-width: 1px; border-radius: 5px; Text { x: 0; y: 5px; width: parent.width; text: printer.defaulted ? "Default" : "Set default"; color: printer.defaulted ? Theme.fg-0 : Theme.fg-1; font-size: 11px; font-weight: 600; horizontal-alignment: center; } set-default-touch := TouchArea { clicked => { choose-settings-default-printer(printer.key); } } }
+                                if printer.selected: Rectangle { x: parent.width - 104px; y: 10px; width: 96px; height: 24px; background: printer.defaulted ? Theme.bg-4 : set-default-touch.has-hover ? Theme.bg-4 : Theme.bg-3; border-color: printer.defaulted ? Theme.accent-line : Theme.line; border-width: 1px; border-radius: 5px; Text { x: 0; y: 5px; width: parent.width; text: printer.defaulted ? tr-default : tr-set-default; color: printer.defaulted ? Theme.fg-0 : Theme.fg-1; font-size: 11px; font-weight: 600; horizontal-alignment: center; } set-default-touch := TouchArea { clicked => { choose-settings-default-printer(printer.key); } } }
                                 TouchArea { width: parent.width - 112px; height: parent.height; clicked => { toggle-settings-printer(printer.key); } }
                             }
                         }
 
-                        if settings-tab == "slicer": SettingsRow { label: "Default slicer"; value: settings-slicer-label; }
-                        if settings-tab == "slicer": SettingsRow { label: "Detected apps"; value: settings-slicer-candidates.length + " choices"; }
+                        if settings-tab == "slicer": SettingsRow { label: tr-default-slicer; value: settings-slicer-label; }
+                        if settings-tab == "slicer": SettingsRow { label: tr-detected-apps; value: settings-slicer-candidates.length + tr-choices-suffix; }
                         if settings-tab == "slicer": VerticalLayout {
                             spacing: 6px;
                             padding-top: 6px;
@@ -4051,39 +4490,39 @@ export component ModelRackWindow inherits Window {
                         if settings-tab == "slicer": Rectangle {
                             height: 48px;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
-                            Text { x: 0; y: 17px; width: 180px; text: "Custom path"; color: Theme.fg-1; font-size: Theme.font-body; }
-                            SettingsActionButton { x: 196px; y: 10px; button-width: 128px; label: "Browse…"; icon: @image-url("../assets/icons/folder.svg"); activated => { choose-slicer(); } }
+                            Text { x: 0; y: 17px; width: 180px; text: tr-custom-path; color: Theme.fg-1; font-size: Theme.font-body; }
+                            SettingsActionButton { x: 196px; y: 10px; button-width: 128px; label: tr-browse; icon: @image-url("../assets/icons/folder.svg"); activated => { choose-slicer(); } }
                         }
-                        if settings-tab == "slicer": SettingsRow { label: "After export"; value: "Open in slicer"; }
+                        if settings-tab == "slicer": SettingsRow { label: tr-after-export; value: tr-open-in-slicer; }
 
                         if settings-tab == "hotkeys": VerticalLayout {
                             spacing: 16px;
                             Rectangle { height: 1px; }
-                            Rectangle { height: 146px; border-color: Theme.line; border-width: 1px; border-radius: 8px; Rectangle { x: 0; y: 0; width: parent.width; height: 32px; background: Theme.bg-3; border-radius: 8px; Text { x: 12px; y: 9px; text: "GLOBAL"; color: Theme.fg-2; font-size: 11px; font-weight: 600; letter-spacing: 0.4px; } } Text { x: 12px; y: 47px; text: "Focus search"; color: Theme.fg-1; font-size: Theme.font-body; } HorizontalLayout { x: parent.width - 70px; y: 42px; spacing: 4px; SettingsKbd { label: "⌘"; } SettingsKbd { label: "F"; } } Text { x: 12px; y: 81px; text: "Open settings"; color: Theme.fg-1; font-size: Theme.font-body; } HorizontalLayout { x: parent.width - 70px; y: 76px; spacing: 4px; SettingsKbd { label: "⌘"; } SettingsKbd { label: ","; } } Text { x: 12px; y: 115px; text: "Import folder"; color: Theme.fg-1; font-size: Theme.font-body; } HorizontalLayout { x: parent.width - 98px; y: 110px; spacing: 4px; SettingsKbd { label: "⌘"; } SettingsKbd { label: "O"; } } }
-                            Rectangle { height: 146px; border-color: Theme.line; border-width: 1px; border-radius: 8px; Rectangle { x: 0; y: 0; width: parent.width; height: 32px; background: Theme.bg-3; border-radius: 8px; Text { x: 12px; y: 9px; text: "VIEW"; color: Theme.fg-2; font-size: 11px; font-weight: 600; letter-spacing: 0.4px; } } Text { x: 12px; y: 47px; text: "Grid view"; color: Theme.fg-1; font-size: Theme.font-body; } HorizontalLayout { x: parent.width - 70px; y: 42px; spacing: 4px; SettingsKbd { label: "⌘"; } SettingsKbd { label: "1"; } } Text { x: 12px; y: 81px; text: "Masonry view"; color: Theme.fg-1; font-size: Theme.font-body; } HorizontalLayout { x: parent.width - 70px; y: 76px; spacing: 4px; SettingsKbd { label: "⌘"; } SettingsKbd { label: "2"; } } Text { x: 12px; y: 115px; text: "List view"; color: Theme.fg-1; font-size: Theme.font-body; } HorizontalLayout { x: parent.width - 70px; y: 110px; spacing: 4px; SettingsKbd { label: "⌘"; } SettingsKbd { label: "3"; } } }
+                            Rectangle { height: 146px; border-color: Theme.line; border-width: 1px; border-radius: 8px; Rectangle { x: 0; y: 0; width: parent.width; height: 32px; background: Theme.bg-3; border-radius: 8px; Text { x: 12px; y: 9px; text: tr-global; color: Theme.fg-2; font-size: 11px; font-weight: 600; letter-spacing: 0.4px; } } Text { x: 12px; y: 47px; text: tr-focus-search; color: Theme.fg-1; font-size: Theme.font-body; } HorizontalLayout { x: parent.width - 70px; y: 42px; spacing: 4px; SettingsKbd { label: "⌘"; } SettingsKbd { label: "F"; } } Text { x: 12px; y: 81px; text: tr-open-settings; color: Theme.fg-1; font-size: Theme.font-body; } HorizontalLayout { x: parent.width - 70px; y: 76px; spacing: 4px; SettingsKbd { label: "⌘"; } SettingsKbd { label: ","; } } Text { x: 12px; y: 115px; text: tr-import-folder; color: Theme.fg-1; font-size: Theme.font-body; } HorizontalLayout { x: parent.width - 98px; y: 110px; spacing: 4px; SettingsKbd { label: "⌘"; } SettingsKbd { label: "O"; } } }
+                            Rectangle { height: 146px; border-color: Theme.line; border-width: 1px; border-radius: 8px; Rectangle { x: 0; y: 0; width: parent.width; height: 32px; background: Theme.bg-3; border-radius: 8px; Text { x: 12px; y: 9px; text: tr-view; color: Theme.fg-2; font-size: 11px; font-weight: 600; letter-spacing: 0.4px; } } Text { x: 12px; y: 47px; text: tr-grid-view; color: Theme.fg-1; font-size: Theme.font-body; } HorizontalLayout { x: parent.width - 70px; y: 42px; spacing: 4px; SettingsKbd { label: "⌘"; } SettingsKbd { label: "1"; } } Text { x: 12px; y: 81px; text: tr-masonry-view; color: Theme.fg-1; font-size: Theme.font-body; } HorizontalLayout { x: parent.width - 70px; y: 76px; spacing: 4px; SettingsKbd { label: "⌘"; } SettingsKbd { label: "2"; } } Text { x: 12px; y: 115px; text: tr-list-view; color: Theme.fg-1; font-size: Theme.font-body; } HorizontalLayout { x: parent.width - 70px; y: 110px; spacing: 4px; SettingsKbd { label: "⌘"; } SettingsKbd { label: "3"; } } }
                         }
 
                         if settings-tab == "advanced": Rectangle {
                             height: 58px;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
-                            Text { x: 0; y: 13px; width: 180px; text: "GPU rendering"; color: Theme.fg-1; font-size: Theme.font-body; }
-                            Text { x: 0; y: 31px; width: 180px; text: "Use GPU for thumbnails"; color: Theme.fg-3; font-size: Theme.font-meta; }
+                            Text { x: 0; y: 13px; width: 180px; text: tr-gpu-rendering; color: Theme.fg-1; font-size: Theme.font-body; }
+                            Text { x: 0; y: 31px; width: 180px; text: tr-use-gpu-thumbnails; color: Theme.fg-3; font-size: Theme.font-meta; }
                             SettingsToggle { x: 196px; y: 19px; on: true; interactive: false; }
                         }
-                        if settings-tab == "advanced": SettingsRow { label: "Log level"; value: "info"; }
-                        if settings-tab == "advanced": SettingsRow { label: "Cache location"; value: "~/Library/Caches/modelrack"; }
-                        if settings-tab == "advanced": Rectangle { height: 48px; HorizontalLayout { x: 196px; y: 10px; spacing: 8px; SettingsActionButton { button-width: 122px; label: "Open logs"; icon: @image-url("../assets/icons/folder.svg"); activated => { } } SettingsActionButton { button-width: 132px; label: "Reset settings"; icon: @image-url("../assets/icons/trash.svg"); danger: true; activated => { } } } }
+                        if settings-tab == "advanced": SettingsRow { label: tr-log-level; value: "info"; }
+                        if settings-tab == "advanced": SettingsRow { label: tr-cache-location; value: "~/Library/Caches/modelrack"; }
+                        if settings-tab == "advanced": Rectangle { height: 48px; HorizontalLayout { x: 196px; y: 10px; spacing: 8px; SettingsActionButton { button-width: 122px; label: tr-open-logs; icon: @image-url("../assets/icons/folder.svg"); activated => { } } SettingsActionButton { button-width: 132px; label: tr-reset-settings; icon: @image-url("../assets/icons/trash.svg"); danger: true; activated => { } } } }
 
                         if settings-tab == "about": Rectangle {
                             height: 430px;
                             Image { x: (parent.width - 96px) / 2; y: 22px; width: 96px; height: 96px; source: @image-url("../assets/AppIcon.iconset/icon_128x128.png"); image-fit: contain; }
                             Text { x: 0; y: 132px; width: parent.width; text: "ModelRack"; color: Theme.fg-0; font-size: 22px; font-weight: 600; horizontal-alignment: center; }
-                            Text { x: 0; y: 163px; width: parent.width; text: "A workshop tool for your 3D model library"; color: Theme.fg-2; font-size: Theme.font-body; horizontal-alignment: center; }
-                            Rectangle { x: 120px; y: 205px; width: parent.width - 240px; height: 116px; background: Theme.bg-2; border-color: Theme.line; border-width: 1px; border-radius: 8px; Text { x: 18px; y: 17px; text: "Version"; color: Theme.fg-2; font-size: 12px; } Text { x: parent.width - self.width - 18px; y: 17px; text: app-version; color: Theme.fg-0; font-family: "JetBrains Mono"; font-size: 12px; } Text { x: 18px; y: 45px; text: "Build"; color: Theme.fg-2; font-size: 12px; } Text { x: parent.width - self.width - 18px; y: 45px; text: "2026.05.10"; color: Theme.fg-0; font-family: "JetBrains Mono"; font-size: 12px; } Text { x: 18px; y: 73px; text: "Stack"; color: Theme.fg-2; font-size: 12px; } Text { x: parent.width - self.width - 18px; y: 73px; text: "Rust + Slint"; color: Theme.fg-0; font-family: "JetBrains Mono"; font-size: 12px; } }
+                            Text { x: 0; y: 163px; width: parent.width; text: tr-about-subtitle; color: Theme.fg-2; font-size: Theme.font-body; horizontal-alignment: center; }
+                            Rectangle { x: 120px; y: 205px; width: parent.width - 240px; height: 116px; background: Theme.bg-2; border-color: Theme.line; border-width: 1px; border-radius: 8px; Text { x: 18px; y: 17px; text: tr-version; color: Theme.fg-2; font-size: 12px; } Text { x: parent.width - self.width - 18px; y: 17px; text: app-version; color: Theme.fg-0; font-family: "JetBrains Mono"; font-size: 12px; } Text { x: 18px; y: 45px; text: tr-build; color: Theme.fg-2; font-size: 12px; } Text { x: parent.width - self.width - 18px; y: 45px; text: "2026.05.10"; color: Theme.fg-0; font-family: "JetBrains Mono"; font-size: 12px; } Text { x: 18px; y: 73px; text: tr-stack; color: Theme.fg-2; font-size: 12px; } Text { x: parent.width - self.width - 18px; y: 73px; text: "Rust + Slint"; color: Theme.fg-0; font-family: "JetBrains Mono"; font-size: 12px; } }
                             Rectangle { x: 120px; y: 336px; width: parent.width - 240px; height: 70px; background: Theme.bg-2; border-color: Theme.line; border-width: 1px; border-radius: 8px;
-                                Text { x: 18px; y: 13px; text: "Updates"; color: Theme.fg-0; font-size: Theme.font-body; font-weight: 600; }
+                                Text { x: 18px; y: 13px; text: tr-updates; color: Theme.fg-0; font-size: Theme.font-body; font-weight: 600; }
                                 Text { x: 18px; y: 34px; width: parent.width - 164px; text: settings-update-status; color: Theme.fg-2; font-family: "JetBrains Mono"; font-size: 10.5px; overflow: elide; }
-                                SettingsActionButton { x: parent.width - 134px; y: 21px; button-width: 116px; label: "Check"; icon: @image-url("../assets/icons/refresh.svg"); activated => { check-updates(); } }
+                                SettingsActionButton { x: parent.width - 134px; y: 21px; button-width: 116px; label: tr-check; icon: @image-url("../assets/icons/refresh.svg"); activated => { check-updates(); } }
                             }
                         }
                     }

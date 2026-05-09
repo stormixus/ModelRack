@@ -230,11 +230,10 @@ fn fit_projected_points(canvas: &Canvas, projected: &[[f32; 3]]) -> Vec<[f32; 3]
 }
 
 fn projected_vertex_colors(projected: &[[f32; 3]], high: [u8; 4], low: [u8; 4]) -> Vec<[u8; 4]> {
-    let (min_z, max_z) = projected
-        .iter()
-        .fold((f32::INFINITY, f32::NEG_INFINITY), |(min_z, max_z), point| {
-            (min_z.min(point[2]), max_z.max(point[2]))
-        });
+    let (min_z, max_z) = projected.iter().fold(
+        (f32::INFINITY, f32::NEG_INFINITY),
+        |(min_z, max_z), point| (min_z.min(point[2]), max_z.max(point[2])),
+    );
     let span_z = (max_z - min_z).max(0.001);
 
     projected

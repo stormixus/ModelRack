@@ -221,6 +221,7 @@ pub struct SidebarFolder {
     pub depth: usize,
     pub expandable: bool,
     pub expanded: bool,
+    pub visible: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -267,6 +268,7 @@ pub struct AppViewSnapshot {
     pub view_mode_label: String,
     pub sort_label: String,
     pub active_filter_key: String,
+    pub language: String,
 }
 
 impl AppViewSnapshot {
@@ -277,7 +279,8 @@ impl AppViewSnapshot {
         prefs: &AppPrefs,
         query: DisplayQuery<'_>,
     ) -> Self {
-        let filter = filter_label(query.library_filter);
+        let language = prefs.language.as_str();
+        let filter = filter_label_for_language(query.library_filter, language);
         let active_filter_key = filter_key(query.library_filter);
         let sort_by = query.sort_by;
         let sort_ascending = query.sort_ascending;
@@ -287,23 +290,27 @@ impl AppViewSnapshot {
             sidebar: sidebar_summary(entries),
             folders: sidebar_folders(entries, current_folder, &prefs.collapsed_folders),
             tags: sidebar_tags(entries),
-            cards: browser_cards(&displayed),
+            cards: browser_cards_for_language(&displayed, language),
             browser: BrowserSummary {
                 displayed: displayed.len(),
                 total: entries.len(),
                 filter_label: filter,
-                empty_message: empty_message(entries, &displayed),
+                empty_message: empty_message(entries, &displayed, language),
             },
-            status_text: scan_status_text(scan_status),
+            status_text: scan_status_text_for_language(scan_status, language),
             density_label: density_short_label(Density::from_str(&prefs.density)).to_string(),
             view_mode_label: view_mode_title(ViewMode::from_str(&prefs.view_mode)).to_string(),
-            sort_label: sort_label(sort_by, sort_ascending),
+            sort_label: sort_label_for_language(sort_by, sort_ascending, language),
             active_filter_key,
+            language: language.to_string(),
         }
     }
 }
 
-pub fn browser_cards(entries: &[scanner::StlFileInfo]) -> Vec<BrowserCard> {
+pub fn browser_cards_for_language(
+    entries: &[scanner::StlFileInfo],
+    language: &str,
+) -> Vec<BrowserCard> {
     let mut cards = entries
         .iter()
         .enumerate()
@@ -315,16 +322,16 @@ pub fn browser_cards(entries: &[scanner::StlFileInfo]) -> Vec<BrowserCard> {
                 stable_key: entry.path.display().to_string(),
                 slot_index,
                 title: entry.filename.clone(),
-                subtitle: browser_card_subtitle(entry),
+                subtitle: browser_card_subtitle(entry, language),
                 author: entry
                     .meta
                     .as_ref()
                     .and_then(|meta| (!meta.author.is_empty()).then(|| meta.author.clone()))
-                    .unwrap_or_else(|| "You".to_string()),
-                relative_modified: relative_modified_label(entry.modified),
+                    .unwrap_or_else(|| localized("You", "나", "自分", language).to_string()),
+                relative_modified: relative_modified_label_for_language(entry.modified, language),
                 thumb_key: thumbnail_key(&entry.filename).to_string(),
                 thumb_path: entry.thumbnail_path.clone(),
-                badge: browser_card_badge(entry),
+                badge: browser_card_badge(entry, language),
                 printed_count,
                 favorite,
                 printed,
@@ -336,16 +343,25 @@ pub fn browser_cards(entries: &[scanner::StlFileInfo]) -> Vec<BrowserCard> {
     cards
 }
 
-fn browser_card_subtitle(entry: &scanner::StlFileInfo) -> String {
+fn browser_card_subtitle(entry: &scanner::StlFileInfo, language: &str) -> String {
     let triangle_label = entry
         .triangle_count
-        .map(format_triangle_count)
-        .unwrap_or_else(|| "— tris".to_string());
+        .map(|count| format_triangle_count_for_language(count, language))
+        .unwrap_or_else(|| match language_key(language) {
+            "ko" => "— 삼각형".to_string(),
+            "ja" => "— 三角形".to_string(),
+            _ => "— tris".to_string(),
+        });
     if let Some(plate_count) = entry.three_mf_plate_count {
+        let plate_label = match language_key(language) {
+            "ko" => format!("{}개 플레이트", plate_count),
+            "ja" => format!("{} プレート", plate_count),
+            _ => format!("{} plates", plate_count),
+        };
         format!(
-            "{} · {} plates · {}",
+            "{} · {} · {}",
             format_size(entry.size),
-            plate_count,
+            plate_label,
             triangle_label
         )
     } else {
@@ -353,9 +369,13 @@ fn browser_card_subtitle(entry: &scanner::StlFileInfo) -> String {
     }
 }
 
-fn browser_card_badge(entry: &scanner::StlFileInfo) -> String {
+fn browser_card_badge(entry: &scanner::StlFileInfo, language: &str) -> String {
     if let Some(plate_count) = entry.three_mf_plate_count {
-        format!("3MF · {} plates", plate_count)
+        match language_key(language) {
+            "ko" => format!("3MF · {}개 플레이트", plate_count),
+            "ja" => format!("3MF · {} プレート", plate_count),
+            _ => format!("3MF · {} plates", plate_count),
+        }
     } else {
         stl_type_label(entry.stl_type).to_string()
     }
@@ -428,11 +448,6 @@ pub fn sidebar_folders(
 
     paths
         .into_iter()
-        .filter(|(path, _)| {
-            !collapsed_folders
-                .iter()
-                .any(|collapsed| path != collapsed && path.starts_with(collapsed))
-        })
         .map(|(path, count)| {
             let relative = path.strip_prefix(root).unwrap_or(&path);
             let depth = if path == root {
@@ -455,6 +470,9 @@ pub fn sidebar_folders(
                 .keys()
                 .any(|candidate| candidate.parent() == Some(path.as_path()));
             let expanded = !collapsed_folders.iter().any(|collapsed| collapsed == &path);
+            let visible = !collapsed_folders
+                .iter()
+                .any(|collapsed| path != *collapsed && path.starts_with(collapsed));
             SidebarFolder {
                 path,
                 label,
@@ -462,6 +480,7 @@ pub fn sidebar_folders(
                 depth,
                 expandable,
                 expanded,
+                visible,
             }
         })
         .collect()
@@ -482,38 +501,88 @@ pub fn sidebar_tags(entries: &[scanner::StlFileInfo]) -> Vec<SidebarTag> {
         .collect()
 }
 
-pub fn scan_status_text(status: &ScanStatus) -> String {
+fn language_key(language: &str) -> &str {
+    match language {
+        "ko" => "ko",
+        "ja" => "ja",
+        _ => "en",
+    }
+}
+
+fn localized<'a>(en: &'a str, ko: &'a str, ja: &'a str, language: &str) -> &'a str {
+    match language_key(language) {
+        "ko" => ko,
+        "ja" => ja,
+        _ => en,
+    }
+}
+
+pub fn browser_count_label_for_language(displayed: usize, total: usize, language: &str) -> String {
+    if displayed == total {
+        match language_key(language) {
+            "ko" => format!("{}개 항목", total),
+            "ja" => format!("{} 件", total),
+            _ => format!("{} items", total),
+        }
+    } else {
+        match language_key(language) {
+            "ko" => format!("{} / {}개 항목", displayed, total),
+            "ja" => format!("{} / {} 件", displayed, total),
+            _ => format!("{} of {} items", displayed, total),
+        }
+    }
+}
+
+pub fn scan_status_text_for_language(status: &ScanStatus, language: &str) -> String {
     match status {
-        ScanStatus::Idle => "Ready".to_string(),
+        ScanStatus::Idle => localized("Ready", "준비됨", "準備完了", language).to_string(),
         ScanStatus::Scanning {
             found,
             scanned,
             skipped,
             current,
-        } => format!(
-            "Scanning {} · found {} · scanned {} · skipped {}",
-            current, found, scanned, skipped
-        ),
+        } => match language_key(language) {
+            "ko" => format!(
+                "스캔 중 {} · 발견 {} · 스캔 {} · 건너뜀 {}",
+                current, found, scanned, skipped
+            ),
+            "ja" => format!(
+                "スキャン中 {} · 検出 {} · スキャン済み {} · スキップ {}",
+                current, found, scanned, skipped
+            ),
+            _ => format!(
+                "Scanning {} · found {} · scanned {} · skipped {}",
+                current, found, scanned, skipped
+            ),
+        },
         ScanStatus::Done { found, skipped } => {
             if *skipped == 0 {
-                format!("{} models", found)
+                match language_key(language) {
+                    "ko" => format!("{}개 모델", found),
+                    "ja" => format!("{} モデル", found),
+                    _ => format!("{} models", found),
+                }
             } else {
-                format!("{} models · {} skipped", found, skipped)
+                match language_key(language) {
+                    "ko" => format!("{}개 모델 · {}개 건너뜀", found, skipped),
+                    "ja" => format!("{} モデル · {} 件スキップ", found, skipped),
+                    _ => format!("{} models · {} skipped", found, skipped),
+                }
             }
         }
     }
 }
 
-pub fn sort_label(sort_by: SortBy, ascending: bool) -> String {
+pub fn sort_label_for_language(sort_by: SortBy, ascending: bool, language: &str) -> String {
     let field = match sort_by {
-        SortBy::Name => "Name",
-        SortBy::Modified => "Modified",
-        SortBy::Added => "Added",
-        SortBy::Format => "Format",
-        SortBy::Size => "Size",
-        SortBy::Triangles => "Triangles",
-        SortBy::Dimensions => "Dimensions",
-        SortBy::Volume => "Volume",
+        SortBy::Name => localized("Name", "이름", "名前", language),
+        SortBy::Modified => localized("Modified", "수정일", "更新日", language),
+        SortBy::Added => localized("Added", "추가일", "追加日", language),
+        SortBy::Format => localized("Format", "형식", "形式", language),
+        SortBy::Size => localized("Size", "크기", "サイズ", language),
+        SortBy::Triangles => localized("Triangles", "삼각형", "三角形", language),
+        SortBy::Dimensions => localized("Dimensions", "치수", "寸法", language),
+        SortBy::Volume => localized("Volume", "부피", "体積", language),
     };
     let direction = if ascending { "↑" } else { "↓" };
     format!("{} {}", field, direction)
@@ -535,24 +604,43 @@ fn view_mode_title(view_mode: ViewMode) -> &'static str {
     }
 }
 
-fn relative_modified_label(modified: Option<std::time::SystemTime>) -> String {
+fn relative_modified_label_for_language(
+    modified: Option<std::time::SystemTime>,
+    language: &str,
+) -> String {
     let Some(modified) = modified else {
-        return "unknown".to_string();
+        return localized("unknown", "알 수 없음", "不明", language).to_string();
     };
     let Ok(elapsed) = std::time::SystemTime::now().duration_since(modified) else {
-        return "today".to_string();
+        return localized("today", "오늘", "今日", language).to_string();
     };
     let days = elapsed.as_secs() / 86400;
     if days < 1 {
-        "today".to_string()
+        localized("today", "오늘", "今日", language).to_string()
     } else if days < 7 {
-        format!("{}d ago", days)
+        match language_key(language) {
+            "ko" => format!("{}일 전", days),
+            "ja" => format!("{}日前", days),
+            _ => format!("{}d ago", days),
+        }
     } else if days < 30 {
-        format!("{}w ago", days / 7)
+        match language_key(language) {
+            "ko" => format!("{}주 전", days / 7),
+            "ja" => format!("{}週間前", days / 7),
+            _ => format!("{}w ago", days / 7),
+        }
     } else if days < 365 {
-        format!("{}mo ago", days / 30)
+        match language_key(language) {
+            "ko" => format!("{}개월 전", days / 30),
+            "ja" => format!("{}か月前", days / 30),
+            _ => format!("{}mo ago", days / 30),
+        }
     } else {
-        format!("{}y ago", days / 365)
+        match language_key(language) {
+            "ko" => format!("{}년 전", days / 365),
+            "ja" => format!("{}年前", days / 365),
+            _ => format!("{}y ago", days / 365),
+        }
     }
 }
 
@@ -639,13 +727,33 @@ fn duplicate_count(entries: &[scanner::StlFileInfo]) -> usize {
         .count()
 }
 
-fn empty_message(entries: &[scanner::StlFileInfo], displayed: &[scanner::StlFileInfo]) -> String {
+fn empty_message(
+    entries: &[scanner::StlFileInfo],
+    displayed: &[scanner::StlFileInfo],
+    language: &str,
+) -> String {
     if entries.is_empty() {
-        "No models yet".to_string()
+        localized(
+            "No models yet",
+            "아직 모델 없음",
+            "モデルがまだありません",
+            language,
+        )
+        .to_string()
     } else if displayed.is_empty() {
-        "No matching models".to_string()
+        localized(
+            "No matching models",
+            "일치하는 모델 없음",
+            "一致するモデルがありません",
+            language,
+        )
+        .to_string()
     } else {
-        format!("{} visible models", displayed.len())
+        match language_key(language) {
+            "ko" => format!("{}개 모델 표시 중", displayed.len()),
+            "ja" => format!("{} モデル表示中", displayed.len()),
+            _ => format!("{} visible models", displayed.len()),
+        }
     }
 }
 
@@ -682,13 +790,14 @@ fn stl_type_label(stl_type: scanner::StlType) -> &'static str {
     }
 }
 
-fn format_triangle_count(count: usize) -> String {
+fn format_triangle_count_for_language(count: usize, language: &str) -> String {
+    let unit = localized("tris", "삼각형", "三角形", language);
     if count >= 1_000_000 {
-        format!("{:.1}M tris", count as f64 / 1_000_000.0)
+        format!("{:.1}M {}", count as f64 / 1_000_000.0, unit)
     } else if count >= 1_000 {
-        format!("{:.1}K tris", count as f64 / 1_000.0)
+        format!("{:.1}K {}", count as f64 / 1_000.0, unit)
     } else {
-        format!("{} tris", count)
+        format!("{} {}", count, unit)
     }
 }
 
@@ -704,23 +813,38 @@ fn format_size(bytes: u64) -> String {
     }
 }
 
-pub fn filter_label(filter: &LibraryFilter) -> Option<String> {
+pub fn filter_label_for_language(filter: &LibraryFilter, language: &str) -> Option<String> {
     match filter {
         LibraryFilter::All => None,
-        LibraryFilter::Recent => Some("Recent".to_string()),
-        LibraryFilter::Favorites => Some("Favorites".to_string()),
-        LibraryFilter::Printed => Some("Printed".to_string()),
-        LibraryFilter::Duplicates => Some("Duplicates".to_string()),
-        LibraryFilter::Ready => Some("Ready".to_string()),
-        LibraryFilter::Errors => Some("Unparseable".to_string()),
+        LibraryFilter::Recent => Some(localized("Recent", "최근", "最近", language).to_string()),
+        LibraryFilter::Favorites => {
+            Some(localized("Favorites", "즐겨찾기", "お気に入り", language).to_string())
+        }
+        LibraryFilter::Printed => {
+            Some(localized("Printed", "출력됨", "印刷済み", language).to_string())
+        }
+        LibraryFilter::Duplicates => {
+            Some(localized("Duplicates", "중복", "重複", language).to_string())
+        }
+        LibraryFilter::Ready => {
+            Some(localized("Ready", "출력 준비", "印刷準備完了", language).to_string())
+        }
+        LibraryFilter::Errors => {
+            Some(localized("Unparseable", "파싱 오류", "解析エラー", language).to_string())
+        }
         LibraryFilter::Folder(folder) => Some(format!(
-            "Folder: {}",
+            "{}: {}",
+            localized("Folder", "폴더", "フォルダ", language),
             folder
                 .file_name()
                 .and_then(|name| name.to_str())
-                .unwrap_or("Library")
+                .unwrap_or(localized("Library", "라이브러리", "ライブラリ", language))
         )),
-        LibraryFilter::Tag(tag) => Some(format!("Tag: {}", tag)),
+        LibraryFilter::Tag(tag) => Some(format!(
+            "{}: {}",
+            localized("Tag", "태그", "タグ", language),
+            tag
+        )),
     }
 }
 
@@ -1033,20 +1157,25 @@ mod tests {
         assert_eq!(folders[0].depth, 0);
         assert!(folders[0].expandable);
         assert!(folders[0].expanded);
+        assert!(folders[0].visible);
         assert_eq!(folders[1].label, "nested");
         assert_eq!(folders[1].count, 1);
         assert_eq!(folders[1].depth, 1);
         assert!(!folders[1].expandable);
+        assert!(folders[1].visible);
 
         let collapsed = sidebar_folders(
             &entries,
             Some(Path::new("/tmp/models")),
             &[PathBuf::from("/tmp/models")],
         );
-        assert_eq!(collapsed.len(), 1);
+        assert_eq!(collapsed.len(), 2);
         assert_eq!(collapsed[0].label, "models");
         assert!(collapsed[0].expandable);
         assert!(!collapsed[0].expanded);
+        assert!(collapsed[0].visible);
+        assert_eq!(collapsed[1].label, "nested");
+        assert!(!collapsed[1].visible);
 
         let tags = sidebar_tags(&entries);
         assert_eq!(
@@ -1098,6 +1227,49 @@ mod tests {
         assert_eq!(snapshot.view_mode_label, "List");
         assert_eq!(snapshot.sort_label, "Name ↑");
         assert_eq!(snapshot.active_filter_key, "all");
+        assert_eq!(snapshot.language, "en");
+    }
+
+    #[test]
+    fn app_snapshot_localizes_korean_shell_labels() {
+        let mut model = entry("/tmp/models/project.3mf", 4);
+        model.stl_type = StlType::ThreeMf;
+        model.size = 1024;
+        model.triangle_count = Some(2_000);
+        model.three_mf_plate_count = Some(3);
+        model.modified =
+            Some(std::time::SystemTime::now() - std::time::Duration::from_secs(3 * 365 * 86400));
+        let prefs = AppPrefs {
+            language: "ko".to_string(),
+            ..AppPrefs::default()
+        };
+
+        let snapshot = AppViewSnapshot::from_parts(
+            &[model],
+            Some(Path::new("/tmp/models")),
+            &ScanStatus::Done {
+                found: 1,
+                skipped: 0,
+            },
+            &prefs,
+            DisplayQuery {
+                search_query: "",
+                library_filter: &LibraryFilter::All,
+                sort_by: SortBy::Modified,
+                sort_ascending: false,
+                preserve_order: false,
+            },
+        );
+
+        assert_eq!(snapshot.status_text, "1개 모델");
+        assert_eq!(snapshot.sort_label, "수정일 ↓");
+        assert_eq!(snapshot.browser.empty_message, "1개 모델 표시 중");
+        assert_eq!(snapshot.cards[0].relative_modified, "3년 전");
+        assert_eq!(
+            snapshot.cards[0].subtitle,
+            "1.0 KB · 3개 플레이트 · 2.0K 삼각형"
+        );
+        assert_eq!(snapshot.cards[0].badge, "3MF · 3개 플레이트");
     }
 
     #[test]
@@ -1201,7 +1373,7 @@ mod tests {
             ..SidecarMeta::default()
         });
 
-        let cards = browser_cards(&[model]);
+        let cards = browser_cards_for_language(&[model], "en");
 
         assert_eq!(
             cards,
@@ -1231,7 +1403,7 @@ mod tests {
         model.triangle_count = Some(2_000);
         model.three_mf_plate_count = Some(3);
 
-        let cards = browser_cards(&[model]);
+        let cards = browser_cards_for_language(&[model], "en");
 
         assert_eq!(cards[0].subtitle, "1.0 KB · 3 plates · 2.0K tris");
         assert_eq!(cards[0].badge, "3MF · 3 plates");

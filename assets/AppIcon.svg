@@ -1,150 +1,123 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
-    <clipPath id="sq">
-      <path d="M512 0C880 0 1024 144 1024 512C1024 880 880 1024 512 1024C144 1024 0 880 0 512C0 144 144 0 512 0Z"/>
+    <clipPath id="squircle">
+      <path d="M248 72H776C873.202 72 952 150.798 952 248V776C952 873.202 873.202 952 776 952H248C150.798 952 72 873.202 72 776V248C72 150.798 150.798 72 248 72Z"/>
     </clipPath>
 
-    <radialGradient id="bg" cx="38%" cy="18%" r="92%">
-      <stop offset="0" stop-color="#355667"/>
-      <stop offset="0.45" stop-color="#172d39"/>
-      <stop offset="1" stop-color="#071219"/>
+    <radialGradient id="bg" cx="34%" cy="18%" r="96%">
+      <stop offset="0" stop-color="#426777"/>
+      <stop offset="0.38" stop-color="#1e3a47"/>
+      <stop offset="0.78" stop-color="#0c1d26"/>
+      <stop offset="1" stop-color="#061119"/>
     </radialGradient>
-    <linearGradient id="edgeShade" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.23"/>
-      <stop offset="0.18" stop-color="#ffffff" stop-opacity="0.05"/>
-      <stop offset="0.74" stop-color="#000000" stop-opacity="0"/>
-      <stop offset="1" stop-color="#000000" stop-opacity="0.36"/>
-    </linearGradient>
-    <radialGradient id="cornerSmooth" cx="50%" cy="43%" r="71%">
-      <stop offset="0.74" stop-color="#ffffff" stop-opacity="0"/>
-      <stop offset="1" stop-color="#000000" stop-opacity="0.28"/>
+    <radialGradient id="topGlow" cx="34%" cy="4%" r="72%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.18"/>
+      <stop offset="0.46" stop-color="#ffffff" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
     </radialGradient>
-
-    <linearGradient id="gridFade" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#9ce9f5" stop-opacity="0"/>
-      <stop offset="0.58" stop-color="#7ed4f0" stop-opacity="0.13"/>
-      <stop offset="1" stop-color="#7ed4f0" stop-opacity="0.03"/>
-    </linearGradient>
-    <linearGradient id="shelf" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#78d9ec" stop-opacity="0.2"/>
-      <stop offset="0.55" stop-color="#3b8fb0" stop-opacity="0.28"/>
-      <stop offset="1" stop-color="#0b1b24" stop-opacity="0"/>
+    <radialGradient id="cornerShade" cx="50%" cy="43%" r="72%">
+      <stop offset="0.68" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.34"/>
+    </radialGradient>
+    <linearGradient id="containerDepth" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.18"/>
+      <stop offset="0.15" stop-color="#ffffff" stop-opacity="0.045"/>
+      <stop offset="0.72" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.32"/>
     </linearGradient>
 
-    <linearGradient id="top" x1="0.2" y1="0" x2="0.82" y2="1">
-      <stop offset="0" stop-color="#a9edf8"/>
-      <stop offset="0.48" stop-color="#62cbe5"/>
-      <stop offset="1" stop-color="#2f9fbe"/>
+    <linearGradient id="top" x1="0.12" y1="0" x2="0.88" y2="1">
+      <stop offset="0" stop-color="#c8f8ff"/>
+      <stop offset="0.42" stop-color="#72d9ec"/>
+      <stop offset="1" stop-color="#2fa9c7"/>
     </linearGradient>
-    <linearGradient id="left" x1="0" y1="0" x2="1" y2="0.7">
-      <stop offset="0" stop-color="#4bb2cf"/>
-      <stop offset="0.62" stop-color="#287894"/>
-      <stop offset="1" stop-color="#15526b"/>
+    <linearGradient id="left" x1="0" y1="0" x2="0.95" y2="0.78">
+      <stop offset="0" stop-color="#64cce4"/>
+      <stop offset="0.58" stop-color="#2c8eaa"/>
+      <stop offset="1" stop-color="#185a72"/>
     </linearGradient>
-    <linearGradient id="right" x1="0" y1="0" x2="1" y2="0.7">
-      <stop offset="0" stop-color="#246981"/>
-      <stop offset="0.6" stop-color="#164c63"/>
-      <stop offset="1" stop-color="#082d3e"/>
+    <linearGradient id="right" x1="0.05" y1="0" x2="1" y2="0.86">
+      <stop offset="0" stop-color="#2a7f99"/>
+      <stop offset="0.58" stop-color="#17566f"/>
+      <stop offset="1" stop-color="#0a3246"/>
     </linearGradient>
-    <linearGradient id="accTop" x1="0.18" y1="0" x2="0.84" y2="1">
-      <stop offset="0" stop-color="#d0f8fd"/>
-      <stop offset="0.48" stop-color="#8ee5f3"/>
-      <stop offset="1" stop-color="#4ac1dc"/>
+    <linearGradient id="accentTop" x1="0.12" y1="0" x2="0.88" y2="1">
+      <stop offset="0" stop-color="#e6fdff"/>
+      <stop offset="0.48" stop-color="#9aedf7"/>
+      <stop offset="1" stop-color="#4ec6df"/>
     </linearGradient>
-    <linearGradient id="faceGlow" x1="0" y1="0" x2="0" y2="1">
+    <linearGradient id="faceLight" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.18"/>
+      <stop offset="0.38" stop-color="#ffffff" stop-opacity="0.04"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.17"/>
+    </linearGradient>
+    <linearGradient id="softEdge" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#ffffff" stop-opacity="0.16"/>
-      <stop offset="0.34" stop-color="#ffffff" stop-opacity="0.04"/>
-      <stop offset="1" stop-color="#000000" stop-opacity="0.18"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.2"/>
+    </linearGradient>
+    <linearGradient id="shelfMat" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7de1ef" stop-opacity="0.16"/>
+      <stop offset="0.58" stop-color="#44a8c1" stop-opacity="0.2"/>
+      <stop offset="1" stop-color="#07151e" stop-opacity="0"/>
     </linearGradient>
 
-    <filter id="softObject" x="-28%" y="-26%" width="156%" height="164%">
-      <feDropShadow dx="0" dy="30" stdDeviation="28" flood-color="#000000" flood-opacity="0.38"/>
-      <feDropShadow dx="0" dy="5" stdDeviation="7" flood-color="#bdf6ff" flood-opacity="0.12"/>
+    <filter id="symbolDepth" x="-35%" y="-32%" width="170%" height="178%">
+      <feDropShadow dx="0" dy="34" stdDeviation="30" flood-color="#000000" flood-opacity="0.34"/>
+      <feDropShadow dx="0" dy="5" stdDeviation="9" flood-color="#d8fbff" flood-opacity="0.11"/>
     </filter>
-    <filter id="ambientBlur" x="-15%" y="-15%" width="130%" height="130%">
-      <feGaussianBlur stdDeviation="18"/>
+    <filter id="ambient" x="-25%" y="-25%" width="150%" height="150%">
+      <feGaussianBlur stdDeviation="22"/>
     </filter>
-    <filter id="materialInset" x="-8%" y="-8%" width="116%" height="116%">
-      <feGaussianBlur in="SourceAlpha" stdDeviation="10" result="blur"/>
-      <feOffset dx="0" dy="8" result="offset"/>
-      <feComposite in="offset" in2="SourceAlpha" operator="arithmetic" k2="-1" k3="1" result="inner"/>
-      <feColorMatrix in="inner" type="matrix" values="0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.18 0"/>
-      <feComposite in="SourceGraphic" in2="inner" operator="over"/>
+    <filter id="tinySoften" x="-4%" y="-4%" width="108%" height="108%">
+      <feGaussianBlur stdDeviation="0.22"/>
     </filter>
   </defs>
 
-  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <g clip-path="url(#squircle)">
+    <rect width="1024" height="1024" fill="url(#bg)"/>
+    <rect width="1024" height="1024" fill="url(#topGlow)"/>
+    <ellipse cx="512" cy="842" rx="268" ry="58" fill="#000000" opacity="0.23" filter="url(#ambient)"/>
 
-  <g clip-path="url(#sq)">
+    <g transform="translate(512 618) scale(0.60) translate(-512 -628)">
+      <path d="M160 720L512 896L864 720L512 544Z" fill="url(#shelfMat)" opacity="0.72" filter="url(#ambient)"/>
 
-    <ellipse cx="512" cy="958" rx="470" ry="92" fill="#000000" opacity="0.26" filter="url(#ambientBlur)"/>
-    <ellipse cx="392" cy="74" rx="500" ry="260" fill="#ffffff" opacity="0.09"/>
+      <g filter="url(#symbolDepth)">
+        <g filter="url(#tinySoften)">
+          <g>
+            <path d="M208.953 612.5L360.45 700L360.45 875L208.953 787.5Z" fill="url(#left)"/>
+            <path d="M511.947 612.5L360.45 700L360.45 875L511.947 787.5Z" fill="url(#right)"/>
+            <path d="M360.45 525L511.947 612.5L360.45 700L208.953 612.5Z" fill="url(#top)"/>
+            <path d="M208.953 612.5L360.45 700L360.45 875L208.953 787.5Z" fill="url(#faceLight)" opacity="0.72"/>
+            <path d="M511.947 612.5L360.45 700L360.45 875L511.947 787.5Z" fill="url(#faceLight)" opacity="0.48"/>
+            <path d="M360.45 525L511.947 612.5L360.45 700L208.953 612.5Z" fill="#ffffff" opacity="0.06"/>
+            <path d="M208.953 612.5L360.45 700L511.947 612.5L360.45 525Z" fill="url(#softEdge)" opacity="0.22"/>
+          </g>
 
-    <g opacity="0.8" stroke="url(#gridFade)" stroke-width="1.6" fill="none">
-      <line x1="-200" y1="1100" x2="500" y2="700"/>
-      <line x1="-100" y1="1100" x2="600" y2="700"/>
-      <line x1="0" y1="1100" x2="700" y2="700"/>
-      <line x1="100" y1="1100" x2="800" y2="700"/>
-      <line x1="200" y1="1100" x2="900" y2="700"/>
-      <line x1="300" y1="1100" x2="1000" y2="700"/>
-      <line x1="400" y1="1100" x2="1100" y2="700"/>
-      <line x1="500" y1="1100" x2="1200" y2="700"/>
-      <line x1="600" y1="1100" x2="1300" y2="700"/>
-      <line x1="700" y1="1100" x2="1400" y2="700"/>
-      <line x1="800" y1="1100" x2="1500" y2="700"/>
-      <line x1="900" y1="1100" x2="1600" y2="700"/>
-      <line x1="1000" y1="1100" x2="1700" y2="700"/>
-      <line x1="1100" y1="1100" x2="1800" y2="700"/>
-      <line x1="1224" y1="1100" x2="524" y2="700"/>
-      <line x1="1124" y1="1100" x2="424" y2="700"/>
-      <line x1="1024" y1="1100" x2="324" y2="700"/>
-      <line x1="924" y1="1100" x2="224" y2="700"/>
-      <line x1="824" y1="1100" x2="124" y2="700"/>
-      <line x1="724" y1="1100" x2="24" y2="700"/>
-      <line x1="624" y1="1100" x2="-76" y2="700"/>
-      <line x1="524" y1="1100" x2="-176" y2="700"/>
-      <line x1="424" y1="1100" x2="-276" y2="700"/>
-      <line x1="324" y1="1100" x2="-376" y2="700"/>
-      <line x1="224" y1="1100" x2="-476" y2="700"/>
-      <line x1="124" y1="1100" x2="-576" y2="700"/>
-      <line x1="24" y1="1100" x2="-676" y2="700"/>
-      <line x1="-76" y1="1100" x2="-776" y2="700"/>
-    </g>
+          <g>
+            <path d="M512.053 612.5L663.55 700L663.55 875L512.053 787.5Z" fill="url(#left)"/>
+            <path d="M815.047 612.5L663.55 700L663.55 875L815.047 787.5Z" fill="url(#right)"/>
+            <path d="M663.55 525L815.047 612.5L663.55 700L512.053 612.5Z" fill="url(#top)"/>
+            <path d="M512.053 612.5L663.55 700L663.55 875L512.053 787.5Z" fill="url(#faceLight)" opacity="0.68"/>
+            <path d="M815.047 612.5L663.55 700L663.55 875L815.047 787.5Z" fill="url(#faceLight)" opacity="0.48"/>
+            <path d="M663.55 525L815.047 612.5L663.55 700L512.053 612.5Z" fill="#ffffff" opacity="0.055"/>
+            <path d="M512.053 612.5L663.55 700L815.047 612.5L663.55 525Z" fill="url(#softEdge)" opacity="0.2"/>
+          </g>
 
-    <path d="M160 720L512 896L864 720L512 544Z" fill="url(#shelf)" opacity="0.7"/>
-
-    <g filter="url(#softObject)">
-      <g filter="url(#materialInset)">
-        <g>
-          <path d="M208.953 612.5L360.45 700L360.45 875L208.953 787.5Z" fill="url(#left)"/>
-          <path d="M208.953 612.5L360.45 700L360.45 875L208.953 787.5Z" fill="url(#faceGlow)" opacity="0.72"/>
-          <path d="M511.947 612.5L360.45 700L360.45 875L511.947 787.5Z" fill="url(#right)"/>
-          <path d="M511.947 612.5L360.45 700L360.45 875L511.947 787.5Z" fill="url(#faceGlow)" opacity="0.5"/>
-          <path d="M360.45 525L511.947 612.5L360.45 700L208.953 612.5Z" fill="url(#top)"/>
-          <path d="M360.45 525L511.947 612.5L360.45 700L208.953 612.5Z" fill="#ffffff" opacity="0.05"/>
-        </g>
-
-        <g>
-          <path d="M512.053 612.5L663.55 700L663.55 875L512.053 787.5Z" fill="url(#left)"/>
-          <path d="M512.053 612.5L663.55 700L663.55 875L512.053 787.5Z" fill="url(#faceGlow)" opacity="0.68"/>
-          <path d="M815.047 612.5L663.55 700L663.55 875L815.047 787.5Z" fill="url(#right)"/>
-          <path d="M815.047 612.5L663.55 700L663.55 875L815.047 787.5Z" fill="url(#faceGlow)" opacity="0.5"/>
-          <path d="M663.55 525L815.047 612.5L663.55 700L512.053 612.5Z" fill="url(#top)"/>
-          <path d="M663.55 525L815.047 612.5L663.55 700L512.053 612.5Z" fill="#ffffff" opacity="0.05"/>
-        </g>
-
-        <g>
-          <path d="M360.503 437.5L512 525L512 700L360.503 612.5Z" fill="#43bdd9"/>
-          <path d="M360.503 437.5L512 525L512 700L360.503 612.5Z" fill="url(#faceGlow)" opacity="0.76"/>
-          <path d="M663.497 437.5L512 525L512 700L663.497 612.5Z" fill="#22728f"/>
-          <path d="M663.497 437.5L512 525L512 700L663.497 612.5Z" fill="url(#faceGlow)" opacity="0.52"/>
-          <path d="M512 350L663.497 437.5L512 525L360.503 437.5Z" fill="url(#accTop)"/>
-          <path d="M512 350L663.497 437.5L512 525L360.503 437.5Z" fill="#ffffff" opacity="0.08"/>
+          <g>
+            <path d="M360.503 437.5L512 525L512 700L360.503 612.5Z" fill="#46bdd8"/>
+            <path d="M663.497 437.5L512 525L512 700L663.497 612.5Z" fill="#23758f"/>
+            <path d="M512 350L663.497 437.5L512 525L360.503 437.5Z" fill="url(#accentTop)"/>
+            <path d="M360.503 437.5L512 525L512 700L360.503 612.5Z" fill="url(#faceLight)" opacity="0.76"/>
+            <path d="M663.497 437.5L512 525L512 700L663.497 612.5Z" fill="url(#faceLight)" opacity="0.5"/>
+            <path d="M512 350L663.497 437.5L512 525L360.503 437.5Z" fill="#ffffff" opacity="0.1"/>
+            <path d="M360.503 437.5L512 525L663.497 437.5L512 350Z" fill="url(#softEdge)" opacity="0.24"/>
+          </g>
         </g>
       </g>
     </g>
 
-    <path d="M512 22C862 22 1002 162 1002 512C1002 862 862 1002 512 1002C162 1002 22 862 22 512C22 162 162 22 512 22Z" fill="url(#edgeShade)" opacity="0.9"/>
-    <rect width="1024" height="1024" fill="url(#cornerSmooth)" opacity="0.8"/>
+    <path d="M256 92H768C852.5 92 932 171.5 932 256V768C932 852.5 852.5 932 768 932H256C171.5 932 92 852.5 92 768V256C92 171.5 171.5 92 256 92Z" fill="url(#containerDepth)" opacity="0.48"/>
+    <rect width="1024" height="1024" fill="url(#cornerShade)" opacity="0.78"/>
   </g>
 </svg>

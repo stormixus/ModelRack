@@ -3,3 +3,5 @@
 .omx/
 .omc/
 .claude/settings.local.json
+
+/dist
