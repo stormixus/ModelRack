@@ -1,0 +1,24 @@
+{
+  "masks": [
+    {
+      "name": "browser-grid-live-library",
+      "reason": "Static browser mockup and local scanned library have different card order, model thumbnails, filenames, and scan/error states; compare surrounding layout separately.",
+      "rect": { "x": 220, "y": 124, "width": 940, "height": 712 }
+    },
+    {
+      "name": "detail-panel-selected-model",
+      "reason": "Selected model preview and metadata are live-library dependent; compare detail panel chrome/spacing in a dedicated fixture pass.",
+      "rect": { "x": 1160, "y": 36, "width": 320, "height": 800 }
+    },
+    {
+      "name": "bottom-runtime-status-and-reference-stage",
+      "reason": "The packaged app has a runtime status strip where the browser mockup capture contains stage background after the mockup window ends.",
+      "rect": { "x": 0, "y": 836, "width": 1480, "height": 84 }
+    },
+    {
+      "name": "right-window-edge-native-capture",
+      "reason": "One-pixel native capture edge differs from the browser reference frame.",
+      "rect": { "x": 1478, "y": 0, "width": 2, "height": 920 }
+    }
+  ]
+}

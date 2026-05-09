@@ -57,14 +57,19 @@ if [[ -n "${MODELRACK_VISUAL_MASK:-}" ]]; then
   MASK_ARGS+=(--mask "$MODELRACK_VISUAL_MASK")
 fi
 
-python3 "$ROOT/scripts/visual-qa-artifacts.py" \
-  --root "$ROOT" \
-  --out-dir "$VISUAL_QA_DIR" \
-  --run-id "$RUN_ID" \
-  --current "$SHOT" \
-  --current-command "$CAPTURE_CMD" \
-  "${MASK_ARGS[@]}" \
-  --allow-missing-reference >/dev/null
+VQA_CMD=(
+  python3 "$ROOT/scripts/visual-qa-artifacts.py"
+  --root "$ROOT"
+  --out-dir "$VISUAL_QA_DIR"
+  --run-id "$RUN_ID"
+  --current "$SHOT"
+  --current-command "$CAPTURE_CMD"
+)
+if (( ${#MASK_ARGS[@]} > 0 )); then
+  VQA_CMD+=("${MASK_ARGS[@]}")
+fi
+VQA_CMD+=(--allow-missing-reference)
+"${VQA_CMD[@]}" >/dev/null
 
 echo "$SHOT"
 echo "$VISUAL_QA_DIR/$RUN_ID/current/report.json"

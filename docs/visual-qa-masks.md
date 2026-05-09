@@ -50,6 +50,11 @@ MODELRACK_VISUAL_MASK_FILE=path/to/masks.json scripts/capture-smoke.sh
 MODELRACK_VISUAL_MASK='0,0,1480,24:outer-shadow:native shadow' scripts/capture-smoke.sh
 ```
 
+
+## Current checked-in masks
+
+- `docs/visual-masks/todo16-browser-grid.json` covers the TODO-16 browser-mockup versus packaged-app parity pass. It masks only documented live-library grid content, selected-detail content, bottom runtime/status/reference-stage variance, and a native capture edge. It intentionally leaves the titlebar, toolbar, sidebar, filter bar, and surrounding layout unmasked so remaining pixel mismatches stay visible.
+
 ## Report semantics
 
 The `diff/report.json` `comparison` block records:

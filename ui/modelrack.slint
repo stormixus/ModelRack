@@ -840,24 +840,7 @@ export component ModelRackWindow inherits Window {
 
                         // Search
                         Rectangle {
-                            width: 30px;
-                            height: 28px;
-                            background: Theme.bg-1;
-                            border-radius: Theme.radius-btn;
-
-                            SvgIcon {
-                                x: (parent.width - 14px) / 2;
-                                y: (parent.height - 14px) / 2;
-                                width: 14px;
-                                height: 14px;
-                                icon: @image-url("../assets/icons/search.svg");
-                                tint: Theme.fg-2;
-                            }
-                        }
-
-                        Rectangle {
-                            max-width: 320px;
-                            horizontal-stretch: 1;
+                            width: 224px;
                             height: 28px;
                             background: Theme.bg-1;
                             border-color: Theme.line;
@@ -870,30 +853,37 @@ export component ModelRackWindow inherits Window {
                                 spacing: 6px;
                                 alignment: center;
 
+                                SvgIcon {
+                                    width: 14px;
+                                    height: 14px;
+                                    icon: @image-url("../assets/icons/search.svg");
+                                    tint: Theme.fg-2;
+                                }
+
                                 search-field := LineEdit {
                                     horizontal-stretch: 1;
                                     placeholder-text: "Search filename, tag, notes…";
                                     text <=> search-text;
                                     accepted(text) => { apply-search(text); }
                                 }
-                            }
-                        }
 
-                        Rectangle {
-                            width: 32px;
-                            height: 28px;
-                            background: Theme.bg-1;
-                            border-color: Theme.line;
-                            border-width: 1px;
-                            border-radius: Theme.radius-btn;
+                                Rectangle {
+                                    width: 31px;
+                                    height: 18px;
+                                    background: Theme.bg-2;
+                                    border-color: Theme.line-2;
+                                    border-width: 1px;
+                                    border-radius: 4px;
 
-                            Text {
-                                x: (parent.width - self.width) / 2;
-                                y: (parent.height - self.height) / 2;
-                                text: "⌘K";
-                                color: Theme.fg-3;
-                                font-family: "JetBrains Mono";
-                                font-size: 10px;
+                                    Text {
+                                        x: (parent.width - self.width) / 2;
+                                        y: (parent.height - self.height) / 2;
+                                        text: "⌘K";
+                                        color: Theme.fg-3;
+                                        font-family: "JetBrains Mono";
+                                        font-size: 10px;
+                                    }
+                                }
                             }
                         }
 
@@ -1161,37 +1151,34 @@ export component ModelRackWindow inherits Window {
                         background: Theme.line;
                     }
 
-                    HorizontalLayout {
-                        x: 0;
+                    Text {
+                        x: 12px;
                         y: 0;
-                        width: parent.width;
                         height: parent.height;
-                        padding-left: 12px;
-                        padding-right: 12px;
-                        spacing: 16px;
-                        alignment: start;
+                        text: active-filter-key == "all" ? "All models" : "Filtering";
+                        color: Theme.fg-2;
+                        font-size: 11px;
+                        font-weight: 500;
+                        vertical-alignment: center;
+                    }
 
-                        Text {
-                            text: active-filter-key == "all" ? "All models" : "Filtering";
-                            color: Theme.fg-2;
-                            font-size: 11px;
-                            font-weight: 500;
-                        }
+                    if active-filter-key != "all": FilterChip {
+                        x: 78px;
+                        y: (parent.height - self.height) / 2;
+                        label: active-filter-key;
+                        active: true;
+                        dismiss => { choose-filter("all"); }
+                    }
 
-                        if active-filter-key != "all": FilterChip {
-                            label: active-filter-key;
-                            active: true;
-                            dismiss => { choose-filter("all"); }
-                        }
-
-                        Rectangle { horizontal-stretch: 1; }
-
-                        Text {
-                            text: browser-count-label;
-                            color: Theme.fg-2;
-                            font-family: "JetBrains Mono";
-                            font-size: 11px;
-                        }
+                    browser-count := Text {
+                        x: parent.width - self.width - 12px;
+                        y: 0;
+                        height: parent.height;
+                        text: browser-count-label;
+                        color: Theme.fg-2;
+                        font-family: "JetBrains Mono";
+                        font-size: 11px;
+                        vertical-alignment: center;
                     }
                 }
 
