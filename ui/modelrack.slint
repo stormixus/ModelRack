@@ -291,7 +291,7 @@ component SidebarContextMenu inherits Rectangle {
     callback action(string);
 
     width: 188px;
-    height: target-is-folder ? 132px : 96px;
+    height: target-is-folder ? 164px : 96px;
     background: Theme.bg-2;
     border-color: Theme.line-2;
     border-width: 1px;
@@ -322,6 +322,13 @@ component SidebarContextMenu inherits Rectangle {
             hint: "";
             icon: @image-url("../assets/icons/folder-open.svg");
             activated => { root.action("reveal"); }
+        }
+
+        if target-is-folder: ContextMenuItem {
+            label: "Rescan folder";
+            hint: "";
+            icon: @image-url("../assets/icons/refresh.svg");
+            activated => { root.action("rescan"); }
         }
 
         ContextMenuItem {
@@ -727,6 +734,7 @@ export component ModelRackWindow inherits Window {
     in property <image> selected-thumb-image;
     in property <bool> selected-thumb-ready: false;
     in property <string> status-text: "Ready";
+    in property <int> scan-progress-percent: -1;
     in property <string> density-label: "M";
     in property <string> view-mode-label: "Grid";
     in-out property <string> search-text;
@@ -967,7 +975,7 @@ export component ModelRackWindow inherits Window {
                     background: Theme.line;
                 }
 
-                ScrollView {
+                sidebar-scroll := ScrollView {
                     x: 6px;
                     y: 0;
                     width: parent.width - 12px;
@@ -1008,8 +1016,8 @@ export component ModelRackWindow inherits Window {
                                 sidebar-context-key = folder.key;
                                 sidebar-context-label = folder.label;
                                 sidebar-context-is-folder = true;
-                                sidebar-context-x = folder-row.x + x;
-                                sidebar-context-y = folder-row.y + y;
+                                sidebar-context-x = 6px + folder-row.x + x + 12px;
+                                sidebar-context-y = Theme.titlebar-height + folder-row.y - sidebar-scroll.viewport-y + y + 12px;
                                 sidebar-context-open = true;
                             }
                         }
@@ -1026,30 +1034,11 @@ export component ModelRackWindow inherits Window {
                                 sidebar-context-key = tag.key;
                                 sidebar-context-label = tag.label;
                                 sidebar-context-is-folder = false;
-                                sidebar-context-x = tag-row.x + x;
-                                sidebar-context-y = tag-row.y + y;
+                                sidebar-context-x = 6px + tag-row.x + x + 12px;
+                                sidebar-context-y = Theme.titlebar-height + tag-row.y - sidebar-scroll.viewport-y + y + 12px;
                                 sidebar-context-open = true;
                             }
                         }
-                    }
-                }
-
-                if sidebar-context-open: TouchArea {
-                    x: 0;
-                    y: 0;
-                    width: parent.width;
-                    height: parent.height;
-                    clicked => { sidebar-context-open = false; }
-                }
-
-                if sidebar-context-open: SidebarContextMenu {
-                    x: sidebar-context-x + self.width > parent.width - 8px ? parent.width - self.width - 8px : sidebar-context-x;
-                    y: sidebar-context-y + self.height > parent.height - 8px ? parent.height - self.height - 8px : sidebar-context-y;
-                    target-label: sidebar-context-label;
-                    target-is-folder: sidebar-context-is-folder;
-                    action(action) => {
-                        sidebar-context-open = false;
-                        sidebar-context-action(action, sidebar-context-key, sidebar-context-label);
                     }
                 }
             }
@@ -1530,6 +1519,25 @@ export component ModelRackWindow inherits Window {
                             color: Theme.fg-2;
                             font-family: "JetBrains Mono";
                             font-size: Theme.font-overline;
+                        }
+
+                        if scan-progress-percent >= 0: Rectangle {
+                            width: progress-text.width + 14px;
+                            height: 18px;
+                            background: Theme.bg-3;
+                            border-color: Theme.line-2;
+                            border-width: 1px;
+                            border-radius: 9px;
+
+                            progress-text := Text {
+                                x: 7px;
+                                y: (parent.height - self.height) / 2;
+                                text: scan-progress-percent + "%";
+                                color: Theme.accent;
+                                font-family: "JetBrains Mono";
+                                font-size: Theme.font-overline;
+                                font-weight: 600;
+                            }
                         }
 
                         Rectangle { horizontal-stretch: 1; }
@@ -2457,6 +2465,25 @@ export component ModelRackWindow inherits Window {
                     }
                 }
             }
+        }
+    }
+
+    if sidebar-context-open: TouchArea {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        clicked => { sidebar-context-open = false; }
+    }
+
+    if sidebar-context-open: SidebarContextMenu {
+        x: sidebar-context-x + self.width > parent.width - 8px ? parent.width - self.width - 8px : sidebar-context-x;
+        y: sidebar-context-y + self.height > parent.height - 8px ? parent.height - self.height - 8px : sidebar-context-y;
+        target-label: sidebar-context-label;
+        target-is-folder: sidebar-context-is-folder;
+        action(action) => {
+            sidebar-context-open = false;
+            sidebar-context-action(action, sidebar-context-key, sidebar-context-label);
         }
     }
 

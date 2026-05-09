@@ -186,6 +186,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
 
     let weak = ui.as_weak();
     let sidebar_context_state = state.clone();
+    let sidebar_context_scan = scan_runtime.clone();
     ui.on_sidebar_context_action(move |action, key, label| {
         if let Some(ui) = weak.upgrade() {
             match action.as_str() {
@@ -203,6 +204,19 @@ pub fn run() -> Result<(), slint::PlatformError> {
                             ui.set_status_text(format!("Could not reveal folder: {}", err).into())
                         }
                     }
+                }
+                "rescan" => {
+                    let Some(path) = folder_path_from_filter_key(key.as_str()) else {
+                        ui.set_status_text("No folder path available for that sidebar item".into());
+                        return;
+                    };
+                    rescan_sidebar_folder(
+                        &ui,
+                        &sidebar_context_state,
+                        &sidebar_context_scan,
+                        &path,
+                        label.as_str(),
+                    );
                 }
                 "copy" => {
                     let text = folder_path_from_filter_key(key.as_str())
@@ -659,7 +673,11 @@ pub fn run() -> Result<(), slint::PlatformError> {
                     format!("File watcher error: {error}; use Refresh manually").into(),
                 );
             }
-            if let Some(result) = auto_scan.borrow_mut().poll() {
+            let scan_poll = auto_scan.borrow_mut().poll();
+            if let Some(progress) = scan_poll.progress {
+                apply_scan_progress(&ui, &progress);
+            }
+            if let Some(result) = scan_poll.result {
                 apply_scan_result(&ui, &auto_state, result);
             }
         },
@@ -793,12 +811,32 @@ struct ScanResult {
     skipped: usize,
 }
 
+struct ScanProgress {
+    generation: u64,
+    folder: PathBuf,
+    scanned: usize,
+    total: usize,
+    skipped: usize,
+    current: String,
+}
+
+#[derive(Default)]
+struct ScanPoll {
+    progress: Option<ScanProgress>,
+    result: Option<ScanResult>,
+}
+
+enum ScanMessage {
+    Progress(ScanProgress),
+    Result(ScanResult),
+}
+
 struct LibraryScanRuntime {
     next_generation: u64,
     active_generation: Option<u64>,
     active_folder: Option<PathBuf>,
-    tx: mpsc::Sender<ScanResult>,
-    rx: mpsc::Receiver<ScanResult>,
+    tx: mpsc::Sender<ScanMessage>,
+    rx: mpsc::Receiver<ScanMessage>,
 }
 
 impl LibraryScanRuntime {
@@ -825,26 +863,37 @@ impl LibraryScanRuntime {
         let folder = folder.to_path_buf();
         let tx = self.tx.clone();
         thread::spawn(move || {
-            let (entries, skipped) = scan_folder_entries(&folder);
-            let _ = tx.send(ScanResult {
+            let total = count_supported_model_files(&folder);
+            let (entries, skipped) = scan_folder_entries(&folder, generation, total, &tx);
+            let _ = tx.send(ScanMessage::Result(ScanResult {
                 generation,
                 folder,
                 entries,
                 skipped,
-            });
+            }));
         });
         ScanRequest::Started
     }
 
-    fn poll(&mut self) -> Option<ScanResult> {
-        let mut latest = None;
-        while let Ok(result) = self.rx.try_recv() {
-            if Some(result.generation) == self.active_generation
-                && Some(result.folder.as_path()) == self.active_folder.as_deref()
-            {
-                self.active_generation = None;
-                self.active_folder = None;
-                latest = Some(result);
+    fn poll(&mut self) -> ScanPoll {
+        let mut latest = ScanPoll::default();
+        while let Ok(message) = self.rx.try_recv() {
+            match message {
+                ScanMessage::Progress(progress)
+                    if Some(progress.generation) == self.active_generation
+                        && Some(progress.folder.as_path()) == self.active_folder.as_deref() =>
+                {
+                    latest.progress = Some(progress);
+                }
+                ScanMessage::Result(result)
+                    if Some(result.generation) == self.active_generation
+                        && Some(result.folder.as_path()) == self.active_folder.as_deref() =>
+                {
+                    self.active_generation = None;
+                    self.active_folder = None;
+                    latest.result = Some(result);
+                }
+                _ => {}
             }
         }
         latest
@@ -1021,6 +1070,7 @@ fn start_folder_scan(
     folder: &Path,
     status: &str,
 ) {
+    ui.set_scan_progress_percent(0);
     let snapshot = state.borrow_mut().begin_folder_scan(folder, status);
     apply_snapshot(ui, &snapshot);
     apply_detail(ui, &state.borrow());
@@ -1046,7 +1096,10 @@ fn request_active_real_folder_scan(
     };
 
     match scan_runtime.borrow_mut().request_scan(&folder) {
-        ScanRequest::Started => ui.set_status_text(status.into()),
+        ScanRequest::Started => {
+            ui.set_scan_progress_percent(0);
+            ui.set_status_text(status.into());
+        }
         ScanRequest::AlreadyRunning => {
             ui.set_status_text("Refresh already running for this library".into())
         }
@@ -1054,10 +1107,55 @@ fn request_active_real_folder_scan(
     Some(folder)
 }
 
+fn apply_scan_progress(ui: &ModelRackWindow, progress: &ScanProgress) {
+    let percent = if progress.total == 0 {
+        0
+    } else {
+        ((progress.scanned.min(progress.total) * 100) / progress.total).min(99)
+    };
+    ui.set_scan_progress_percent(percent as i32);
+    ui.set_status_text(
+        format!(
+            "Scanning {} · {} / {} · {} skipped",
+            progress.current, progress.scanned, progress.total, progress.skipped
+        )
+        .into(),
+    );
+}
+
+fn rescan_sidebar_folder(
+    ui: &ModelRackWindow,
+    state: &Rc<RefCell<ShellState>>,
+    scan_runtime: &Rc<RefCell<LibraryScanRuntime>>,
+    folder: &Path,
+    label: &str,
+) {
+    let status = format!("Rescanning {label}");
+    if let Some(root) = state.borrow().active_real_folder() {
+        match scan_runtime.borrow_mut().request_scan(&root) {
+            ScanRequest::Started => {
+                ui.set_scan_progress_percent(0);
+                ui.set_status_text(status.into());
+            }
+            ScanRequest::AlreadyRunning => {
+                ui.set_status_text("Rescan already running for this library".into())
+            }
+        }
+        return;
+    }
+
+    if folder.is_dir() {
+        start_folder_scan(ui, state, scan_runtime, folder, &status);
+    } else {
+        ui.set_status_text(format!("Folder no longer exists: {}", folder.display()).into());
+    }
+}
+
 fn apply_scan_result(ui: &ModelRackWindow, state: &Rc<RefCell<ShellState>>, result: ScanResult) {
     if state.borrow().active_real_folder().as_deref() != Some(result.folder.as_path()) {
         return;
     }
+    ui.set_scan_progress_percent(-1);
     let snapshot = state.borrow_mut().apply_scan_result(result);
     apply_snapshot(ui, &snapshot);
     apply_detail(ui, &state.borrow());
@@ -2937,9 +3035,14 @@ fn theme_label(theme: &str) -> &'static str {
     }
 }
 
-fn scan_folder_entries(folder: &Path) -> (Vec<scanner::StlFileInfo>, usize) {
-    let (tx, rx) = crossbeam_channel::unbounded();
-    scanner::scan_folder_stream(folder, tx);
+fn scan_folder_entries(
+    folder: &Path,
+    generation: u64,
+    total: usize,
+    tx: &mpsc::Sender<ScanMessage>,
+) -> (Vec<scanner::StlFileInfo>, usize) {
+    let (scan_tx, rx) = crossbeam_channel::unbounded();
+    scanner::scan_folder_stream(folder, scan_tx);
 
     let mut entries = Vec::new();
     let mut skipped = 0usize;
@@ -2950,7 +3053,14 @@ fn scan_folder_entries(folder: &Path) -> (Vec<scanner::StlFileInfo>, usize) {
                 skipped,
                 current,
             } => {
-                let _ = (scanned, skipped, current);
+                let _ = tx.send(ScanMessage::Progress(ScanProgress {
+                    generation,
+                    folder: folder.to_path_buf(),
+                    scanned,
+                    total,
+                    skipped,
+                    current,
+                }));
             }
             scanner::ScanEvent::Entry { mut info, mesh } => {
                 info.thumbnail_path =
@@ -2968,6 +3078,28 @@ fn scan_folder_entries(folder: &Path) -> (Vec<scanner::StlFileInfo>, usize) {
 
     entries.sort_by(|a, b| a.filename.to_lowercase().cmp(&b.filename.to_lowercase()));
     (entries, skipped)
+}
+
+fn count_supported_model_files(folder: &Path) -> usize {
+    walkdir::WalkDir::new(folder)
+        .follow_links(false)
+        .into_iter()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_file())
+        .filter(|entry| is_supported_model_path(entry.path()))
+        .count()
+}
+
+fn is_supported_model_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "stl" | "3mf" | "obj" | "step" | "stp"
+            )
+        })
+        .unwrap_or(false)
 }
 
 fn browser_card(card: &BrowserCardVm) -> BrowserCard {
@@ -3275,7 +3407,7 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(4);
         let mut result = None;
         while Instant::now() < deadline {
-            result = runtime.poll();
+            result = runtime.poll().result;
             if result.is_some() {
                 break;
             }
@@ -3296,25 +3428,26 @@ mod tests {
         runtime.active_folder = Some(PathBuf::from("/tmp/new"));
         runtime
             .tx
-            .send(ScanResult {
+            .send(ScanMessage::Result(ScanResult {
                 generation: 1,
                 folder: PathBuf::from("/tmp/old"),
                 entries: Vec::new(),
                 skipped: 0,
-            })
+            }))
             .unwrap();
         runtime
             .tx
-            .send(ScanResult {
+            .send(ScanMessage::Result(ScanResult {
                 generation: 2,
                 folder: PathBuf::from("/tmp/new"),
                 entries: Vec::new(),
                 skipped: 0,
-            })
+            }))
             .unwrap();
 
         let result = runtime
             .poll()
+            .result
             .expect("latest generation should be returned");
         assert_eq!(result.generation, 2);
         assert_eq!(result.folder, PathBuf::from("/tmp/new"));
@@ -3332,15 +3465,15 @@ mod tests {
         runtime.invalidate();
         runtime
             .tx
-            .send(ScanResult {
+            .send(ScanMessage::Result(ScanResult {
                 generation: 1,
                 folder: PathBuf::from("/tmp/old-library"),
                 entries: Vec::new(),
                 skipped: 0,
-            })
+            }))
             .unwrap();
 
-        assert!(runtime.poll().is_none());
+        assert!(runtime.poll().result.is_none());
         assert_eq!(runtime.active_generation, None);
         assert_eq!(runtime.active_folder, None);
     }
