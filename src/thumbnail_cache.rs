@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use crate::scanner::{MeshData, StlFileInfo};
 
-const CACHE_VERSION: &str = "v3";
+const CACHE_VERSION: &str = "v4";
 const THUMB_SIZE: u32 = 224;
 
 pub fn ensure_thumbnail(entry: &StlFileInfo, mesh: Option<&MeshData>) -> io::Result<PathBuf> {
@@ -102,7 +102,10 @@ fn render_thumbnail(
     );
 
     if let Some(mesh) = mesh.filter(|mesh| !mesh.vertices.is_empty() && !mesh.faces.is_empty()) {
-        draw_mesh_shaded(&mut canvas, mesh, high, low);
+        let stats = draw_mesh_shaded(&mut canvas, mesh, high, low);
+        if !stats.drew_geometry() {
+            draw_dimension_block(&mut canvas, entry, high, low);
+        }
     } else {
         draw_dimension_block(&mut canvas, entry, high, low);
     }
@@ -111,10 +114,31 @@ fn render_thumbnail(
     canvas.into_rgba()
 }
 
-fn draw_mesh_shaded(canvas: &mut Canvas, mesh: &MeshData, high: [u8; 4], low: [u8; 4]) {
+#[derive(Default)]
+struct MeshDrawStats {
+    filled_faces: usize,
+    edged_faces: usize,
+}
+
+impl MeshDrawStats {
+    fn drew_geometry(&self) -> bool {
+        self.filled_faces > 0 || self.edged_faces > 0
+    }
+}
+
+fn draw_mesh_shaded(
+    canvas: &mut Canvas,
+    mesh: &MeshData,
+    high: [u8; 4],
+    low: [u8; 4],
+) -> MeshDrawStats {
+    let Some(mesh) = mesh.compacted() else {
+        return MeshDrawStats::default();
+    };
+
     let projected = project_vertices(&mesh.vertices);
     if projected.is_empty() {
-        return;
+        return MeshDrawStats::default();
     }
 
     let points = fit_projected_points(canvas, &projected);
@@ -140,12 +164,16 @@ fn draw_mesh_shaded(canvas: &mut Canvas, mesh: &MeshData, high: [u8; 4], low: [u
 
     faces.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
     let stride = (faces.len() / 5000).max(1);
+    let mut stats = MeshDrawStats::default();
     for (_, face) in faces.into_iter().step_by(stride) {
-        let fill = shaded_face_color(mesh, face, high, low);
-        draw_face_fill(canvas, &screen_points, face, fill);
+        let fill = shaded_face_color(&mesh, face, high, low);
+        if draw_face_fill(canvas, &screen_points, face, fill) {
+            stats.filled_faces += 1;
+        }
     }
 
-    draw_mesh_wireframe_points(canvas, mesh, &screen_points, high, low);
+    stats.edged_faces = draw_mesh_wireframe_points(canvas, &mesh, &screen_points, high, low);
+    stats
 }
 
 fn fit_projected_points(canvas: &Canvas, projected: &[[f32; 3]]) -> Vec<[f32; 3]> {
@@ -170,12 +198,16 @@ fn draw_mesh_wireframe_points(
     points: &[[f32; 2]],
     high: [u8; 4],
     low: [u8; 4],
-) {
+) -> usize {
     let stride = (mesh.faces.len() / 1500).max(1);
+    let mut drawn_edges = 0;
     for (idx, face) in mesh.faces.iter().enumerate().step_by(stride) {
         let color = if idx % (stride * 3) == 0 { high } else { low };
-        draw_face_edges(canvas, &points, *face, color);
+        if draw_face_edges(canvas, &points, *face, color) {
+            drawn_edges += 1;
+        }
     }
+    drawn_edges
 }
 
 fn shaded_face_color(mesh: &MeshData, face: [u32; 3], high: [u8; 4], low: [u8; 4]) -> [u8; 4] {
@@ -197,17 +229,22 @@ fn shaded_face_color(mesh: &MeshData, face: [u32; 3], high: [u8; 4], low: [u8; 4
     ]
 }
 
-fn draw_face_fill(canvas: &mut Canvas, points: &[[f32; 2]], face: [u32; 3], color: [u8; 4]) {
+fn draw_face_fill(
+    canvas: &mut Canvas,
+    points: &[[f32; 2]],
+    face: [u32; 3],
+    color: [u8; 4],
+) -> bool {
     let indices = [face[0] as usize, face[1] as usize, face[2] as usize];
     if indices.iter().any(|index| *index >= points.len()) {
-        return;
+        return false;
     }
     canvas.draw_triangle(
         points[indices[0]],
         points[indices[1]],
         points[indices[2]],
         color,
-    );
+    )
 }
 
 fn sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
@@ -237,16 +274,23 @@ fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {
         .clamp(0.0, 255.0) as u8
 }
 
-fn draw_face_edges(canvas: &mut Canvas, points: &[[f32; 2]], face: [u32; 3], color: [u8; 4]) {
+fn draw_face_edges(
+    canvas: &mut Canvas,
+    points: &[[f32; 2]],
+    face: [u32; 3],
+    color: [u8; 4],
+) -> bool {
     let indices = [face[0] as usize, face[1] as usize, face[2] as usize];
     if indices.iter().any(|index| *index >= points.len()) {
-        return;
+        return false;
     }
+    let mut drew_edge = false;
     for edge in [(0, 1), (1, 2), (2, 0)] {
         let a = points[indices[edge.0]];
         let b = points[indices[edge.1]];
-        canvas.draw_line(a[0], a[1], b[0], b[1], color);
+        drew_edge |= canvas.draw_line(a[0], a[1], b[0], b[1], color);
     }
+    drew_edge
 }
 
 fn draw_dimension_block(canvas: &mut Canvas, entry: &StlFileInfo, high: [u8; 4], low: [u8; 4]) {
@@ -445,7 +489,7 @@ impl Canvas {
         }
     }
 
-    fn draw_triangle(&mut self, a: [f32; 2], b: [f32; 2], c: [f32; 2], color: [u8; 4]) {
+    fn draw_triangle(&mut self, a: [f32; 2], b: [f32; 2], c: [f32; 2], color: [u8; 4]) -> bool {
         let min_x = a[0].min(b[0]).min(c[0]).floor().max(0.0) as i32;
         let max_x = a[0]
             .max(b[0])
@@ -460,9 +504,10 @@ impl Canvas {
             .min((self.height.saturating_sub(1)) as f32) as i32;
         let area = edge_function(a, b, c);
         if area.abs() < 0.001 {
-            return;
+            return false;
         }
 
+        let mut drew = false;
         for y in min_y..=max_y {
             for x in min_x..=max_x {
                 let p = [x as f32 + 0.5, y as f32 + 0.5];
@@ -472,13 +517,14 @@ impl Canvas {
                 if (area > 0.0 && w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0)
                     || (area < 0.0 && w0 <= 0.0 && w1 <= 0.0 && w2 <= 0.0)
                 {
-                    self.blend_pixel(x, y, color);
+                    drew |= self.blend_pixel(x, y, color);
                 }
             }
         }
+        drew
     }
 
-    fn draw_line(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, color: [u8; 4]) {
+    fn draw_line(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, color: [u8; 4]) -> bool {
         let mut x0 = x0.round() as i32;
         let mut y0 = y0.round() as i32;
         let x1 = x1.round() as i32;
@@ -488,10 +534,11 @@ impl Canvas {
         let dy = -(y1 - y0).abs();
         let sy = if y0 < y1 { 1 } else { -1 };
         let mut err = dx + dy;
+        let mut drew = false;
 
         loop {
-            self.blend_pixel(x0, y0, color);
-            self.blend_pixel(x0 + 1, y0, [color[0], color[1], color[2], color[3] / 3]);
+            drew |= self.blend_pixel(x0, y0, color);
+            drew |= self.blend_pixel(x0 + 1, y0, [color[0], color[1], color[2], color[3] / 3]);
             if x0 == x1 && y0 == y1 {
                 break;
             }
@@ -505,11 +552,12 @@ impl Canvas {
                 y0 += sy;
             }
         }
+        drew
     }
 
-    fn blend_pixel(&mut self, x: i32, y: i32, color: [u8; 4]) {
+    fn blend_pixel(&mut self, x: i32, y: i32, color: [u8; 4]) -> bool {
         if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 || color[3] == 0 {
-            return;
+            return false;
         }
         let idx = ((y as u32 * self.width + x as u32) * 4) as usize;
         let alpha = color[3] as f32 / 255.0;
@@ -519,6 +567,7 @@ impl Canvas {
                 ((*value as f32 * alpha) + (self.data[idx + channel] as f32 * inv)) as u8;
         }
         self.data[idx + 3] = (color[3] as f32 + self.data[idx + 3] as f32 * inv).min(255.0) as u8;
+        true
     }
 }
 
@@ -659,5 +708,51 @@ mod tests {
         assert_eq!(first_meta, second_meta);
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn render_thumbnail_skips_invalid_vertices_without_losing_valid_faces() {
+        let mesh = MeshData {
+            vertices: vec![
+                [0.0, 0.0, 0.0],
+                [f32::NAN, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+            ],
+            faces: vec![[0, 2, 3], [0, 1, 3]],
+        };
+
+        let pixels = render_thumbnail(&entry(17), Some(&mesh), THUMB_SIZE, THUMB_SIZE);
+        let fallback_pixels = render_thumbnail(&entry(17), None, THUMB_SIZE, THUMB_SIZE);
+        let different_pixels = pixels
+            .chunks_exact(4)
+            .zip(fallback_pixels.chunks_exact(4))
+            .filter(|(with_mesh, fallback)| with_mesh != fallback)
+            .count();
+
+        let mut canvas = Canvas::new(THUMB_SIZE, THUMB_SIZE);
+        let stats = draw_mesh_shaded(&mut canvas, &mesh, [220, 230, 240, 235], [80, 90, 100, 150]);
+
+        assert!(different_pixels > 1_000);
+        assert!(stats.filled_faces > 0 || stats.edged_faces > 0);
+    }
+
+    #[test]
+    fn render_thumbnail_falls_back_when_mesh_has_no_drawable_faces() {
+        let mesh = MeshData {
+            vertices: vec![[f32::NAN, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            faces: vec![[0, 1, 2]],
+        };
+
+        let with_non_drawable_mesh =
+            render_thumbnail(&entry(23), Some(&mesh), THUMB_SIZE, THUMB_SIZE);
+        let fallback = render_thumbnail(&entry(23), None, THUMB_SIZE, THUMB_SIZE);
+
+        assert_eq!(with_non_drawable_mesh, fallback);
+    }
+
+    #[test]
+    fn thumbnail_cache_version_reflects_renderer_contract() {
+        assert_eq!(CACHE_VERSION, "v4");
     }
 }

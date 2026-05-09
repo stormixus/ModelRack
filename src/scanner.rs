@@ -73,11 +73,23 @@ pub enum ScanEvent {
     },
 }
 
-/// Parsed mesh data for thumbnail generation
+/// Parsed mesh data for thumbnail/detail-preview generation.
+///
+/// Renderers may defensively call [`MeshData::compacted`] before projection.
+/// Compaction keeps finite vertices, remaps faces from source-file indices to
+/// compact indices, and drops entire faces that reference invalid or missing
+/// vertices.
 #[derive(Clone)]
 pub struct MeshData {
     pub vertices: Vec<[f32; 3]>,
     pub faces: Vec<[u32; 3]>,
+}
+
+impl MeshData {
+    pub(crate) fn compacted(&self) -> Option<Self> {
+        let vertices = self.vertices.iter().copied().map(Some).collect::<Vec<_>>();
+        compact_mesh(&vertices, &self.faces)
+    }
 }
 
 #[derive(Clone)]
@@ -322,37 +334,47 @@ fn parse_obj_file(path: &Path) -> Result<(StlFileInfo, Option<MeshData>)> {
 }
 
 fn parse_obj_mesh(text: &str) -> Option<MeshData> {
-    let mut vertices = Vec::<[f32; 3]>::new();
+    let mut vertices = Vec::<Option<[f32; 3]>>::new();
     let mut faces = Vec::<[u32; 3]>::new();
 
     for line in text.lines() {
         let mut parts = line.split_whitespace();
         match parts.next() {
             Some("v") => {
-                let vertex: [f32; 3] = [
-                    parts.next()?.parse().ok()?,
-                    parts.next()?.parse().ok()?,
-                    parts.next()?.parse().ok()?,
-                ];
-                if vertex.iter().all(|value| value.is_finite()) {
-                    vertices.push(vertex);
-                }
+                vertices.push(finite_vertex(parse_obj_vertex(&mut parts)));
             }
             Some("f") => {
-                let indices = parts
-                    .filter_map(|part| obj_vertex_index(part, vertices.len()))
-                    .collect::<Vec<_>>();
-                if indices.len() >= 3 {
-                    for index in 1..(indices.len() - 1) {
-                        faces.push([indices[0], indices[index], indices[index + 1]]);
-                    }
+                if let Some(indices) = parse_obj_face(parts, vertices.len()) {
+                    faces.extend(triangulate_face(&indices));
                 }
             }
             _ => {}
         }
     }
 
-    (!vertices.is_empty() && !faces.is_empty()).then_some(MeshData { vertices, faces })
+    compact_mesh(&vertices, &faces)
+}
+
+fn parse_obj_vertex<'a>(parts: &mut impl Iterator<Item = &'a str>) -> Option<[f32; 3]> {
+    Some([
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+    ])
+}
+
+fn parse_obj_face<'a>(
+    parts: impl Iterator<Item = &'a str>,
+    vertex_count: usize,
+) -> Option<Vec<u32>> {
+    let indices = parts
+        .map(|part| obj_vertex_index(part, vertex_count))
+        .collect::<Option<Vec<_>>>()?;
+    (indices.len() >= 3).then_some(indices)
+}
+
+fn triangulate_face(indices: &[u32]) -> impl Iterator<Item = [u32; 3]> + '_ {
+    (1..indices.len() - 1).map(|index| [indices[0], indices[index], indices[index + 1]])
 }
 
 fn obj_vertex_index(token: &str, vertex_count: usize) -> Option<u32> {
@@ -378,24 +400,55 @@ fn parse_three_mf_mesh_xml(xml: &str) -> Option<MeshData> {
             .trim_start_matches('/');
 
         if name.ends_with("vertex") {
-            let vertex = [
-                attr_f32(tag, "x")?,
-                attr_f32(tag, "y")?,
-                attr_f32(tag, "z")?,
-            ];
-            if vertex.iter().all(|value| value.is_finite()) {
-                vertices.push(vertex);
-            }
+            let vertex = match (attr_f32(tag, "x"), attr_f32(tag, "y"), attr_f32(tag, "z")) {
+                (Some(x), Some(y), Some(z)) => Some([x, y, z]),
+                _ => None,
+            };
+            vertices.push(finite_vertex(vertex));
         } else if name.ends_with("triangle") {
-            faces.push([
-                attr_u32(tag, "v1")?,
-                attr_u32(tag, "v2")?,
-                attr_u32(tag, "v3")?,
-            ]);
+            if let (Some(v1), Some(v2), Some(v3)) = (
+                attr_u32(tag, "v1"),
+                attr_u32(tag, "v2"),
+                attr_u32(tag, "v3"),
+            ) {
+                faces.push([v1, v2, v3]);
+            }
         }
     }
 
-    (!vertices.is_empty() && !faces.is_empty()).then_some(MeshData { vertices, faces })
+    compact_mesh(&vertices, &faces)
+}
+
+pub(crate) fn compact_mesh(vertices: &[Option<[f32; 3]>], faces: &[[u32; 3]]) -> Option<MeshData> {
+    let mut remap = vec![None; vertices.len()];
+    let mut compact_vertices = Vec::new();
+
+    for (old_index, vertex) in vertices.iter().enumerate() {
+        if let Some(vertex) = finite_vertex(*vertex) {
+            remap[old_index] = Some(compact_vertices.len() as u32);
+            compact_vertices.push(vertex);
+        }
+    }
+
+    let compact_faces = faces
+        .iter()
+        .filter_map(|face| {
+            Some([
+                remap.get(face[0] as usize).copied().flatten()?,
+                remap.get(face[1] as usize).copied().flatten()?,
+                remap.get(face[2] as usize).copied().flatten()?,
+            ])
+        })
+        .collect::<Vec<_>>();
+
+    (!compact_vertices.is_empty() && !compact_faces.is_empty()).then_some(MeshData {
+        vertices: compact_vertices,
+        faces: compact_faces,
+    })
+}
+
+fn finite_vertex(vertex: Option<[f32; 3]>) -> Option<[f32; 3]> {
+    vertex.filter(|vertex| vertex.iter().all(|value| value.is_finite()))
 }
 
 fn attr_f32(tag: &str, attr: &str) -> Option<f32> {
@@ -890,6 +943,62 @@ mod tests {
         assert!(matches!(result.entries[0].stl_type, StlType::Obj));
         assert_eq!(result.entries[0].triangle_count, Some(2));
         assert_eq!(result.meshes.len(), 1);
+    }
+
+    #[test]
+    fn obj_mesh_remaps_faces_after_invalid_vertices() {
+        let mesh = parse_obj_mesh(
+            "v 0 0 0\n\
+             v nope 0 0\n\
+             v 1 0 0\n\
+             v 0 1 0\n\
+             f 1 3 4\n\
+             f 1 2 4\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            mesh.vertices,
+            vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]
+        );
+        assert_eq!(mesh.faces, vec![[0, 1, 2]]);
+    }
+
+    #[test]
+    fn obj_mesh_skips_entire_face_with_out_of_range_index() {
+        let mesh = parse_obj_mesh(
+            "v 0 0 0\n\
+             v 1 0 0\n\
+             v 1 1 0\n\
+             v 0 1 0\n\
+             f 1 2 999 3\n\
+             f 1 2 3 4\n",
+        )
+        .unwrap();
+
+        assert_eq!(mesh.faces, vec![[0, 1, 2], [0, 2, 3]]);
+    }
+
+    #[test]
+    fn three_mf_mesh_remaps_faces_after_invalid_vertices() {
+        let mesh = parse_three_mf_mesh_xml(
+            r#"<model><resources><object id="1"><mesh><vertices>
+                <vertex x="0" y="0" z="0"/>
+                <vertex x="nan" y="0" z="0"/>
+                <vertex x="1" y="0" z="0"/>
+                <vertex x="0" y="1" z="0"/>
+                </vertices><triangles>
+                <triangle v1="0" v2="2" v3="3"/>
+                <triangle v1="0" v2="1" v3="3"/>
+                </triangles></mesh></object></resources></model>"#,
+        )
+        .unwrap();
+
+        assert_eq!(
+            mesh.vertices,
+            vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]
+        );
+        assert_eq!(mesh.faces, vec![[0, 1, 2]]);
     }
 
     #[test]
