@@ -1,4 +1,4 @@
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -32,7 +32,7 @@ const LIBRARY_WATCH_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const DEMO_ROOT: &str = "/Users/hwankishin/Library/3d";
 
 pub fn run() -> Result<(), slint::PlatformError> {
-    crate::macos::install_app_menu();
+    configure_slint_backend()?;
 
     let ui = ModelRackWindow::new()?;
     crate::fonts::install_slint_fonts();
@@ -61,18 +61,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
     let open_scan = scan_runtime.clone();
     ui.on_open_folder(move || {
         if let Some(ui) = weak.upgrade() {
-            ui.set_status_text("Choose a library folder".into());
-            if let Some(folder) = rfd::FileDialog::new().pick_folder() {
-                open_scan.borrow_mut().invalidate();
-                start_folder_scan(
-                    &ui,
-                    &open_state,
-                    &open_scan,
-                    &folder,
-                    "Scanning selected folder",
-                );
-                set_watch_status(&ui, &open_watcher, &folder);
-            }
+            choose_library_folder(&ui, &open_state, &open_scan, &open_watcher);
         }
     });
 
@@ -605,26 +594,8 @@ pub fn run() -> Result<(), slint::PlatformError> {
         crate::macos::minimize_window();
     });
 
-    let green_zoom_state = Rc::new(Cell::new(false));
-    let weak = ui.as_weak();
     ui.on_window_fullscreen(move || {
-        // The custom green traffic light should behave like macOS Zoom
-        // (maximize/restore), not force a separate full-screen Space. Prefer
-        // winit's maximized state for frameless windows because native `zoom:`
-        // can animate without committing a new frame size on this backend.
-        if let Some(ui) = weak.upgrade() {
-            let zoom_state = green_zoom_state.clone();
-            let result = ui.window().with_winit_window(|window| {
-                let should_maximize = !window.is_maximized() && !zoom_state.get();
-                window.set_maximized(should_maximize);
-                zoom_state.set(should_maximize);
-            });
-            if result.is_none() {
-                crate::macos::zoom_window();
-            }
-        } else {
-            crate::macos::zoom_window();
-        }
+        crate::macos::fullscreen_window();
     });
 
     let weak = ui.as_weak();
@@ -668,17 +639,39 @@ pub fn run() -> Result<(), slint::PlatformError> {
         },
     );
 
-    let _ = ui.window().with_winit_window(|window| {
-        // The Slint shell draws its own macOS-style chrome; keep the native
-        // frame decoration disabled so packaged captures do not show a second
-        // macOS titlebar above the custom titlebar.
-        window.set_decorations(false);
-    });
+    let weak = ui.as_weak();
+    let menu_state = state.clone();
+    let menu_watcher = watcher_runtime.clone();
+    let menu_scan = scan_runtime.clone();
+    let menu_poll_timer = Rc::new(slint::Timer::default());
+    menu_poll_timer.start(
+        slint::TimerMode::Repeated,
+        std::time::Duration::from_millis(150),
+        move || {
+            let Some(ui) = weak.upgrade() else {
+                return;
+            };
+
+            if crate::macos::take_settings_request() {
+                {
+                    let mut state = menu_state.borrow_mut();
+                    state.settings_open = true;
+                    state.settings_tab = "general".to_string();
+                }
+                apply_settings(&ui, &menu_state.borrow());
+                ui.set_status_text("Settings opened from the macOS menu bar".into());
+            }
+
+            if crate::macos::take_open_library_request() {
+                choose_library_folder(&ui, &menu_state, &menu_scan, &menu_watcher);
+            }
+        },
+    );
 
     ui.show()?;
+    crate::macos::install_app_menu();
 
     let _ = ui.window().with_winit_window(|window| {
-        window.set_decorations(false);
         window.set_resizable(true);
         window.set_min_inner_size(Some(PhysicalSize::new(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)));
         window.set_max_inner_size(None::<PhysicalSize<u32>>);
@@ -688,17 +681,41 @@ pub fn run() -> Result<(), slint::PlatformError> {
         ));
     });
 
-    crate::macos::configure_transparent_titlebar();
+    crate::macos::configure_native_window_chrome();
 
     // Re-apply after the first macOS layout pass so restored/reopened windows
-    // keep the custom titlebar as the only visible titlebar.
+    // keep the native wrapper and full-screen collection behavior.
     slint::Timer::single_shot(std::time::Duration::from_millis(50), move || {
-        crate::macos::configure_transparent_titlebar();
+        crate::macos::install_app_menu();
+        crate::macos::configure_native_window_chrome();
         crate::macos::show_windows();
     });
 
     slint::run_event_loop()?;
+    drop(menu_poll_timer);
     drop(watch_poll_timer);
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn configure_slint_backend() -> Result<(), slint::PlatformError> {
+    use i_slint_backend_winit::winit::platform::macos::WindowAttributesExtMacOS;
+
+    let backend = i_slint_backend_winit::Backend::builder()
+        .with_default_menu_bar(false)
+        .with_window_attributes_hook(|attributes| {
+            attributes
+                .with_fullsize_content_view(true)
+                .with_titlebar_transparent(true)
+                .with_title_hidden(true)
+                .with_titlebar_buttons_hidden(true)
+        })
+        .build()?;
+    slint::platform::set_platform(Box::new(backend)).map_err(slint::PlatformError::SetPlatformError)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn configure_slint_backend() -> Result<(), slint::PlatformError> {
     Ok(())
 }
 
@@ -954,6 +971,20 @@ fn set_watch_status(
     match watcher_runtime.borrow_mut().watch_folder(folder) {
         Ok(()) => ui.set_status_text("Watching library for changes".into()),
         Err(err) => ui.set_status_text(format!("{err}; use Refresh manually").into()),
+    }
+}
+
+fn choose_library_folder(
+    ui: &ModelRackWindow,
+    state: &Rc<RefCell<ShellState>>,
+    scan_runtime: &Rc<RefCell<LibraryScanRuntime>>,
+    watcher_runtime: &Rc<RefCell<LibraryWatcherRuntime>>,
+) {
+    ui.set_status_text("Choose a library folder".into());
+    if let Some(folder) = rfd::FileDialog::new().pick_folder() {
+        scan_runtime.borrow_mut().invalidate();
+        start_folder_scan(ui, state, scan_runtime, &folder, "Scanning selected folder");
+        set_watch_status(ui, watcher_runtime, &folder);
     }
 }
 

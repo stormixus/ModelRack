@@ -6,8 +6,9 @@ This checklist is the P0b gate before enforcing visual pixel thresholds.
 
 - The active UI shell is Slint (`src/main.rs` enters `slint_shell::run()`).
 - Startup capture geometry is requested through the winit window bridge at 1480×920 with a 960×640 minimum.
-- Native frame decorations are disabled because the Slint shell draws the visible titlebar and traffic-light controls; packaged smoke captures must not show a second macOS titlebar above it.
-- The custom green traffic-light callback uses winit maximize/restore for frameless windows, with native macOS `zoom:` only as a fallback when the Slint window handle is unavailable; it must not enter a separate full-screen Space.
+- Native frame decorations stay enabled so macOS owns the window wrapper, rounded corners, shadow, and full-screen transition.
+- Slint draws the visible custom titlebar and traffic-light controls inside the native wrapper; the native standard buttons are hidden.
+- The custom green traffic light uses native macOS full-screen (`toggleFullScreen:`), matching the standard green-button behavior for this app.
 - Native full-screen remains available through the macOS View menu path.
 
 ## Manual packaged-app smoke
@@ -15,11 +16,27 @@ This checklist is the P0b gate before enforcing visual pixel thresholds.
 Run against `build/ModelRack.app`, not only `cargo run`:
 
 1. Launch app and confirm the first visible window is 1480×920 or record the actual captured geometry in visual QA metadata.
-2. Drag custom titlebar; the window should move without selecting sidebar/grid content.
-3. Red traffic light hides the app; Dock icon restores the window.
-4. Yellow traffic light minimizes; Dock/window restore returns to the same app state.
-5. Green traffic light maximizes through the winit window state; pressing it again restores the previous size. It must not enter a separate full-screen Space.
-6. Run `scripts/capture-smoke.sh`; verify it emits a screenshot path plus the current artifact `report.json`.
+2. Drag the custom Slint titlebar; the native-wrapped window should move without selecting sidebar/grid content.
+3. Custom red traffic light hides the app; Dock/app activation restores a usable window.
+4. Custom yellow traffic light minimizes; Dock/window restore returns to the same app state.
+5. Custom green traffic light enters native macOS full-screen; pressing it again exits full-screen and restores the previous size.
+6. The packaged screenshot shows native wrapper rounded corners and shadow from macOS, not a Slint-painted fake frame.
+7. Run `scripts/capture-smoke.sh`; verify it emits a screenshot path plus the current artifact `report.json`.
+
+The same checklist can be run as an automated packaged smoke on macOS:
+
+```bash
+cargo build
+cp target/debug/modelrack build/ModelRack.app/Contents/MacOS/modelrack
+codesign --force --deep --sign - build/ModelRack.app
+scripts/window-chrome-smoke.py
+```
+
+The script launches the packaged app with isolated preferences, drives the custom
+traffic-light controls through CoreGraphics mouse events, verifies objective
+window state through Accessibility, samples the captured screenshot for visible
+rounded corners, and writes
+`.omx/artifacts/window-chrome-qa/<run>/window-chrome-report.json`.
 
 ## Pixel-threshold rule
 
@@ -27,4 +44,4 @@ Do not enforce P1 pixel thresholds until this gate is one of:
 
 - **fixed:** geometry and traffic lights are deterministic;
 - **masked:** native chrome/shadow variance is represented in the visual QA mask list;
-- **tracked:** any remaining green maximize/restore backend defect remains a known TODO-15 follow-up and is excluded from pixel scoring with explicit evidence.
+- **tracked:** any remaining green full-screen backend defect remains a known TODO-15 follow-up and is excluded from pixel scoring with explicit evidence.

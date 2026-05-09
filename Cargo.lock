@@ -2861,6 +2861,7 @@ dependencies = [
  "anyhow",
  "blake3",
  "crossbeam-channel",
+ "i-slint-backend-winit",
  "notify",
  "objc",
  "rayon",

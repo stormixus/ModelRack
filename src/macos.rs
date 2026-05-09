@@ -15,22 +15,22 @@ mod imp {
     static MENU_TARGET: OnceLock<usize> = OnceLock::new();
 
     pub fn install_app_menu() {
-        if MENU_INSTALLED.swap(true, Ordering::AcqRel) {
-            return;
-        }
-
         unsafe {
             let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
             let _: () = msg_send![app, setActivationPolicy: 0isize];
             let target = menu_target();
-            let _: () = msg_send![app, setDelegate: target];
-            install_activation_observer(target);
+            let first_install = !MENU_INSTALLED.swap(true, Ordering::AcqRel);
+            if first_install {
+                install_activation_observer(target);
+            }
 
             let main_menu: *mut Object = msg_send![class!(NSMenu), new];
             let app_menu_item: *mut Object = msg_send![class!(NSMenuItem), new];
+            let _: () = msg_send![app_menu_item, setTitle: ns_string("ModelRack")];
             let _: () = msg_send![main_menu, addItem: app_menu_item];
 
             let app_menu: *mut Object = msg_send![class!(NSMenu), new];
+            let _: () = msg_send![app_menu, setTitle: ns_string("ModelRack")];
             let _: () = msg_send![app_menu_item, setSubmenu: app_menu];
 
             add_item(
@@ -44,7 +44,7 @@ mod imp {
 
             add_item(
                 app_menu,
-                "Settings...",
+                "Settings…",
                 ",",
                 sel!(openModelRackSettings:),
                 target,
@@ -93,7 +93,7 @@ mod imp {
             let _: () = msg_send![file_menu_item, setSubmenu: file_menu];
             add_item(
                 file_menu,
-                "Open Library...",
+                "Open Library…",
                 "o",
                 sel!(openModelRackLibrary:),
                 target,
@@ -102,8 +102,8 @@ mod imp {
                 file_menu,
                 "Close Window",
                 "w",
-                sel!(performClose:),
-                std::ptr::null_mut(),
+                sel!(hideModelRackWindow:),
+                target,
             );
 
             let edit_menu_item = add_plain_item(main_menu, "Edit");
@@ -132,8 +132,8 @@ mod imp {
                 view_menu,
                 "Enter Full Screen",
                 "f",
-                sel!(toggleFullScreen:),
-                std::ptr::null_mut(),
+                sel!(toggleModelRackFullScreen:),
+                target,
             );
 
             let window_menu_item = add_plain_item(main_menu, "Window");
@@ -190,28 +190,63 @@ mod imp {
         OPEN_LIBRARY_REQUESTED.swap(false, Ordering::AcqRel)
     }
 
-    pub fn hide_application() {
+    pub fn configure_native_window_chrome() {
         unsafe {
             let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
-            let _: () = msg_send![app, hide: std::ptr::null_mut::<Object>()];
-        }
-    }
 
-    pub fn configure_window_appearance() {
-        unsafe {
-            let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
+            // Dark appearance for the whole app.
+            let name = ns_string("NSAppearanceNameDarkAqua");
+            let appearance: *mut Object = msg_send![class!(NSAppearance), appearanceNamed: name];
+            let _: () = msg_send![app, setAppearance: appearance];
+
             let windows: *mut Object = msg_send![app, windows];
             let count: usize = msg_send![windows, count];
             for idx in 0..count {
                 let window: *mut Object = msg_send![windows, objectAtIndex: idx];
-                let content_view: *mut Object = msg_send![window, contentView];
-                let _: () = msg_send![content_view, setWantsLayer: true];
-                let layer: *mut Object = msg_send![content_view, layer];
-                let _: () = msg_send![layer, setCornerRadius: 12.0f64];
-                let _: () = msg_send![layer, setMasksToBounds: true];
-                let _: () = msg_send![window, setBackgroundColor: ns_color(0.0, 0.0, 0.0, 0.0)];
-                let _: () = msg_send![window, setOpaque: false];
+
+                // Keep the NSWindow wrapper/decorations alive for native
+                // rounded corners, shadow, and full-screen transitions, but
+                // let Slint draw the visible titlebar/traffic lights.
+                let _: () = msg_send![window, setTitle: ns_string("")];
+                let _: () = msg_send![window, setTitleVisibility: 1isize];
+                let _: () = msg_send![window, setTitlebarAppearsTransparent: true];
+
+                let style_mask: usize = msg_send![window, styleMask];
+                let titled = 1usize << 0;
+                let closable = 1usize << 1;
+                let miniaturizable = 1usize << 2;
+                let resizable = 1usize << 3;
+                let full_size_content_view = 1usize << 15;
+                let _: () = msg_send![
+                    window,
+                    setStyleMask: style_mask
+                        | titled
+                        | closable
+                        | miniaturizable
+                        | resizable
+                        | full_size_content_view
+                ];
+
+                let collection_behavior: usize = msg_send![window, collectionBehavior];
+                let full_screen_primary = 1usize << 7;
+                let _: () = msg_send![
+                    window,
+                    setCollectionBehavior: collection_behavior | full_screen_primary
+                ];
+
+                let _: () =
+                    msg_send![window, setBackgroundColor: ns_color(0.149, 0.157, 0.180, 1.0)];
                 let _: () = msg_send![window, setHasShadow: true];
+
+                for button in 0usize..=2 {
+                    let standard_button: *mut Object =
+                        msg_send![window, standardWindowButton: button];
+                    if !standard_button.is_null() {
+                        let _: () = msg_send![standard_button, setHidden: true];
+                        let _: () = msg_send![standard_button, setEnabled: false];
+                        let _: () = msg_send![standard_button, setAlphaValue: 0.0f64];
+                    }
+                }
             }
         }
     }
@@ -233,11 +268,17 @@ mod imp {
         }
     }
 
-    pub fn zoom_window() {
+    pub fn fullscreen_window() {
         unsafe {
             if let Some(window) = front_window() {
+                let full_screen_primary = 1usize << 7;
+                let collection_behavior: usize = msg_send![window, collectionBehavior];
+                let _: () = msg_send![
+                    window,
+                    setCollectionBehavior: collection_behavior | full_screen_primary
+                ];
                 let _: () = msg_send![window, makeKeyAndOrderFront: std::ptr::null_mut::<Object>()];
-                let _: () = msg_send![window, zoom: std::ptr::null_mut::<Object>()];
+                let _: () = msg_send![window, toggleFullScreen: std::ptr::null_mut::<Object>()];
             }
         }
     }
@@ -245,66 +286,6 @@ mod imp {
     pub fn show_windows() {
         unsafe {
             show_all_windows();
-        }
-    }
-
-    pub fn configure_transparent_titlebar() {
-        unsafe {
-            let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
-
-            // Dark appearance for the whole app
-            let name = ns_string("NSAppearanceNameDarkAqua");
-            let appearance: *mut Object = msg_send![class!(NSAppearance), appearanceNamed: name];
-            let _: () = msg_send![app, setAppearance: appearance];
-
-            let windows: *mut Object = msg_send![app, windows];
-            let count: usize = msg_send![windows, count];
-            for idx in 0..count {
-                let window: *mut Object = msg_send![windows, objectAtIndex: idx];
-
-                // Hide native title text
-                let _: () = msg_send![window, setTitle: ns_string("")];
-                let _: () = msg_send![window, setTitleVisibility: 1isize];
-
-                // Transparent titlebar — window bg shows through
-                let _: () = msg_send![window, setTitlebarAppearsTransparent: true];
-
-                // Let Slint draw into the native titlebar area so we don't get
-                // a separate macOS titlebar stacked above the custom one.
-                let style_mask: usize = msg_send![window, styleMask];
-                let titled = 1usize << 0;
-                let closable = 1usize << 1;
-                let miniaturizable = 1usize << 2;
-                let resizable = 1usize << 3;
-                let full_size_content_view = 1usize << 15;
-                let full_screen_primary = 1usize << 7;
-                let _: () = msg_send![
-                    window,
-                    setStyleMask: style_mask
-                        | titled
-                        | closable
-                        | miniaturizable
-                        | resizable
-                        | full_size_content_view
-                ];
-                let collection_behavior: usize = msg_send![window, collectionBehavior];
-                let _: () = msg_send![
-                    window,
-                    setCollectionBehavior: collection_behavior | full_screen_primary
-                ];
-
-                for button in 0usize..=2 {
-                    let standard_button: *mut Object =
-                        msg_send![window, standardWindowButton: button];
-                    if !standard_button.is_null() {
-                        let _: () = msg_send![standard_button, setHidden: true];
-                    }
-                }
-
-                // bg-1 = #26282e exactly
-                let _: () =
-                    msg_send![window, setBackgroundColor: ns_color(0.149, 0.157, 0.180, 1.0)];
-            }
         }
     }
 
@@ -411,6 +392,14 @@ mod imp {
                 open_modelrack_library as extern "C" fn(&Object, Sel, *mut Object),
             );
             decl.add_method(
+                sel!(hideModelRackWindow:),
+                hide_modelrack_window as extern "C" fn(&Object, Sel, *mut Object),
+            );
+            decl.add_method(
+                sel!(toggleModelRackFullScreen:),
+                toggle_modelrack_fullscreen as extern "C" fn(&Object, Sel, *mut Object),
+            );
+            decl.add_method(
                 sel!(modelRackApplicationDidBecomeActive:),
                 application_did_become_active as extern "C" fn(&Object, Sel, *mut Object),
             );
@@ -429,6 +418,14 @@ mod imp {
 
     extern "C" fn open_modelrack_library(_this: &Object, _cmd: Sel, _sender: *mut Object) {
         OPEN_LIBRARY_REQUESTED.store(true, Ordering::Release);
+    }
+
+    extern "C" fn hide_modelrack_window(_this: &Object, _cmd: Sel, _sender: *mut Object) {
+        hide_window();
+    }
+
+    extern "C" fn toggle_modelrack_fullscreen(_this: &Object, _cmd: Sel, _sender: *mut Object) {
+        fullscreen_window();
     }
 
     unsafe fn install_activation_observer(target: *mut Object) {
@@ -468,9 +465,8 @@ mod imp {
 
 #[cfg(target_os = "macos")]
 pub use imp::{
-    configure_transparent_titlebar, configure_window_appearance, hide_application, hide_window,
-    install_app_menu, minimize_window, show_windows, take_open_library_request,
-    take_settings_request, zoom_window,
+    configure_native_window_chrome, fullscreen_window, hide_window, install_app_menu,
+    minimize_window, show_windows, take_open_library_request, take_settings_request,
 };
 
 #[cfg(not(target_os = "macos"))]
@@ -487,13 +483,7 @@ pub fn take_open_library_request() -> bool {
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn hide_application() {}
-
-#[cfg(not(target_os = "macos"))]
-pub fn configure_transparent_titlebar() {}
-
-#[cfg(not(target_os = "macos"))]
-pub fn configure_window_appearance() {}
+pub fn configure_native_window_chrome() {}
 
 #[cfg(not(target_os = "macos"))]
 pub fn hide_window() {}
@@ -502,7 +492,7 @@ pub fn hide_window() {}
 pub fn minimize_window() {}
 
 #[cfg(not(target_os = "macos"))]
-pub fn zoom_window() {}
+pub fn fullscreen_window() {}
 
 #[cfg(not(target_os = "macos"))]
 pub fn show_windows() {}
