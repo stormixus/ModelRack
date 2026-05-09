@@ -603,6 +603,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
     let weak = ui.as_weak();
     let orbit_state = state.clone();
     let orbit_frame_pending = orbit_pending.clone();
+    let orbit_frame_timer_for_callback = orbit_frame_timer.clone();
     orbit_frame_timer.start(
         slint::TimerMode::Repeated,
         PREVIEW_ORBIT_FRAME_INTERVAL,
@@ -611,6 +612,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 return;
             };
             let Some((delta_x, delta_y)) = orbit_frame_pending.borrow_mut().take() else {
+                orbit_frame_timer_for_callback.stop();
                 return;
             };
             let mut state = orbit_state.borrow_mut();
@@ -623,9 +625,11 @@ pub fn run() -> Result<(), slint::PlatformError> {
     let weak = ui.as_weak();
     let orbit_state = state.clone();
     let orbit_settle_pending = orbit_pending.clone();
+    let orbit_frame_timer_for_orbit = orbit_frame_timer.clone();
     let orbit_settle_timer_for_callback = orbit_settle_timer.clone();
     ui.on_preview_orbit(move |delta_x, delta_y| {
         orbit_pending.borrow_mut().push(delta_x, delta_y);
+        orbit_frame_timer_for_orbit.restart();
         let weak = weak.clone();
         let orbit_state = orbit_state.clone();
         let orbit_settle_pending = orbit_settle_pending.clone();
@@ -5373,8 +5377,8 @@ fn render_detail_preview_image(
     quality: DetailPreviewQuality,
 ) -> (slint::Image, bool) {
     let (width, height, face_budget) = match quality {
-        DetailPreviewQuality::High => (720, 560, 160_000),
-        DetailPreviewQuality::Interactive => (420, 326, 36_000),
+        DetailPreviewQuality::High => (640, 498, 80_000),
+        DetailPreviewQuality::Interactive => (360, 280, 18_000),
     };
     let pixels = crate::thumbnail_cache::render_preview_rgba_with_face_budget(
         entry,

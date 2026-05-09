@@ -178,10 +178,16 @@ fn draw_mesh_shaded(
     }
 
     let points = fit_projected_points(canvas, &projected);
-    let vertex_colors = smooth_vertex_colors(&mesh, high, low);
+    let stride = (mesh.faces.len() / face_budget.max(1)).max(1);
+    let vertex_colors = if stride == 1 {
+        smooth_vertex_colors(&mesh, high, low)
+    } else {
+        projected_vertex_colors(&projected, high, low)
+    };
     let mut faces = mesh
         .faces
         .iter()
+        .step_by(stride)
         .filter_map(|face| {
             let indices = [face[0] as usize, face[1] as usize, face[2] as usize];
             if indices
@@ -196,9 +202,8 @@ fn draw_mesh_shaded(
         .collect::<Vec<_>>();
 
     faces.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-    let stride = (faces.len() / face_budget.max(1)).max(1);
     let mut stats = MeshDrawStats::default();
-    for (_, face) in faces.into_iter().step_by(stride) {
+    for (_, face) in faces {
         stats.submitted_faces += 1;
         if draw_face_fill(canvas, &points, &vertex_colors, face) {
             stats.filled_faces += 1;
@@ -222,6 +227,29 @@ fn fit_projected_points(canvas: &Canvas, projected: &[[f32; 3]]) -> Vec<[f32; 3]
         .iter()
         .map(|[x, y, z]| [x * scale + offset_x, y * scale + offset_y, *z])
         .collect::<Vec<_>>()
+}
+
+fn projected_vertex_colors(projected: &[[f32; 3]], high: [u8; 4], low: [u8; 4]) -> Vec<[u8; 4]> {
+    let (min_z, max_z) = projected
+        .iter()
+        .fold((f32::INFINITY, f32::NEG_INFINITY), |(min_z, max_z), point| {
+            (min_z.min(point[2]), max_z.max(point[2]))
+        });
+    let span_z = (max_z - min_z).max(0.001);
+
+    projected
+        .iter()
+        .map(|point| {
+            let depth = ((point[2] - min_z) / span_z).clamp(0.0, 1.0);
+            let shade = (0.42 + depth * 0.46).clamp(0.0, 1.0);
+            [
+                lerp_u8(low[0], high[0], shade),
+                lerp_u8(low[1], high[1], shade),
+                lerp_u8(low[2], high[2], shade),
+                245,
+            ]
+        })
+        .collect()
 }
 
 fn smooth_vertex_colors(mesh: &MeshData, high: [u8; 4], low: [u8; 4]) -> Vec<[u8; 4]> {
