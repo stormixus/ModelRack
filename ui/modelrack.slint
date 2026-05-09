@@ -336,6 +336,14 @@ component ContextMenuItem inherits Rectangle {
 component SidebarContextMenu inherits Rectangle {
     in property <string> target-label;
     in property <bool> target-is-folder;
+    in property <string> filter-folder-label;
+    in property <string> filter-tag-label;
+    in property <string> remove-library-label;
+    in property <string> reveal-finder-label;
+    in property <string> rescan-folder-label;
+    in property <string> delete-folder-label;
+    in property <string> copy-path-label;
+    in property <string> copy-tag-label;
     callback action(string);
 
     width: 188px;
@@ -359,42 +367,42 @@ component SidebarContextMenu inherits Rectangle {
         }
 
         ContextMenuItem {
-            label: target-is-folder ? "Filter this folder" : "Filter this tag";
+            label: target-is-folder ? filter-folder-label : filter-tag-label;
             hint: "";
             icon: @image-url("../assets/icons/filter.svg");
             activated => { root.action("filter"); }
         }
 
         if target-is-folder: ContextMenuItem {
-            label: "Remove from Library";
+            label: remove-library-label;
             hint: "";
             icon: @image-url("../assets/icons/minus.svg");
             activated => { root.action("remove"); }
         }
 
         if target-is-folder: ContextMenuItem {
-            label: "Reveal in Finder";
+            label: reveal-finder-label;
             hint: "";
             icon: @image-url("../assets/icons/folder-open.svg");
             activated => { root.action("reveal"); }
         }
 
         if target-is-folder: ContextMenuItem {
-            label: "Rescan folder";
+            label: rescan-folder-label;
             hint: "";
             icon: @image-url("../assets/icons/refresh.svg");
             activated => { root.action("rescan"); }
         }
 
         if target-is-folder: ContextMenuItem {
-            label: "Delete Folder…";
+            label: delete-folder-label;
             hint: "";
             icon: @image-url("../assets/icons/trash.svg");
             activated => { root.action("trash"); }
         }
 
         ContextMenuItem {
-            label: target-is-folder ? "Copy path" : "Copy tag";
+            label: target-is-folder ? copy-path-label : copy-tag-label;
             hint: "";
             icon: @image-url("../assets/icons/duplicate.svg");
             activated => { root.action("copy"); }
@@ -1362,6 +1370,74 @@ export component ModelRackWindow inherits Window {
     in property <string> settings-tab: "general";
     in property <string> settings-language-key: "en";
     in property <string> settings-language-label: "English";
+    property <string> tr-library-heading: settings-language-key == "ko" ? "라이브러리" : settings-language-key == "ja" ? "ライブラリ" : "LIBRARY";
+    property <string> tr-all-models: settings-language-key == "ko" ? "전체 모델" : settings-language-key == "ja" ? "すべてのモデル" : "All Models";
+    property <string> tr-recent: settings-language-key == "ko" ? "최근" : settings-language-key == "ja" ? "最近" : "Recent";
+    property <string> tr-favorites: settings-language-key == "ko" ? "즐겨찾기" : settings-language-key == "ja" ? "お気に入り" : "Favorites";
+    property <string> tr-printed: settings-language-key == "ko" ? "출력됨" : settings-language-key == "ja" ? "印刷済み" : "Printed";
+    property <string> tr-ready-to-print: settings-language-key == "ko" ? "출력 준비" : settings-language-key == "ja" ? "印刷準備完了" : "Ready to Print";
+    property <string> tr-duplicates: settings-language-key == "ko" ? "중복" : settings-language-key == "ja" ? "重複" : "Duplicates";
+    property <string> tr-parse-errors: settings-language-key == "ko" ? "파싱 오류" : settings-language-key == "ja" ? "解析エラー" : "Parse Errors";
+    property <string> tr-folders-heading: settings-language-key == "ko" ? "폴더" : settings-language-key == "ja" ? "フォルダ" : "FOLDERS";
+    property <string> tr-tags-heading: settings-language-key == "ko" ? "태그" : settings-language-key == "ja" ? "タグ" : "TAGS";
+    property <string> tr-open-in-slicer: settings-language-key == "ko" ? "슬라이서에서 열기" : settings-language-key == "ja" ? "スライサーで開く" : "Open in Slicer";
+    property <string> tr-open-with-prefix: settings-language-key == "ko" ? "" : settings-language-key == "ja" ? "" : "Open in ";
+    property <string> tr-open-with-suffix: settings-language-key == "ko" ? "에서 열기" : settings-language-key == "ja" ? "で開く" : "";
+    property <string> tr-open-with-menu: settings-language-key == "ko" ? "다음으로 열기…" : settings-language-key == "ja" ? "アプリで開く…" : "Open with…";
+    property <string> tr-choose-another-slicer: settings-language-key == "ko" ? "다른 슬라이서 선택…" : settings-language-key == "ja" ? "別のスライサーを選択…" : "Choose another slicer…";
+    property <string> tr-orbit-hint: settings-language-key == "ko" ? "orbit · 드래그로 회전" : settings-language-key == "ja" ? "orbit · ドラッグで回転" : "orbit · drag to rotate";
+    property <string> tr-geometry: settings-language-key == "ko" ? "GEOMETRY" : settings-language-key == "ja" ? "GEOMETRY" : "GEOMETRY";
+    property <string> tr-format: settings-language-key == "ko" ? "형식" : settings-language-key == "ja" ? "形式" : "Format";
+    property <string> tr-triangles: settings-language-key == "ko" ? "삼각형" : settings-language-key == "ja" ? "三角形" : "Triangles";
+    property <string> tr-dimensions: settings-language-key == "ko" ? "치수" : settings-language-key == "ja" ? "寸法" : "Dimensions";
+    property <string> tr-volume-est: settings-language-key == "ko" ? "예상 부피" : settings-language-key == "ja" ? "推定体積" : "Volume est.";
+    property <string> tr-file-size: settings-language-key == "ko" ? "파일 크기" : settings-language-key == "ja" ? "ファイルサイズ" : "File size";
+    property <string> tr-mesh-health: settings-language-key == "ko" ? "메시 상태" : settings-language-key == "ja" ? "メッシュ状態" : "MESH HEALTH";
+    property <string> tr-manifold: settings-language-key == "ko" ? "매니폴드" : settings-language-key == "ja" ? "マニフォールド" : "Manifold";
+    property <string> tr-watertight: settings-language-key == "ko" ? "수밀" : settings-language-key == "ja" ? "ウォータータイト" : "Watertight";
+    property <string> tr-normals: settings-language-key == "ko" ? "노멀" : settings-language-key == "ja" ? "法線" : "Normals";
+    property <string> tr-print-estimate: settings-language-key == "ko" ? "출력 예상" : settings-language-key == "ja" ? "印刷見積" : "PRINT ESTIMATE";
+    property <string> tr-time: settings-language-key == "ko" ? "시간" : settings-language-key == "ja" ? "時間" : "TIME";
+    property <string> tr-filament: settings-language-key == "ko" ? "필라멘트" : settings-language-key == "ja" ? "フィラメント" : "FILAMENT";
+    property <string> tr-layers: settings-language-key == "ko" ? "레이어" : settings-language-key == "ja" ? "レイヤー" : "LAYERS";
+    property <string> tr-fits-build-plate: settings-language-key == "ko" ? "빌드 플레이트 맞음" : settings-language-key == "ja" ? "ビルドプレート内" : "Fits build plate";
+    property <string> tr-exceeds-build-plate: settings-language-key == "ko" ? "빌드 플레이트 초과" : settings-language-key == "ja" ? "ビルドプレート超過" : "Exceeds build plate";
+    property <string> tr-no-tags: settings-language-key == "ko" ? "태그 없음" : settings-language-key == "ja" ? "タグなし" : "No tags";
+    property <string> tr-add-tag: settings-language-key == "ko" ? "태그 추가" : settings-language-key == "ja" ? "タグを追加" : "Add tag";
+    property <string> tr-add: settings-language-key == "ko" ? "추가" : settings-language-key == "ja" ? "追加" : "Add";
+    property <string> tr-bulk-edit-placeholder: settings-language-key == "ko" ? "일괄 편집: rackmount, printer, jig" : settings-language-key == "ja" ? "一括編集: rackmount, printer, jig" : "Bulk edit: rackmount, printer, jig";
+    property <string> tr-prints-heading: settings-language-key == "ko" ? "출력" : settings-language-key == "ja" ? "印刷" : "PRINTS";
+    property <string> tr-printed-prefix: settings-language-key == "ko" ? "출력 " : settings-language-key == "ja" ? "印刷 " : "Printed ";
+    property <string> tr-printed-suffix: settings-language-key == "ko" ? "회" : settings-language-key == "ja" ? "回" : " times";
+    property <string> tr-history: settings-language-key == "ko" ? "기록" : settings-language-key == "ja" ? "履歴" : "history";
+    property <string> tr-records-suffix: settings-language-key == "ko" ? "개 기록" : settings-language-key == "ja" ? "件" : " records";
+    property <string> tr-no-print-records: settings-language-key == "ko" ? "출력 기록 없음" : settings-language-key == "ja" ? "印刷記録なし" : "No print records";
+    property <string> tr-material-unknown: settings-language-key == "ko" ? "소재 알 수 없음" : settings-language-key == "ja" ? "材料不明" : "material unknown";
+    property <string> tr-printer-unknown: settings-language-key == "ko" ? "프린터 알 수 없음" : settings-language-key == "ja" ? "プリンタ不明" : "printer unknown";
+    property <string> tr-profile-unknown: settings-language-key == "ko" ? "프로파일 알 수 없음" : settings-language-key == "ja" ? "プロファイル不明" : "profile unknown";
+    property <string> tr-nozzle-unknown: settings-language-key == "ko" ? "노즐 ?" : settings-language-key == "ja" ? "ノズル ?" : "nozzle ?";
+    property <string> tr-layer-unknown: settings-language-key == "ko" ? "레이어 ?" : settings-language-key == "ja" ? "レイヤー ?" : "layer ?";
+    property <string> tr-no-notes: settings-language-key == "ko" ? "메모 없음" : settings-language-key == "ja" ? "メモなし" : "No notes";
+    property <string> tr-printer-placeholder: settings-language-key == "ko" ? "프린터" : settings-language-key == "ja" ? "プリンタ" : "Printer";
+    property <string> tr-profile-placeholder: settings-language-key == "ko" ? "프로파일" : settings-language-key == "ja" ? "プロファイル" : "Profile";
+    property <string> tr-result-notes: settings-language-key == "ko" ? "결과 메모" : settings-language-key == "ja" ? "結果メモ" : "Result notes";
+    property <string> tr-notes-heading: settings-language-key == "ko" ? "메모" : settings-language-key == "ja" ? "メモ" : "NOTES";
+    property <string> tr-add-notes: settings-language-key == "ko" ? "메모 추가..." : settings-language-key == "ja" ? "メモを追加..." : "Add notes...";
+    property <string> tr-author-heading: settings-language-key == "ko" ? "작성자" : settings-language-key == "ja" ? "作者" : "AUTHOR";
+    property <string> tr-author-or-source: settings-language-key == "ko" ? "작성자 또는 출처" : settings-language-key == "ja" ? "作者または出典" : "Author or source";
+    property <string> tr-save: settings-language-key == "ko" ? "저장" : settings-language-key == "ja" ? "保存" : "Save";
+    property <string> tr-file-heading: settings-language-key == "ko" ? "파일" : settings-language-key == "ja" ? "ファイル" : "FILE";
+    property <string> tr-modified: settings-language-key == "ko" ? "수정일" : settings-language-key == "ja" ? "更新日" : "Modified";
+    property <string> tr-added: settings-language-key == "ko" ? "추가일" : settings-language-key == "ja" ? "追加日" : "Added";
+    property <string> tr-author: settings-language-key == "ko" ? "작성자" : settings-language-key == "ja" ? "作者" : "Author";
+    property <string> tr-filter-this-folder: settings-language-key == "ko" ? "이 폴더 필터" : settings-language-key == "ja" ? "このフォルダで絞り込み" : "Filter this folder";
+    property <string> tr-filter-this-tag: settings-language-key == "ko" ? "이 태그 필터" : settings-language-key == "ja" ? "このタグで絞り込み" : "Filter this tag";
+    property <string> tr-remove-from-library: settings-language-key == "ko" ? "라이브러리에서 제거" : settings-language-key == "ja" ? "ライブラリから削除" : "Remove from Library";
+    property <string> tr-reveal-in-finder: settings-language-key == "ko" ? "Finder에서 보기" : settings-language-key == "ja" ? "Finderに表示" : "Reveal in Finder";
+    property <string> tr-rescan-folder: settings-language-key == "ko" ? "폴더 다시 스캔" : settings-language-key == "ja" ? "フォルダを再スキャン" : "Rescan folder";
+    property <string> tr-delete-folder: settings-language-key == "ko" ? "폴더 삭제…" : settings-language-key == "ja" ? "フォルダを削除…" : "Delete Folder…";
+    property <string> tr-copy-path: settings-language-key == "ko" ? "경로 복사" : settings-language-key == "ja" ? "パスをコピー" : "Copy path";
+    property <string> tr-copy-tag: settings-language-key == "ko" ? "태그 복사" : settings-language-key == "ja" ? "タグをコピー" : "Copy tag";
     in property <string> settings-theme-key: "dark";
     in property <string> settings-theme-label: "Dark";
     in property <string> settings-sort-key: "name";
@@ -1698,22 +1774,22 @@ export component ModelRackWindow inherits Window {
                         padding-top: 10px;
                         spacing: 1px;
 
-                        SectionHeader { label: "LIBRARY"; inset: true; }
+                        SectionHeader { label: tr-library-heading; inset: true; }
 
-                        SidebarLine { icon: @image-url("../assets/icons/layers.svg"); label: "All Models"; count: all-count; selected: active-filter-key == "all"; activated => { choose-filter("all"); } }
-                        SidebarLine { icon: @image-url("../assets/icons/clock.svg"); label: "Recent"; count: recent-count; selected: active-filter-key == "recent"; activated => { choose-filter("recent"); } }
-                        SidebarLine { icon: @image-url("../assets/icons/star.svg"); label: "Favorites"; count: favorites-count; selected: active-filter-key == "favorites"; activated => { choose-filter("favorites"); } }
-                        SidebarLine { icon: @image-url("../assets/icons/print.svg"); label: "Printed"; count: printed-count; selected: active-filter-key == "printed"; activated => { choose-filter("printed"); } }
-                        SidebarLine { icon: @image-url("../assets/icons/box.svg"); label: "Ready to Print"; count: ready-count; selected: active-filter-key == "ready"; activated => { choose-filter("ready"); } }
-                        SidebarLine { icon: @image-url("../assets/icons/duplicate.svg"); label: "Duplicates"; count: duplicates-count; selected: active-filter-key == "duplicates"; activated => { choose-filter("duplicates"); } }
-                        SidebarLine { icon: @image-url("../assets/icons/error.svg"); label: "Parse Errors"; count: errors-count; selected: active-filter-key == "errors"; activated => { choose-filter("errors"); } }
+                        SidebarLine { icon: @image-url("../assets/icons/layers.svg"); label: tr-all-models; count: all-count; selected: active-filter-key == "all"; activated => { choose-filter("all"); } }
+                        SidebarLine { icon: @image-url("../assets/icons/clock.svg"); label: tr-recent; count: recent-count; selected: active-filter-key == "recent"; activated => { choose-filter("recent"); } }
+                        SidebarLine { icon: @image-url("../assets/icons/star.svg"); label: tr-favorites; count: favorites-count; selected: active-filter-key == "favorites"; activated => { choose-filter("favorites"); } }
+                        SidebarLine { icon: @image-url("../assets/icons/print.svg"); label: tr-printed; count: printed-count; selected: active-filter-key == "printed"; activated => { choose-filter("printed"); } }
+                        SidebarLine { icon: @image-url("../assets/icons/box.svg"); label: tr-ready-to-print; count: ready-count; selected: active-filter-key == "ready"; activated => { choose-filter("ready"); } }
+                        SidebarLine { icon: @image-url("../assets/icons/duplicate.svg"); label: tr-duplicates; count: duplicates-count; selected: active-filter-key == "duplicates"; activated => { choose-filter("duplicates"); } }
+                        SidebarLine { icon: @image-url("../assets/icons/error.svg"); label: tr-parse-errors; count: errors-count; selected: active-filter-key == "errors"; activated => { choose-filter("errors"); } }
 
                         Rectangle {
                             height: 1px;
                             background: Theme.line;
                         }
 
-                        if folder-items.length > 0: SectionHeader { label: "FOLDERS"; show-add: true; }
+                        if folder-items.length > 0: SectionHeader { label: tr-folders-heading; show-add: true; }
 
                         for folder in folder-items: folder-row := SidebarLine {
                             icon: folder.depth == 0 ? @image-url("../assets/icons/folder-open.svg") : @image-url("../assets/icons/folder.svg");
@@ -1736,7 +1812,7 @@ export component ModelRackWindow inherits Window {
                             }
                         }
 
-                        if tag-items.length > 0: SectionHeader { label: "TAGS"; show-add: true; }
+                        if tag-items.length > 0: SectionHeader { label: tr-tags-heading; show-add: true; }
 
                         for tag in tag-items: tag-row := SidebarLine {
                             icon: @image-url("../assets/icons/tag.svg");
@@ -2033,55 +2109,46 @@ export component ModelRackWindow inherits Window {
                             background: Theme.line-2;
                         }
 
-                        // Sort dropdown + direction
+                        // Grouped sort dropdown + direction
                         Rectangle {
-                            width: 146px;
-                            height: sort-menu-open ? 178px : 28px;
+                            width: 150px;
+                            height: sort-menu-open ? 272px : 28px;
                             z: 60;
 
                             Rectangle {
                                 x: 0;
                                 y: 0;
-                                width: 108px;
+                                width: 150px;
                                 height: 28px;
-                                background: sort-button-touch.has-hover || sort-menu-open ? Theme.bg-3 : Theme.bg-1;
+                                background: sort-button-touch.has-hover || sort-dir-touch.has-hover || sort-menu-open ? Theme.bg-3 : Theme.bg-1;
                                 border-color: sort-menu-open ? Theme.accent-line : Theme.line;
                                 border-width: 1px;
                                 border-radius: Theme.radius-btn;
 
                                 SvgIcon { x: 9px; y: 8px; width: 12px; height: 12px; icon: @image-url("../assets/icons/sort.svg"); tint: Theme.fg-2; }
-                                Text { x: 28px; y: 7px; width: 62px; text: settings-sort-key == "date" ? "Date" : settings-sort-key == "size" ? "Size" : settings-sort-key == "triangles" ? "Triangles" : "Name"; color: Theme.fg-1; font-size: 12px; overflow: elide; }
-                                SvgIcon { x: parent.width - 16px; y: 10px; width: 8px; height: 8px; icon: @image-url("../assets/icons/chevron-right.svg"); tint: Theme.fg-2; transform-rotation: sort-menu-open ? -90deg : 90deg; }
-                                sort-button-touch := TouchArea { clicked => { sort-menu-open = !sort-menu-open; } }
-                            }
+                                Text {
+                                    x: 28px;
+                                    y: 7px;
+                                    width: 78px;
+                                    text: settings-sort-key == "modified" || settings-sort-key == "date" ? "Modified" : settings-sort-key == "added" ? "Added" : settings-sort-key == "format" ? "Format" : settings-sort-key == "size" ? "File size" : settings-sort-key == "triangles" ? "Triangles" : settings-sort-key == "dimensions" ? "Dimensions" : settings-sort-key == "volume" ? "Volume" : "Name";
+                                    color: Theme.fg-1;
+                                    font-size: 12px;
+                                    overflow: elide;
+                                }
+                                SvgIcon { x: 108px; y: 10px; width: 8px; height: 8px; icon: @image-url("../assets/icons/chevron-right.svg"); tint: Theme.fg-2; transform-rotation: sort-menu-open ? -90deg : 90deg; }
 
-                            Rectangle {
-                                x: 109px;
-                                y: 5px;
-                                width: 1px;
-                                height: 18px;
-                                background: Theme.line-2;
-                            }
+                                Rectangle { x: 119px; y: 5px; width: 1px; height: 18px; background: Theme.line-2; }
+                                Text { x: 120px; y: 6px; width: 29px; text: settings-sort-ascending ? "↑" : "↓"; color: Theme.fg-1; font-size: 15px; horizontal-alignment: center; }
 
-                            Rectangle {
-                                x: 111px;
-                                y: 0;
-                                width: 35px;
-                                height: 28px;
-                                background: sort-dir-touch.has-hover ? Theme.bg-3 : Theme.bg-1;
-                                border-color: Theme.line;
-                                border-width: 1px;
-                                border-radius: Theme.radius-btn;
-
-                                Text { x: 0; y: 6px; width: parent.width; text: settings-sort-ascending ? "↑" : "↓"; color: Theme.fg-1; font-size: 15px; horizontal-alignment: center; }
-                                sort-dir-touch := TouchArea { clicked => { toggle-sort(); } }
+                                sort-button-touch := TouchArea { x: 0; y: 0; width: 120px; height: parent.height; clicked => { sort-menu-open = !sort-menu-open; } }
+                                sort-dir-touch := TouchArea { x: 120px; y: 0; width: 30px; height: parent.height; clicked => { toggle-sort(); } }
                             }
 
                             if sort-menu-open: Rectangle {
                                 x: 0;
                                 y: 32px;
-                                width: 146px;
-                                height: 142px;
+                                width: 150px;
+                                height: 236px;
                                 background: Theme.bg-1;
                                 border-color: Theme.line-3;
                                 border-width: 1px;
@@ -2092,10 +2159,14 @@ export component ModelRackWindow inherits Window {
                                     padding: 4px;
                                     spacing: 1px;
 
-                                    SettingsOptionButton { width: 136px; label: "Name"; key: "name"; selected: settings-sort-key == "name"; activated(key) => { choose-settings-sort(key); sort-menu-open = false; } }
-                                    SettingsOptionButton { width: 136px; label: "Date modified"; key: "date"; selected: settings-sort-key == "date"; activated(key) => { choose-settings-sort(key); sort-menu-open = false; } }
-                                    SettingsOptionButton { width: 136px; label: "File size"; key: "size"; selected: settings-sort-key == "size"; activated(key) => { choose-settings-sort(key); sort-menu-open = false; } }
-                                    SettingsOptionButton { width: 136px; label: "Triangles"; key: "triangles"; selected: settings-sort-key == "triangles"; activated(key) => { choose-settings-sort(key); sort-menu-open = false; } }
+                                    SettingsOptionButton { width: 140px; label: "Name"; key: "name"; selected: settings-sort-key == "name"; activated(key) => { choose-settings-sort(key); sort-menu-open = false; } }
+                                    SettingsOptionButton { width: 140px; label: "Date modified"; key: "modified"; selected: settings-sort-key == "modified" || settings-sort-key == "date"; activated(key) => { choose-settings-sort(key); sort-menu-open = false; } }
+                                    SettingsOptionButton { width: 140px; label: "Date added"; key: "added"; selected: settings-sort-key == "added"; activated(key) => { choose-settings-sort(key); sort-menu-open = false; } }
+                                    SettingsOptionButton { width: 140px; label: "Format"; key: "format"; selected: settings-sort-key == "format"; activated(key) => { choose-settings-sort(key); sort-menu-open = false; } }
+                                    SettingsOptionButton { width: 140px; label: "Triangles"; key: "triangles"; selected: settings-sort-key == "triangles"; activated(key) => { choose-settings-sort(key); sort-menu-open = false; } }
+                                    SettingsOptionButton { width: 140px; label: "Dimensions"; key: "dimensions"; selected: settings-sort-key == "dimensions"; activated(key) => { choose-settings-sort(key); sort-menu-open = false; } }
+                                    SettingsOptionButton { width: 140px; label: "Volume est."; key: "volume"; selected: settings-sort-key == "volume"; activated(key) => { choose-settings-sort(key); sort-menu-open = false; } }
+                                    SettingsOptionButton { width: 140px; label: "File size"; key: "size"; selected: settings-sort-key == "size"; activated(key) => { choose-settings-sort(key); sort-menu-open = false; } }
                                 }
                             }
                         }
@@ -2578,7 +2649,7 @@ export component ModelRackWindow inherits Window {
                         Text {
                             x: parent.width - self.width - 8px;
                             y: parent.height - 20px;
-                            text: "orbit · drag to rotate";
+                            text: tr-orbit-hint;
                             color: Theme.fg-3;
                             font-family: "JetBrains Mono";
                             font-size: 10px;
@@ -2649,7 +2720,7 @@ export component ModelRackWindow inherits Window {
                                             x: 26px;
                                             y: (parent.height - self.height) / 2;
                                             width: parent.width - self.x - 10px;
-                                            text: settings-slicer-label == "System default STL opener" ? "Open in Slicer" : "Open in " + settings-slicer-label;
+                                            text: settings-slicer-label == "System default STL opener" ? tr-open-in-slicer : tr-open-with-prefix + settings-slicer-label + tr-open-with-suffix;
                                             color: #0e2a32;
                                             font-size: Theme.font-body;
                                             font-weight: 500;
@@ -2735,7 +2806,7 @@ export component ModelRackWindow inherits Window {
 
                                             Text {
                                                 height: 24px;
-                                                text: "Open with…";
+                                                text: tr-open-with-menu;
                                                 color: Theme.fg-3;
                                                 font-size: Theme.font-overline;
                                                 font-weight: 600;
@@ -2760,7 +2831,7 @@ export component ModelRackWindow inherits Window {
                                             }
 
                                             ContextMenuItem {
-                                                label: "Choose another slicer…";
+                                                label: tr-choose-another-slicer;
                                                 hint: "";
                                                 icon: @image-url("../assets/icons/plus.svg");
                                                 activated => {
@@ -2812,12 +2883,12 @@ export component ModelRackWindow inherits Window {
                             }
 
                             // Geometry section
-                            SectionHeader { label: "GEOMETRY"; }
-                            DetailKV { label: "Format"; value: detail-format; }
-                            DetailKV { label: "Triangles"; value: detail-tris; }
-                            DetailKV { label: "Dimensions"; value: detail-dims; }
-                            DetailKV { label: "Volume est."; value: detail-volume; }
-                            DetailKV { label: "File size"; value: detail-filesize; }
+                            SectionHeader { label: tr-geometry; }
+                            DetailKV { label: tr-format; value: detail-format; }
+                            DetailKV { label: tr-triangles; value: detail-tris; }
+                            DetailKV { label: tr-dimensions; value: detail-dims; }
+                            DetailKV { label: tr-volume-est; value: detail-volume; }
+                            DetailKV { label: tr-file-size; value: detail-filesize; }
 
                             // Mesh health
                             Rectangle {
@@ -2826,7 +2897,7 @@ export component ModelRackWindow inherits Window {
                                 Text {
                                     x: 0px;
                                     y: (parent.height - self.height) / 2;
-                                    text: "MESH HEALTH";
+                                    text: tr-mesh-health;
                                     color: Theme.fg-2;
                                     font-size: Theme.font-overline;
                                     font-weight: 600;
@@ -2860,7 +2931,7 @@ export component ModelRackWindow inherits Window {
                                     x: 0px;
                                     y: 0px;
                                     width: (parent.width - 10px) / 2;
-                                    text: detail-manifold ? "✓ Manifold" : "✗ Manifold";
+                                    text: (detail-manifold ? "✓ " : "✗ ") + tr-manifold;
                                     color: detail-manifold ? Theme.success : Theme.error;
                                     font-size: 12px;
                                 }
@@ -2869,7 +2940,7 @@ export component ModelRackWindow inherits Window {
                                     x: (parent.width + 10px) / 2;
                                     y: 0px;
                                     width: (parent.width - 10px) / 2;
-                                    text: detail-watertight ? "✓ Watertight" : "✗ Watertight";
+                                    text: (detail-watertight ? "✓ " : "✗ ") + tr-watertight;
                                     color: detail-watertight ? Theme.success : Theme.warn;
                                     font-size: 12px;
                                 }
@@ -2878,7 +2949,7 @@ export component ModelRackWindow inherits Window {
                                     x: 0px;
                                     y: 22px;
                                     width: (parent.width - 10px) / 2;
-                                    text: detail-normals ? "✓ Normals" : "✗ Normals";
+                                    text: (detail-normals ? "✓ " : "✗ ") + tr-normals;
                                     color: detail-normals ? Theme.success : Theme.warn;
                                     font-size: 12px;
                                 }
@@ -2891,7 +2962,7 @@ export component ModelRackWindow inherits Window {
                                 Text {
                                     x: 0px;
                                     y: 8px;
-                                    text: "PRINT ESTIMATE";
+                                    text: tr-print-estimate;
                                     color: Theme.fg-2;
                                     font-size: Theme.font-overline;
                                     font-weight: 600;
@@ -2930,7 +3001,7 @@ export component ModelRackWindow inherits Window {
 
                                     VerticalLayout {
                                         padding: 8px;
-                                        Text { text: "TIME"; color: Theme.fg-2; font-size: Theme.font-overline; }
+                                        Text { text: tr-time; color: Theme.fg-2; font-size: Theme.font-overline; }
                                         Text { text: detail-estimate-time; color: Theme.fg-0; font-size: 16px; font-weight: 600; }
                                     }
                                 }
@@ -2943,7 +3014,7 @@ export component ModelRackWindow inherits Window {
 
                                     VerticalLayout {
                                         padding: 8px;
-                                        Text { text: "FILAMENT"; color: Theme.fg-2; font-size: Theme.font-overline; }
+                                        Text { text: tr-filament; color: Theme.fg-2; font-size: Theme.font-overline; }
                                         Text { text: detail-estimate-grams; color: Theme.fg-0; font-size: 16px; font-weight: 600; }
                                     }
                                 }
@@ -2956,7 +3027,7 @@ export component ModelRackWindow inherits Window {
 
                                     VerticalLayout {
                                         padding: 8px;
-                                        Text { text: "LAYERS"; color: Theme.fg-2; font-size: Theme.font-overline; }
+                                        Text { text: tr-layers; color: Theme.fg-2; font-size: Theme.font-overline; }
                                         Text { text: detail-estimate-layers; color: Theme.fg-0; font-size: 16px; font-weight: 600; }
                                     }
                                 }
@@ -2971,7 +3042,7 @@ export component ModelRackWindow inherits Window {
                                 Text {
                                     x: 10px;
                                     y: (parent.height - self.height) / 2;
-                                    text: detail-bed-fit ? "✓ Fits build plate" : "⚠ Exceeds build plate";
+                                    text: (detail-bed-fit ? "✓ " : "⚠ ") + (detail-bed-fit ? tr-fits-build-plate : tr-exceeds-build-plate);
                                     color: detail-bed-fit ? Theme.success : Theme.warn;
                                     font-size: 11.5px;
                                     font-weight: 500;
@@ -2987,14 +3058,14 @@ export component ModelRackWindow inherits Window {
                                 }
                             }
 
-                            SectionHeader { label: "TAGS"; }
+                            SectionHeader { label: tr-tags-heading; }
                             Rectangle {
                                 height: detail-tag-chips.length == 0 ? 28px : detail-tag-chips.length * 30px;
 
                                 if detail-tag-chips.length == 0: Text {
                                     x: 0;
                                     y: 5px;
-                                    text: "No tags";
+                                    text: tr-no-tags;
                                     color: Theme.fg-2;
                                     font-size: 11.5px;
                                 }
@@ -3050,7 +3121,7 @@ export component ModelRackWindow inherits Window {
                                     y: 0;
                                     width: parent.width - 58px;
                                     height: 28px;
-                                    placeholder-text: "Add tag";
+                                    placeholder-text: tr-add-tag;
                                     font-size: 12px;
                                     accepted(text) => {
                                         add-tags(text);
@@ -3071,7 +3142,7 @@ export component ModelRackWindow inherits Window {
                                     Text {
                                         x: (parent.width - self.width) / 2;
                                         y: (parent.height - self.height) / 2;
-                                        text: "Add";
+                                        text: tr-add;
                                         color: Theme.fg-0;
                                         font-size: 12px;
                                         font-weight: 600;
@@ -3089,19 +3160,19 @@ export component ModelRackWindow inherits Window {
                             tags-edit := LineEdit {
                                 height: 30px;
                                 text: detail-tags-input;
-                                placeholder-text: "Bulk edit: rackmount, printer, jig";
+                                placeholder-text: tr-bulk-edit-placeholder;
                                 font-size: 12px;
                                 accepted(text) => { save-metadata(text, author-edit.text, notes-edit.text); }
                             }
 
-                            SectionHeader { label: "PRINTS"; }
+                            SectionHeader { label: tr-prints-heading; }
                             Rectangle {
                                 height: 30px;
 
                                 Text {
                                     x: 0;
                                     y: (parent.height - self.height) / 2;
-                                    text: "Printed " + detail-printed-count + " times";
+                                    text: tr-printed-prefix + detail-printed-count + tr-printed-suffix;
                                     color: Theme.fg-1;
                                     font-size: 12px;
                                 }
@@ -3156,7 +3227,7 @@ export component ModelRackWindow inherits Window {
                                     x: 0;
                                     y: (parent.height - self.height) / 2;
                                     width: 82px;
-                                    text: "history";
+                                    text: tr-history;
                                     color: Theme.fg-2;
                                     font-family: "JetBrains Mono";
                                     font-size: 10.5px;
@@ -3165,7 +3236,7 @@ export component ModelRackWindow inherits Window {
                                 Text {
                                     x: 92px;
                                     y: (parent.height - self.height) / 2;
-                                    text: detail-print-history.length + " records";
+                                    text: detail-print-history.length + tr-records-suffix;
                                     color: Theme.fg-0;
                                     font-size: 11.5px;
                                 }
@@ -3177,7 +3248,7 @@ export component ModelRackWindow inherits Window {
                                 if detail-print-history.length == 0: Text {
                                     x: 0;
                                     y: 5px;
-                                    text: "No print records";
+                                    text: tr-no-print-records;
                                     color: Theme.fg-2;
                                     font-size: 11.5px;
                                 }
@@ -3205,7 +3276,7 @@ export component ModelRackWindow inherits Window {
                                             x: 26px;
                                             y: 7px;
                                             width: parent.width - 62px;
-                                            text: record.date + " · " + (record.material == "" ? "material unknown" : record.material);
+                                            text: record.date + " · " + (record.material == "" ? tr-material-unknown : record.material);
                                             color: Theme.fg-0;
                                             font-size: 11.5px;
                                             font-family: "JetBrains Mono";
@@ -3216,10 +3287,10 @@ export component ModelRackWindow inherits Window {
                                             x: 26px;
                                             y: 24px;
                                             width: parent.width - 62px;
-                                            text: (record.printer == "" ? "printer unknown" : record.printer) + " · "
-                                                + (record.profile == "" ? "profile unknown" : record.profile) + " · "
-                                                + (record.nozzle == "" ? "nozzle ?" : record.nozzle) + " · "
-                                                + (record.layer-height == "" ? "layer ?" : record.layer-height)
+                                            text: (record.printer == "" ? tr-printer-unknown : record.printer) + " · "
+                                                 + (record.profile == "" ? tr-profile-unknown : record.profile) + " · "
+                                                 + (record.nozzle == "" ? tr-nozzle-unknown : record.nozzle) + " · "
+                                                 + (record.layer-height == "" ? tr-layer-unknown : record.layer-height)
                                                 + (record.duration == "" ? "" : " · " + record.duration);
                                             color: Theme.fg-1;
                                             font-size: 10.5px;
@@ -3230,7 +3301,7 @@ export component ModelRackWindow inherits Window {
                                             x: 26px;
                                             y: 39px;
                                             width: parent.width - 62px;
-                                            text: record.notes == "" ? "No notes" : record.notes;
+                                            text: record.notes == "" ? tr-no-notes : record.notes;
                                             color: Theme.fg-2;
                                             font-size: 10.5px;
                                             overflow: elide;
@@ -3275,7 +3346,7 @@ export component ModelRackWindow inherits Window {
                                     y: 0;
                                     width: parent.width - 150px;
                                     height: 28px;
-                                    placeholder-text: "Printer";
+                                    placeholder-text: tr-printer-placeholder;
                                     font-size: 12px;
                                 }
 
@@ -3292,7 +3363,7 @@ export component ModelRackWindow inherits Window {
                                     Text {
                                         x: (parent.width - self.width) / 2;
                                         y: (parent.height - self.height) / 2;
-                                        text: "Add";
+                                        text: tr-add;
                                         color: Theme.fg-0;
                                         font-size: 12px;
                                         font-weight: 600;
@@ -3317,7 +3388,7 @@ export component ModelRackWindow inherits Window {
                                     y: 32px;
                                     width: parent.width - 186px;
                                     height: 28px;
-                                    placeholder-text: "Profile";
+                                    placeholder-text: tr-profile-placeholder;
                                     font-size: 12px;
                                 }
 
@@ -3353,25 +3424,25 @@ export component ModelRackWindow inherits Window {
                                     y: 64px;
                                     width: parent.width;
                                     height: 28px;
-                                    placeholder-text: "Result notes";
+                                    placeholder-text: tr-result-notes;
                                     font-size: 12px;
                                 }
                             }
 
-                            SectionHeader { label: "NOTES"; }
+                            SectionHeader { label: tr-notes-heading; }
                             notes-edit := TextEdit {
                                 height: 72px;
                                 text: detail-notes == "Add notes..." ? "" : detail-notes;
-                                placeholder-text: "Add notes...";
+                                placeholder-text: tr-add-notes;
                                 font-size: 12px;
                                 wrap: word-wrap;
                             }
 
-                            SectionHeader { label: "AUTHOR"; }
+                            SectionHeader { label: tr-author-heading; }
                             author-edit := LineEdit {
                                 height: 30px;
                                 text: detail-author;
-                                placeholder-text: "Author or source";
+                                placeholder-text: tr-author-or-source;
                                 font-size: 12px;
                                 accepted(text) => { save-metadata(tags-edit.text, text, notes-edit.text); }
                             }
@@ -3392,7 +3463,7 @@ export component ModelRackWindow inherits Window {
                                     Text {
                                         x: (parent.width - self.width) / 2;
                                         y: (parent.height - self.height) / 2;
-                                        text: "Save";
+                                        text: tr-save;
                                         color: Theme.fg-0;
                                         font-size: 12px;
                                         font-weight: 600;
@@ -3407,11 +3478,11 @@ export component ModelRackWindow inherits Window {
                             }
 
                             // File section
-                            SectionHeader { label: "FILE"; }
+                            SectionHeader { label: tr-file-heading; }
                             DetailKV { label: "Hash (b3)"; value: detail-hash; }
-                            DetailKV { label: "Modified"; value: detail-modified; }
-                            DetailKV { label: "Added"; value: detail-added; }
-                            DetailKV { label: "Author"; value: detail-author; }
+                            DetailKV { label: tr-modified; value: detail-modified; }
+                            DetailKV { label: tr-added; value: detail-added; }
+                            DetailKV { label: tr-author; value: detail-author; }
                         }
                     }
                 }
@@ -3566,6 +3637,14 @@ export component ModelRackWindow inherits Window {
         y: sidebar-context-y + self.height > parent.height - 8px ? parent.height - self.height - 8px : sidebar-context-y;
         target-label: sidebar-context-label;
         target-is-folder: sidebar-context-is-folder;
+        filter-folder-label: tr-filter-this-folder;
+        filter-tag-label: tr-filter-this-tag;
+        remove-library-label: tr-remove-from-library;
+        reveal-finder-label: tr-reveal-in-finder;
+        rescan-folder-label: tr-rescan-folder;
+        delete-folder-label: tr-delete-folder;
+        copy-path-label: tr-copy-path;
+        copy-tag-label: tr-copy-tag;
         action(action) => {
             shortcut-scope.focus();
             sidebar-context-open = false;
@@ -3789,7 +3868,7 @@ export component ModelRackWindow inherits Window {
                             height: 54px;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
                             Text { x: 0; y: 18px; width: 180px; text: "Default sort"; color: Theme.fg-1; font-size: Theme.font-body; }
-                            SettingsSegment { x: 196px; y: 12px; button-width: 76px; a-label: "Name"; a-key: "name"; b-label: "Date"; b-key: "date"; c-label: "Size"; c-key: "size"; d-label: "Triangles"; d-key: "triangles"; selected-key: settings-sort-key; activated(key) => { choose-settings-sort(key); } }
+                            SettingsSegment { x: 196px; y: 12px; button-width: 88px; a-label: "Name"; a-key: "name"; b-label: "Modified"; b-key: "modified"; c-label: "Added"; c-key: "added"; d-label: "Triangles"; d-key: "triangles"; selected-key: settings-sort-key; activated(key) => { choose-settings-sort(key); } }
                         }
                         if settings-tab == "general": Rectangle {
                             height: 54px;

@@ -82,16 +82,16 @@ impl Density {
     }
 }
 
-// Date/Size/Triangles are implemented in filtering and labels, but the current
-// Slint toolbar only exposes Name direction toggling. Keep the variants scoped
-// here until the sort field picker is wired.
-#[allow(dead_code)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SortBy {
     Name,
-    Date,
+    Modified,
+    Added,
+    Format,
     Size,
     Triangles,
+    Dimensions,
+    Volume,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -507,9 +507,13 @@ pub fn scan_status_text(status: &ScanStatus) -> String {
 pub fn sort_label(sort_by: SortBy, ascending: bool) -> String {
     let field = match sort_by {
         SortBy::Name => "Name",
-        SortBy::Date => "Date",
+        SortBy::Modified => "Modified",
+        SortBy::Added => "Added",
+        SortBy::Format => "Format",
         SortBy::Size => "Size",
         SortBy::Triangles => "Triangles",
+        SortBy::Dimensions => "Dimensions",
+        SortBy::Volume => "Volume",
     };
     let direction = if ascending { "↑" } else { "↓" };
     format!("{} {}", field, direction)
@@ -741,47 +745,83 @@ pub fn filtered_sorted_entries(
         .collect();
 
     if !query.preserve_order {
-        match query.sort_by {
-            SortBy::Name => {
-                sorted.sort_by(|a, b| {
-                    if query.sort_ascending {
-                        a.filename.to_lowercase().cmp(&b.filename.to_lowercase())
-                    } else {
-                        b.filename.to_lowercase().cmp(&a.filename.to_lowercase())
-                    }
-                });
-            }
-            SortBy::Date => {
-                sorted.sort_by(|a, b| {
-                    if query.sort_ascending {
-                        a.modified.cmp(&b.modified)
-                    } else {
-                        b.modified.cmp(&a.modified)
-                    }
-                });
-            }
-            SortBy::Size => {
-                sorted.sort_by(|a, b| {
-                    if query.sort_ascending {
-                        a.size.cmp(&b.size)
-                    } else {
-                        b.size.cmp(&a.size)
-                    }
-                });
-            }
-            SortBy::Triangles => {
-                sorted.sort_by(|a, b| {
-                    if query.sort_ascending {
-                        a.triangle_count.cmp(&b.triangle_count)
-                    } else {
-                        b.triangle_count.cmp(&a.triangle_count)
-                    }
-                });
-            }
-        }
+        sorted.sort_by(|a, b| {
+            let ordering = match query.sort_by {
+                SortBy::Name => cmp_values(
+                    a.filename.to_lowercase(),
+                    b.filename.to_lowercase(),
+                    query.sort_ascending,
+                ),
+                SortBy::Modified => cmp_options(a.modified, b.modified, query.sort_ascending),
+                SortBy::Added => cmp_options(
+                    a.meta.as_ref().and_then(|meta| meta.added.as_deref()),
+                    b.meta.as_ref().and_then(|meta| meta.added.as_deref()),
+                    query.sort_ascending,
+                ),
+                SortBy::Format => cmp_values(
+                    file_format_rank(a.stl_type),
+                    file_format_rank(b.stl_type),
+                    query.sort_ascending,
+                ),
+                SortBy::Size => cmp_values(a.size, b.size, query.sort_ascending),
+                SortBy::Triangles => {
+                    cmp_options(a.triangle_count, b.triangle_count, query.sort_ascending)
+                }
+                SortBy::Dimensions => cmp_options(
+                    dimension_sort_value(a.dimensions),
+                    dimension_sort_value(b.dimensions),
+                    query.sort_ascending,
+                ),
+                SortBy::Volume => cmp_options(
+                    volume_sort_value(a.dimensions),
+                    volume_sort_value(b.dimensions),
+                    query.sort_ascending,
+                ),
+            };
+
+            ordering.then_with(|| a.filename.to_lowercase().cmp(&b.filename.to_lowercase()))
+        });
     }
 
     sorted.into_iter().cloned().collect()
+}
+
+fn cmp_values<T: Ord>(a: T, b: T, ascending: bool) -> std::cmp::Ordering {
+    if ascending {
+        a.cmp(&b)
+    } else {
+        b.cmp(&a)
+    }
+}
+
+fn cmp_options<T: Ord>(a: Option<T>, b: Option<T>, ascending: bool) -> std::cmp::Ordering {
+    match (a, b) {
+        (Some(a), Some(b)) => cmp_values(a, b, ascending),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
+    }
+}
+
+fn file_format_rank(stl_type: scanner::StlType) -> u8 {
+    match stl_type {
+        scanner::StlType::Binary => 0,
+        scanner::StlType::Ascii => 1,
+        scanner::StlType::ThreeMf => 2,
+        scanner::StlType::Obj => 3,
+        scanner::StlType::Step => 4,
+        scanner::StlType::Scad => 5,
+        scanner::StlType::LargeStl => 6,
+        scanner::StlType::Unknown => 7,
+    }
+}
+
+fn dimension_sort_value(dimensions: Option<[f32; 3]>) -> Option<u32> {
+    dimensions.map(|[x, y, z]| x.max(y).max(z).max(0.0).round() as u32)
+}
+
+fn volume_sort_value(dimensions: Option<[f32; 3]>) -> Option<u64> {
+    dimensions.map(|[x, y, z]| (x.max(0.0) * y.max(0.0) * z.max(0.0)).round() as u64)
 }
 
 fn entry_is_ready_to_print(entries: &[scanner::StlFileInfo], entry: &scanner::StlFileInfo) -> bool {
@@ -1068,6 +1108,63 @@ mod tests {
 
         assert_eq!(display_path_label(&home), "~");
         assert_eq!(display_path_label(&home.join("Library/3d")), "~/Library/3d");
+    }
+
+    #[test]
+    fn filtered_sort_supports_added_and_geometry_fields() {
+        let mut small = entry("/tmp/models/small.stl", 1);
+        small.meta = Some(SidecarMeta {
+            added: Some("2026-05-03".to_string()),
+            ..SidecarMeta::default()
+        });
+        small.dimensions = Some([10.0, 20.0, 30.0]);
+        small.triangle_count = Some(120);
+
+        let mut large = entry("/tmp/models/large.3mf", 2);
+        large.stl_type = StlType::ThreeMf;
+        large.meta = Some(SidecarMeta {
+            added: Some("2026-05-01".to_string()),
+            ..SidecarMeta::default()
+        });
+        large.dimensions = Some([80.0, 40.0, 20.0]);
+        large.triangle_count = Some(4_000);
+
+        let entries = vec![small.clone(), large.clone()];
+        let added = filtered_sorted_entries(
+            &entries,
+            DisplayQuery {
+                search_query: "",
+                library_filter: &LibraryFilter::All,
+                sort_by: SortBy::Added,
+                sort_ascending: true,
+                preserve_order: false,
+            },
+        );
+        assert_eq!(added[0].filename, "large.3mf");
+
+        let dimensions = filtered_sorted_entries(
+            &entries,
+            DisplayQuery {
+                search_query: "",
+                library_filter: &LibraryFilter::All,
+                sort_by: SortBy::Dimensions,
+                sort_ascending: false,
+                preserve_order: false,
+            },
+        );
+        assert_eq!(dimensions[0].filename, "large.3mf");
+
+        let volume = filtered_sorted_entries(
+            &entries,
+            DisplayQuery {
+                search_query: "",
+                library_filter: &LibraryFilter::All,
+                sort_by: SortBy::Volume,
+                sort_ascending: true,
+                preserve_order: false,
+            },
+        );
+        assert_eq!(volume[0].filename, "small.stl");
     }
 
     #[test]

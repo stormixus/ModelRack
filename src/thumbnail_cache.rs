@@ -96,6 +96,26 @@ pub(crate) fn render_preview_rgba(
     yaw: f32,
     pitch: f32,
 ) -> Vec<u8> {
+    render_preview_rgba_with_face_budget(
+        entry,
+        mesh,
+        width,
+        height,
+        yaw,
+        pitch,
+        MAX_SHADED_RENDER_FACES,
+    )
+}
+
+pub(crate) fn render_preview_rgba_with_face_budget(
+    entry: &StlFileInfo,
+    mesh: Option<&MeshData>,
+    width: u32,
+    height: u32,
+    yaw: f32,
+    pitch: f32,
+    face_budget: usize,
+) -> Vec<u8> {
     let mut canvas = Canvas::new(width, height);
     let accent = accent_color(&entry.hash);
     let low = [accent[0] / 2, accent[1] / 2, accent[2] / 2, 150];
@@ -115,7 +135,7 @@ pub(crate) fn render_preview_rgba(
     );
 
     if let Some(mesh) = mesh.filter(|mesh| !mesh.vertices.is_empty() && !mesh.faces.is_empty()) {
-        let stats = draw_mesh_shaded(&mut canvas, mesh, high, low, yaw, pitch);
+        let stats = draw_mesh_shaded(&mut canvas, mesh, high, low, yaw, pitch, face_budget);
         if !stats.drew_geometry() {
             draw_dimension_block(&mut canvas, entry, high, low);
         }
@@ -146,6 +166,7 @@ fn draw_mesh_shaded(
     low: [u8; 4],
     yaw: f32,
     pitch: f32,
+    face_budget: usize,
 ) -> MeshDrawStats {
     let Some(mesh) = mesh.compacted() else {
         return MeshDrawStats::default();
@@ -175,7 +196,7 @@ fn draw_mesh_shaded(
         .collect::<Vec<_>>();
 
     faces.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-    let stride = (faces.len() / MAX_SHADED_RENDER_FACES).max(1);
+    let stride = (faces.len() / face_budget.max(1)).max(1);
     let mut stats = MeshDrawStats::default();
     for (_, face) in faces.into_iter().step_by(stride) {
         stats.submitted_faces += 1;
@@ -865,6 +886,7 @@ mod tests {
             [80, 90, 100, 150],
             -0.62,
             -0.48,
+            MAX_SHADED_RENDER_FACES,
         );
 
         assert!(different_pixels > 1_000);
@@ -903,6 +925,7 @@ mod tests {
             [80, 90, 100, 150],
             -0.62,
             -0.48,
+            MAX_SHADED_RENDER_FACES,
         );
 
         assert_eq!(stats.submitted_faces, face_count);

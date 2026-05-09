@@ -31,6 +31,8 @@ const LIBRARY_WATCH_DEBOUNCE: Duration = Duration::from_millis(750);
 const LIBRARY_WATCH_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const SCAN_ENTRY_BATCH_SIZE: usize = 8;
 const SCAN_ENTRY_BATCH_INTERVAL: Duration = Duration::from_millis(120);
+const PREVIEW_ORBIT_FRAME_INTERVAL: Duration = Duration::from_millis(16);
+const PREVIEW_ORBIT_SETTLE_DELAY: Duration = Duration::from_millis(120);
 
 const DEMO_ROOT: &str = "/Users/hwankishin/Library/3d";
 
@@ -596,14 +598,51 @@ pub fn run() -> Result<(), slint::PlatformError> {
         }
     });
 
+    let orbit_pending = Rc::new(RefCell::new(OrbitAccumulator::default()));
+    let orbit_frame_timer = Rc::new(slint::Timer::default());
     let weak = ui.as_weak();
     let orbit_state = state.clone();
-    ui.on_preview_orbit(move |delta_x, delta_y| {
-        if let Some(ui) = weak.upgrade() {
+    let orbit_frame_pending = orbit_pending.clone();
+    orbit_frame_timer.start(
+        slint::TimerMode::Repeated,
+        PREVIEW_ORBIT_FRAME_INTERVAL,
+        move || {
+            let Some(ui) = weak.upgrade() else {
+                return;
+            };
+            let Some((delta_x, delta_y)) = orbit_frame_pending.borrow_mut().take() else {
+                return;
+            };
             let mut state = orbit_state.borrow_mut();
             state.orbit_preview(delta_x, delta_y);
-            apply_detail(&ui, &mut state);
-        }
+            apply_detail_with_quality(&ui, &mut state, DetailPreviewQuality::Interactive);
+        },
+    );
+
+    let orbit_settle_timer = Rc::new(slint::Timer::default());
+    let weak = ui.as_weak();
+    let orbit_state = state.clone();
+    let orbit_settle_pending = orbit_pending.clone();
+    let orbit_settle_timer_for_callback = orbit_settle_timer.clone();
+    ui.on_preview_orbit(move |delta_x, delta_y| {
+        orbit_pending.borrow_mut().push(delta_x, delta_y);
+        let weak = weak.clone();
+        let orbit_state = orbit_state.clone();
+        let orbit_settle_pending = orbit_settle_pending.clone();
+        orbit_settle_timer_for_callback.start(
+            slint::TimerMode::SingleShot,
+            PREVIEW_ORBIT_SETTLE_DELAY,
+            move || {
+                let Some(ui) = weak.upgrade() else {
+                    return;
+                };
+                if let Some((delta_x, delta_y)) = orbit_settle_pending.borrow_mut().take() {
+                    orbit_state.borrow_mut().orbit_preview(delta_x, delta_y);
+                }
+                let mut state = orbit_state.borrow_mut();
+                apply_detail_with_quality(&ui, &mut state, DetailPreviewQuality::High);
+            },
+        );
     });
 
     let weak = ui.as_weak();
@@ -612,7 +651,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
         if let Some(ui) = weak.upgrade() {
             let mut state = orbit_reset_state.borrow_mut();
             state.reset_preview_orbit();
-            apply_detail(&ui, &mut state);
+            apply_detail_with_quality(&ui, &mut state, DetailPreviewQuality::High);
         }
     });
 
@@ -1798,6 +1837,14 @@ fn apply_detail_rc(ui: &ModelRackWindow, state: &Rc<RefCell<ShellState>>) {
 }
 
 fn apply_detail(ui: &ModelRackWindow, state: &mut ShellState) {
+    apply_detail_with_quality(ui, state, DetailPreviewQuality::High);
+}
+
+fn apply_detail_with_quality(
+    ui: &ModelRackWindow,
+    state: &mut ShellState,
+    quality: DetailPreviewQuality,
+) {
     ui.set_selected_card_index(state.selected_index.map(|i| i as i32).unwrap_or(-1));
     if let Some(idx) = state.selected_index {
         if let Some(entry) = state.displayed.get(idx).cloned() {
@@ -1808,7 +1855,9 @@ fn apply_detail(ui: &ModelRackWindow, state: &mut ShellState) {
             let preview = state.selected_preview(&entry);
             let (thumb_image, thumb_ready) = preview
                 .as_ref()
-                .map(|preview| render_detail_preview_image(&entry, &preview.mesh, yaw, pitch))
+                .map(|preview| {
+                    render_detail_preview_image(&entry, &preview.mesh, yaw, pitch, quality)
+                })
                 .unwrap_or_else(|| load_thumbnail_image(entry.thumbnail_path.as_deref()));
             ui.set_selected_thumb_image(thumb_image);
             ui.set_selected_thumb_ready(thumb_ready);
@@ -1935,7 +1984,14 @@ fn apply_detail(ui: &ModelRackWindow, state: &mut ShellState) {
                     .unwrap_or_else(|| "—".to_string())
                     .into(),
             );
-            ui.set_detail_added("—".into());
+            ui.set_detail_added(
+                entry
+                    .meta
+                    .as_ref()
+                    .and_then(|meta| meta.added.clone())
+                    .unwrap_or_else(|| "—".to_string())
+                    .into(),
+            );
             ui.set_detail_author(
                 entry
                     .meta
@@ -2783,7 +2839,33 @@ struct LibraryUndo {
     label: String,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
+enum DetailPreviewQuality {
+    High,
+    Interactive,
+}
+
+#[derive(Default)]
+struct OrbitAccumulator {
+    delta_x: f32,
+    delta_y: f32,
+}
+
+impl OrbitAccumulator {
+    fn push(&mut self, delta_x: f32, delta_y: f32) {
+        self.delta_x += delta_x;
+        self.delta_y += delta_y;
+    }
+
+    fn take(&mut self) -> Option<(f32, f32)> {
+        let delta_x = self.delta_x;
+        let delta_y = self.delta_y;
+        self.delta_x = 0.0;
+        self.delta_y = 0.0;
+        ((delta_x.abs() + delta_y.abs()) > 0.001).then_some((delta_x, delta_y))
+    }
+}
+
 struct ShellState {
     entries: Vec<scanner::StlFileInfo>,
     displayed: Vec<scanner::StlFileInfo>,
@@ -4771,17 +4853,25 @@ fn display_slicer_path(path: &str) -> String {
 fn sort_key(sort_by: SortBy) -> &'static str {
     match sort_by {
         SortBy::Name => "name",
-        SortBy::Date => "date",
+        SortBy::Modified => "modified",
+        SortBy::Added => "added",
+        SortBy::Format => "format",
         SortBy::Size => "size",
         SortBy::Triangles => "triangles",
+        SortBy::Dimensions => "dimensions",
+        SortBy::Volume => "volume",
     }
 }
 
 fn sort_by_from_key(key: &str) -> SortBy {
     match key {
-        "date" => SortBy::Date,
+        "date" | "modified" => SortBy::Modified,
+        "added" => SortBy::Added,
+        "format" => SortBy::Format,
         "size" => SortBy::Size,
         "triangles" => SortBy::Triangles,
+        "dimensions" => SortBy::Dimensions,
+        "volume" => SortBy::Volume,
         _ => SortBy::Name,
     }
 }
@@ -5280,22 +5370,22 @@ fn render_detail_preview_image(
     mesh: &scanner::MeshData,
     yaw: f32,
     pitch: f32,
+    quality: DetailPreviewQuality,
 ) -> (slint::Image, bool) {
-    const DETAIL_PREVIEW_WIDTH: u32 = 720;
-    const DETAIL_PREVIEW_HEIGHT: u32 = 560;
-    let pixels = crate::thumbnail_cache::render_preview_rgba(
+    let (width, height, face_budget) = match quality {
+        DetailPreviewQuality::High => (720, 560, 160_000),
+        DetailPreviewQuality::Interactive => (420, 326, 36_000),
+    };
+    let pixels = crate::thumbnail_cache::render_preview_rgba_with_face_budget(
         entry,
         Some(mesh),
-        DETAIL_PREVIEW_WIDTH,
-        DETAIL_PREVIEW_HEIGHT,
+        width,
+        height,
         yaw,
         pitch,
+        face_budget,
     );
-    let buffer = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
-        &pixels,
-        DETAIL_PREVIEW_WIDTH,
-        DETAIL_PREVIEW_HEIGHT,
-    );
+    let buffer = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(&pixels, width, height);
     (slint::Image::from_rgba8(buffer), true)
 }
 
