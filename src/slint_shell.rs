@@ -18,6 +18,11 @@ use slint::Model;
 
 slint::include_modules!();
 
+const DEFAULT_WINDOW_WIDTH: u32 = 1480;
+const DEFAULT_WINDOW_HEIGHT: u32 = 920;
+const MIN_WINDOW_WIDTH: u32 = 960;
+const MIN_WINDOW_HEIGHT: u32 = 640;
+
 const DEMO_ROOT: &str = "/Users/hwankishin/Library/3d";
 
 pub fn run() -> Result<(), slint::PlatformError> {
@@ -258,6 +263,20 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 apply_settings(&ui, &settings_state.borrow());
                 save_prefs_status(&ui, &settings_state.borrow());
             }
+        }
+    });
+
+    let weak = ui.as_weak();
+    let settings_state = state.clone();
+    ui.on_choose_settings_slicer(move |path| {
+        if let Some(ui) = weak.upgrade() {
+            {
+                let mut state = settings_state.borrow_mut();
+                state.prefs.slicer_path = path.to_string();
+                ui.set_status_text(slicer_status_text(&state.prefs.slicer_path).into());
+            }
+            apply_settings(&ui, &settings_state.borrow());
+            save_prefs_status(&ui, &settings_state.borrow());
         }
     });
 
@@ -550,7 +569,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
     });
 
     ui.on_window_fullscreen(move || {
-        crate::macos::fullscreen_window();
+        // The custom green traffic light should behave like macOS Zoom
+        // (maximize/restore), not force a separate full-screen Space.
+        crate::macos::zoom_window();
     });
 
     let weak = ui.as_weak();
@@ -560,18 +581,30 @@ pub fn run() -> Result<(), slint::PlatformError> {
         }
     });
 
+    let _ = ui.window().with_winit_window(|window| {
+        // The Slint shell draws its own macOS-style chrome; keep the native
+        // frame decoration disabled so packaged captures do not show a second
+        // macOS titlebar above the custom titlebar.
+        window.set_decorations(false);
+    });
+
     ui.show()?;
 
     let _ = ui.window().with_winit_window(|window| {
+        window.set_decorations(false);
         window.set_resizable(true);
-        window.set_min_inner_size(Some(PhysicalSize::new(960, 640)));
+        window.set_min_inner_size(Some(PhysicalSize::new(MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT)));
         window.set_max_inner_size(None::<PhysicalSize<u32>>);
+        let _ = window.request_inner_size(PhysicalSize::new(
+            DEFAULT_WINDOW_WIDTH,
+            DEFAULT_WINDOW_HEIGHT,
+        ));
     });
 
     crate::macos::configure_transparent_titlebar();
 
     // Re-apply after the first macOS layout pass so restored/reopened windows
-    // keep the native rounded frame while the custom titlebar stays in place.
+    // keep the custom titlebar as the only visible titlebar.
     slint::Timer::single_shot(std::time::Duration::from_millis(50), move || {
         crate::macos::configure_transparent_titlebar();
         crate::macos::show_windows();
@@ -1949,11 +1982,7 @@ fn apply_snapshot(ui: &ModelRackWindow, snapshot: &AppViewSnapshot) {
     ui.set_browser_message(snapshot.browser.empty_message.clone().into());
     ui.set_sort_label(snapshot.sort_label.clone().into());
     ui.set_browser_count_label(
-        format!(
-            "{} visible · {} total",
-            snapshot.browser.displayed, snapshot.browser.total
-        )
-        .into(),
+        browser_count_label(snapshot.browser.displayed, snapshot.browser.total).into(),
     );
     ui.set_all_count(snapshot.sidebar.all as i32);
     ui.set_recent_count(snapshot.sidebar.recent as i32);
@@ -1993,6 +2022,14 @@ fn apply_snapshot(ui: &ModelRackWindow, snapshot: &AppViewSnapshot) {
     ui.set_tag_items(slint::ModelRc::new(slint::VecModel::from(tags)));
 }
 
+fn browser_count_label(displayed: usize, total: usize) -> String {
+    if displayed == total {
+        format!("{} items", total)
+    } else {
+        format!("{} of {} items", displayed, total)
+    }
+}
+
 fn sync_browser_cards(ui: &ModelRackWindow, cards: Vec<BrowserCard>) {
     let current = ui.get_model_cards();
     let Some(model) = current
@@ -2021,6 +2058,8 @@ fn sync_browser_cards(ui: &ModelRackWindow, cards: Vec<BrowserCard>) {
 }
 
 fn apply_settings(ui: &ModelRackWindow, state: &ShellState) {
+    let discovered_slicers = discover_slicer_candidates();
+    let slicer_rows = slicer_choice_rows(&state.prefs.slicer_path, &discovered_slicers);
     ui.set_settings_open(state.settings_open);
     ui.set_settings_tab(state.settings_tab.clone().into());
     ui.set_settings_language_label(language_label(&state.prefs.language).into());
@@ -2035,13 +2074,231 @@ fn apply_settings(ui: &ModelRackWindow, state: &ShellState) {
     );
     ui.set_settings_density_label(Density::from_str(&state.prefs.density).as_str().into());
     ui.set_settings_slicer_label(
-        if state.prefs.slicer_path.trim().is_empty() {
-            "System default STL opener".to_string()
-        } else {
-            state.prefs.slicer_path.clone()
-        }
-        .into(),
+        slicer_label_for_path(&state.prefs.slicer_path, &slicer_rows).into(),
     );
+    ui.set_settings_slicer_candidates(slint::ModelRc::new(slint::VecModel::from(
+        slicer_rows
+            .into_iter()
+            .map(|row| SlicerCandidate {
+                label: row.label.into(),
+                path: row.path.into(),
+                detail: row.detail.into(),
+                selected: row.selected,
+            })
+            .collect::<Vec<SlicerCandidate>>(),
+    )));
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct DiscoveredSlicer {
+    label: String,
+    path: PathBuf,
+    detail: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SlicerChoiceRow {
+    label: String,
+    path: String,
+    detail: String,
+    selected: bool,
+}
+
+fn slicer_status_text(path: &str) -> String {
+    if path.trim().is_empty() {
+        "Slicer set to system default STL opener".to_string()
+    } else {
+        format!("Slicer set to {}", display_slicer_path(path))
+    }
+}
+
+fn slicer_label_for_path(path: &str, rows: &[SlicerChoiceRow]) -> String {
+    rows.iter()
+        .find(|row| row.path == path.trim())
+        .map(|row| row.label.clone())
+        .unwrap_or_else(|| {
+            if path.trim().is_empty() {
+                "System default STL opener".to_string()
+            } else {
+                display_slicer_path(path)
+            }
+        })
+}
+
+fn slicer_choice_rows(
+    selected_path: &str,
+    discovered: &[DiscoveredSlicer],
+) -> Vec<SlicerChoiceRow> {
+    let selected = selected_path.trim();
+    let mut rows = Vec::with_capacity(discovered.len() + 2);
+    rows.push(SlicerChoiceRow {
+        label: "System default STL opener".to_string(),
+        path: String::new(),
+        detail: default_slicer_detail(),
+        selected: selected.is_empty(),
+    });
+
+    for slicer in discovered {
+        let path = slicer.path.display().to_string();
+        rows.push(SlicerChoiceRow {
+            label: slicer.label.clone(),
+            path: path.clone(),
+            detail: slicer.detail.clone(),
+            selected: selected == path,
+        });
+    }
+
+    if !selected.is_empty() && !rows.iter().any(|row| row.path == selected) {
+        rows.push(SlicerChoiceRow {
+            label: display_slicer_path(selected),
+            path: selected.to_string(),
+            detail: "Manual selection".to_string(),
+            selected: true,
+        });
+    }
+
+    rows
+}
+
+fn display_slicer_path(path: &str) -> String {
+    let trimmed = path.trim();
+    Path::new(trimmed)
+        .file_stem()
+        .or_else(|| Path::new(trimmed).file_name())
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or(trimmed)
+        .to_string()
+}
+
+#[cfg(target_os = "macos")]
+fn default_slicer_detail() -> String {
+    "Uses macOS default app for .stl files".to_string()
+}
+
+#[cfg(target_os = "windows")]
+fn default_slicer_detail() -> String {
+    "Uses Windows default app for .stl files".to_string()
+}
+
+#[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+fn default_slicer_detail() -> String {
+    "Uses xdg-open default app for .stl files".to_string()
+}
+
+fn discover_slicer_candidates() -> Vec<DiscoveredSlicer> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut roots = vec![PathBuf::from("/Applications")];
+        if let Some(home) = std::env::var_os("HOME") {
+            roots.push(PathBuf::from(home).join("Applications"));
+        }
+        return discover_macos_slicer_candidates_in_roots(roots);
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        discover_windows_slicer_candidates()
+    }
+
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        discover_unix_slicer_candidates()
+    }
+}
+
+fn push_unique_slicer(out: &mut Vec<DiscoveredSlicer>, label: &str, path: PathBuf, detail: &str) {
+    if path.exists() && !out.iter().any(|candidate| candidate.path == path) {
+        out.push(DiscoveredSlicer {
+            label: label.to_string(),
+            path,
+            detail: detail.to_string(),
+        });
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn discover_macos_slicer_candidates_in_roots<I>(roots: I) -> Vec<DiscoveredSlicer>
+where
+    I: IntoIterator<Item = PathBuf>,
+{
+    const MAC_SLICERS: &[(&str, &str)] = &[
+        ("OrcaSlicer", "OrcaSlicer.app"),
+        ("Bambu Studio", "BambuStudio.app"),
+        ("PrusaSlicer", "PrusaSlicer.app"),
+        ("UltiMaker Cura", "UltiMaker Cura.app"),
+        ("Cura", "Cura.app"),
+        ("SuperSlicer", "SuperSlicer.app"),
+        ("ideaMaker", "ideaMaker.app"),
+    ];
+
+    let mut out = Vec::new();
+    for root in roots {
+        for (label, bundle) in MAC_SLICERS {
+            push_unique_slicer(
+                &mut out,
+                label,
+                root.join(bundle),
+                "Detected macOS app bundle",
+            );
+        }
+    }
+    out
+}
+
+#[cfg(target_os = "windows")]
+fn discover_windows_slicer_candidates() -> Vec<DiscoveredSlicer> {
+    let roots = ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"]
+        .iter()
+        .filter_map(std::env::var_os)
+        .map(PathBuf::from)
+        .collect::<Vec<_>>();
+    let candidates = [
+        ("OrcaSlicer", ["OrcaSlicer", "orca-slicer.exe"]),
+        ("Bambu Studio", ["Bambu Studio", "bambu-studio.exe"]),
+        ("PrusaSlicer", ["Prusa3D\\PrusaSlicer", "prusa-slicer.exe"]),
+        ("UltiMaker Cura", ["UltiMaker Cura", "UltiMaker-Cura.exe"]),
+        ("SuperSlicer", ["SuperSlicer", "superslicer.exe"]),
+    ];
+
+    let mut out = Vec::new();
+    for root in roots {
+        for (label, parts) in candidates {
+            push_unique_slicer(
+                &mut out,
+                label,
+                root.join(parts[0]).join(parts[1]),
+                "Detected Windows executable",
+            );
+        }
+    }
+    out
+}
+
+#[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+fn discover_unix_slicer_candidates() -> Vec<DiscoveredSlicer> {
+    let candidates = [
+        ("OrcaSlicer", "orca-slicer"),
+        ("Bambu Studio", "bambu-studio"),
+        ("PrusaSlicer", "prusa-slicer"),
+        ("UltiMaker Cura", "cura"),
+        ("SuperSlicer", "superslicer"),
+    ];
+    let path_dirs = std::env::var_os("PATH")
+        .map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let mut out = Vec::new();
+    for dir in path_dirs {
+        for (label, binary) in candidates {
+            push_unique_slicer(
+                &mut out,
+                label,
+                dir.join(binary),
+                "Detected executable on PATH",
+            );
+        }
+    }
+    out
 }
 
 fn language_label(language: &str) -> &'static str {
@@ -2188,6 +2445,59 @@ mod tests {
             AppPrefs::default()
         );
 
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn slicer_choice_rows_preserve_system_default_and_manual_selection() {
+        let manual = "/opt/slicers/custom-slicer";
+        let rows = slicer_choice_rows(manual, &[]);
+
+        assert_eq!(rows[0].label, "System default STL opener");
+        assert_eq!(rows[0].path, "");
+        assert!(!rows[0].selected);
+        assert_eq!(rows[1].label, "custom-slicer");
+        assert_eq!(rows[1].path, manual);
+        assert_eq!(rows[1].detail, "Manual selection");
+        assert!(rows[1].selected);
+    }
+
+    #[test]
+    fn slicer_choice_rows_select_discovered_candidate() {
+        let discovered = vec![DiscoveredSlicer {
+            label: "OrcaSlicer".to_string(),
+            path: PathBuf::from("/Applications/OrcaSlicer.app"),
+            detail: "Detected macOS app bundle".to_string(),
+        }];
+        let rows = slicer_choice_rows("/Applications/OrcaSlicer.app", &discovered);
+
+        assert_eq!(rows.len(), 2);
+        assert!(!rows[0].selected);
+        assert_eq!(rows[1].label, "OrcaSlicer");
+        assert!(rows[1].selected);
+        assert_eq!(
+            slicer_label_for_path("/Applications/OrcaSlicer.app", &rows),
+            "OrcaSlicer"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_slicer_discovery_finds_known_app_bundles() {
+        let root = temp_path("slicer-discovery");
+        let apps = root.join("Applications");
+        fs::create_dir_all(apps.join("OrcaSlicer.app")).unwrap();
+        fs::create_dir_all(apps.join("PrusaSlicer.app")).unwrap();
+
+        let found = discover_macos_slicer_candidates_in_roots(vec![apps]);
+
+        assert_eq!(
+            found
+                .iter()
+                .map(|candidate| candidate.label.as_str())
+                .collect::<Vec<_>>(),
+            vec!["OrcaSlicer", "PrusaSlicer"]
+        );
         let _ = fs::remove_dir_all(root);
     }
 
@@ -2802,6 +3112,12 @@ mod tests {
 
         let err = run_launch_command(command).unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::Other);
+    }
+
+    #[test]
+    fn browser_count_label_matches_mockup_language() {
+        assert_eq!(browser_count_label(36, 36), "36 items");
+        assert_eq!(browser_count_label(9, 36), "9 of 36 items");
     }
 
     #[cfg(target_os = "macos")]

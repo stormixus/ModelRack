@@ -233,17 +233,11 @@ mod imp {
         }
     }
 
-    pub fn fullscreen_window() {
+    pub fn zoom_window() {
         unsafe {
             if let Some(window) = front_window() {
-                let full_screen_primary = 1usize << 7;
-                let collection_behavior: usize = msg_send![window, collectionBehavior];
-                let _: () = msg_send![
-                    window,
-                    setCollectionBehavior: collection_behavior | full_screen_primary
-                ];
                 let _: () = msg_send![window, makeKeyAndOrderFront: std::ptr::null_mut::<Object>()];
-                let _: () = msg_send![window, toggleFullScreen: std::ptr::null_mut::<Object>()];
+                let _: () = msg_send![window, zoom: std::ptr::null_mut::<Object>()];
             }
         }
     }
@@ -474,9 +468,9 @@ mod imp {
 
 #[cfg(target_os = "macos")]
 pub use imp::{
-    configure_transparent_titlebar, configure_window_appearance, fullscreen_window,
-    hide_application, hide_window, install_app_menu, minimize_window, show_windows,
-    take_open_library_request, take_settings_request,
+    configure_transparent_titlebar, configure_window_appearance, hide_application, hide_window,
+    install_app_menu, minimize_window, show_windows, take_open_library_request,
+    take_settings_request, zoom_window,
 };
 
 #[cfg(not(target_os = "macos"))]
@@ -508,7 +502,7 @@ pub fn hide_window() {}
 pub fn minimize_window() {}
 
 #[cfg(not(target_os = "macos"))]
-pub fn fullscreen_window() {}
+pub fn zoom_window() {}
 
 #[cfg(not(target_os = "macos"))]
 pub fn show_windows() {}

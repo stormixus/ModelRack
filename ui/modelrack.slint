@@ -41,6 +41,13 @@ export struct TagChip {
     label: string,
 }
 
+export struct SlicerCandidate {
+    label: string,
+    path: string,
+    detail: string,
+    selected: bool,
+}
+
 // ─── Reusable components ─────────────────────────────────
 
 component SvgIcon inherits Image {
@@ -580,6 +587,7 @@ export component ModelRackWindow inherits Window {
     in property <string> settings-folder-label;
     in property <string> settings-density-label;
     in property <string> settings-slicer-label;
+    in property <[SlicerCandidate]> settings-slicer-candidates;
 
     // Callbacks
     callback open-folder();
@@ -590,6 +598,7 @@ export component ModelRackWindow inherits Window {
     callback toggle-settings-theme();
     callback cycle-settings-density();
     callback choose-slicer();
+    callback choose-settings-slicer(string);
     callback apply-search(string);
     callback choose-view-mode(string);
     callback choose-density(string);
@@ -612,6 +621,7 @@ export component ModelRackWindow inherits Window {
     callback titlebar-drag(length, length);
 
     title: "";
+    no-frame: true;
     preferred-width: 1480px;
     preferred-height: 920px;
     default-font-family: "Inter";
@@ -826,7 +836,7 @@ export component ModelRackWindow inherits Window {
                         padding-left: 12px;
                         padding-right: 12px;
                         spacing: 8px;
-                        alignment: center;
+                        alignment: start;
 
                         // Search
                         Rectangle {
@@ -1159,7 +1169,7 @@ export component ModelRackWindow inherits Window {
                         padding-left: 12px;
                         padding-right: 12px;
                         spacing: 16px;
-                        alignment: center;
+                        alignment: start;
 
                         Text {
                             text: active-filter-key == "all" ? "All models" : "Filtering";
@@ -1173,6 +1183,8 @@ export component ModelRackWindow inherits Window {
                             active: true;
                             dismiss => { choose-filter("all"); }
                         }
+
+                        Rectangle { horizontal-stretch: 1; }
 
                         Text {
                             text: browser-count-label;
@@ -2251,6 +2263,51 @@ export component ModelRackWindow inherits Window {
                             }
 
                             if settings-tab == "slicer": SettingsRow { label: "Default slicer"; value: settings-slicer-label; }
+                            if settings-tab == "slicer": SettingsRow { label: "Detected apps"; value: settings-slicer-candidates.length + " choices"; }
+                            if settings-tab == "slicer": VerticalLayout {
+                                spacing: 6px;
+                                padding-bottom: 10px;
+
+                                for candidate in settings-slicer-candidates: Rectangle {
+                                    height: 34px;
+                                    background: candidate.selected ? Theme.accent-dim : Theme.bg-2;
+                                    border-color: candidate.selected ? Theme.accent-line : Theme.line;
+                                    border-width: 1px;
+                                    border-radius: Theme.radius-btn;
+
+                                    Text {
+                                        x: 10px;
+                                        y: 5px;
+                                        width: parent.width - 44px;
+                                        text: candidate.label;
+                                        color: Theme.fg-0;
+                                        font-size: Theme.font-body;
+                                        overflow: elide;
+                                    }
+
+                                    Text {
+                                        x: 10px;
+                                        y: 20px;
+                                        width: parent.width - 44px;
+                                        text: candidate.detail;
+                                        color: Theme.fg-2;
+                                        font-family: "JetBrains Mono";
+                                        font-size: Theme.font-overline;
+                                        overflow: elide;
+                                    }
+
+                                    if candidate.selected: Text {
+                                        x: parent.width - 24px;
+                                        y: (parent.height - self.height) / 2;
+                                        text: "✓";
+                                        color: Theme.accent;
+                                        font-size: 14px;
+                                        font-weight: 600;
+                                    }
+
+                                    TouchArea { clicked => { choose-settings-slicer(candidate.path); } }
+                                }
+                            }
                             if settings-tab == "slicer": SettingsRow { label: "After export"; value: "Open in slicer"; }
                             if settings-tab == "slicer": Rectangle {
                                 height: 36px;

@@ -1,63 +1,76 @@
 # Slint Migration Plan
 
-This document is the current UI stack direction.
+This document is the current UI stack direction and reflects the repository state as of v0.0.3.
 
 ## Decision
 
-ModelRack should migrate text-heavy application UI from the current egui prototype shell
-to Slint. wgpu remains in the project as a rendering subsystem for STL previews,
-thumbnail rendering, offscreen rendering, and future mesh inspection tools.
+ModelRack uses Slint as the active desktop UI shell. The Rust domain logic remains
+framework-neutral where practical, and wgpu remains a focused visualization subsystem
+for STL previews, thumbnail rendering, offscreen rendering, and future mesh inspection
+tools.
+
+## Current Source of Truth
+
+- `src/main.rs` unconditionally enters `slint_shell::run()`.
+- `Cargo.toml` declares Slint directly and does not expose an alternate egui/default-shell feature gate.
+- Historical egui/eframe prototype-shell language should be treated as migration history, not the current runtime contract.
+- New UI work should target the Slint shell first. Domain logic should stay reusable through `src/view_model.rs`, `src/scanner.rs`, and focused integration helpers.
 
 ## Why
 
 ModelRack users spend most of their time scanning compact UI: filenames, tags, paths,
 print history, geometry values, and mixed Korean/English metadata. Typography quality is
-therefore part of the product contract, not decoration. The current full-app egui shell
-can be kept as a working bridge, but it should not be the long-term UI layer.
+therefore part of the product contract, not decoration. Slint owns the text-heavy desktop
+shell; wgpu should not expand back into a full-application UI renderer.
 
 ## Migration Slices
 
-1. **Extract app model boundary**
-   - Keep scanner, metadata sidecars, file watching, thumbnail cache, slicer launch, and
-     wgpu renderer independent from UI widgets.
-   - Create simple view-model structs for sidebar counts, model rows/cards, detail panel
-     values, scan progress, and settings.
+1. **Extract app model boundary** ✅
+   - Scanner, metadata sidecars, file watching, thumbnail cache, slicer launch, and
+     visualization code remain independent from Slint widgets where practical.
+   - `src/view_model.rs` provides shared app snapshot, filtering, sorting, settings,
+     sidebar, browser card, and detail-facing data structures.
 
-2. **Introduce a minimal Slint shell**
-   - Rebuild the titlebar/body/status layout.
-   - Use bundled fonts: Inter for Latin, Pretendard for Korean fallback.
-     - Assets live in `assets/fonts/InterVariable.ttf` and `assets/fonts/PretendardVariable.ttf`.
-     - Monospace surfaces use `assets/fonts/JetBrainsMono-Regular.ttf`.
-     - Slint registers both fonts at launch and appends Pretendard as the Hangul fallback.
-     - The egui bridge loads the same bundled fonts until the shell migration is complete.
-   - Keep current egui app runnable until the Slint shell reaches feature parity.
+2. **Make Slint the active shell** ✅
+   - `src/main.rs` runs the Slint shell directly.
+   - The shell rebuilds the titlebar/body/status layout in `ui/modelrack.slint`.
+   - Bundled fonts are registered at launch: Inter for Latin, Pretendard for Korean
+     fallback, and JetBrains Mono for path/hash/count surfaces.
 
-3. **Port primary panes**
-   - Sidebar smart filters/folders/tags.
-   - Toolbar search, view mode, density, sort, folder actions.
-   - Grid/list/masonry browser.
-   - Detail metadata panel and settings dialog.
-     - Current bridge state: settings opens an in-app Slint panel with tabs and local preference controls.
-     - Pending: settings persistence, slicer app chooser/dropdown, and full egui settings parity.
+3. **Port primary panes** ✅ / continuing polish
+   - Sidebar smart filters/folders/tags are Slint-backed.
+   - Toolbar search, view mode, density, sort direction, and folder actions are Slint-backed.
+   - Grid/browser cards, detail metadata editing, print-history editing, and settings panel
+     are Slint-backed.
+   - Remaining work is polish and small feature completion, not a shell-selection decision:
+     slicer candidate discovery/dropdown, visual QA evidence, and cross-platform QA.
 
-4. **Embed visualization surfaces**
-   - Reuse the existing wgpu offscreen thumbnail renderer.
-   - Add a Slint-compatible preview surface or image bridge for the selected-model preview.
+4. **Embed visualization surfaces** in progress
    - Keep wgpu isolated from text-heavy UI.
+   - Reuse focused thumbnail/preview rendering paths for STL visualization.
+   - Validate GPU thumbnail/preview behavior through visual QA and cross-platform release QA.
 
-5. **Retire egui shell**
-   - Remove eframe/egui dependencies after Slint reaches functional parity.
-   - Preserve native smoke screenshots and add pixel comparison on top of the harness.
+5. **Retire stale migration assumptions** in progress
+   - Do not plan new work around an egui/default-shell bridge unless a future decision
+     explicitly reintroduces one.
+   - Preserve native smoke screenshots and add deterministic pixel comparison on top of the
+     visual QA artifact harness.
 
 ## Non-goals
 
-- Do not rewrite scanner, sidecar metadata, slicer integration, or thumbnail cache just to
-  change UI frameworks.
+- Do not rewrite scanner, sidecar metadata, slicer integration, thumbnail cache, or file
+  watching just to change UI documentation.
 - Do not adopt a web UI layer.
 - Do not expand wgpu back into a full-application UI renderer.
+- Do not revive stale egui/feature-gated assumptions without a new ADR.
 
-## Current Bridge State
+## Remaining Follow-ups
 
-The current app uses egui/eframe as a prototype shell with `Glow`, while `wgpu` is already
-limited to Metal/WGSL thumbnail rendering. This is a useful interim state, but all new
-UI-heavy work should be weighed against the Slint migration path.
+- Deterministic visual QA artifacts with nonblank reference/current images, diffs, and
+  report metadata.
+- macOS frameless titlebar/traffic-light behavior verification and green maximize/restore
+  resolution or explicit masking/deferral.
+- Slicer candidate discovery/dropdown while preserving current manual/default launcher behavior.
+- Windows/Linux release QA evidence for Slint launch, wgpu preview/thumbnail paths, HiDPI,
+  folder picker, sidecar writes, and slicer launch.
+- Warning baseline and release-gate triage.

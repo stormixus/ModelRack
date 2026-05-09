@@ -1,0 +1,83 @@
+{
+  "schema_version": 1,
+  "command": [
+    "cargo",
+    "check",
+    "--message-format=json"
+  ],
+  "total_warnings": 193,
+  "entries": [
+    {
+      "key": "dead_code|src/fonts.rs",
+      "code": "dead_code",
+      "file": "src/fonts.rs",
+      "count": 3,
+      "disposition": "allowed temporary",
+      "classification": "font-family constants document bundled font names while Slint currently consumes registration side effects",
+      "sample": "constant `INTER_FAMILY` is never used"
+    },
+    {
+      "key": "dead_code|src/macos.rs",
+      "code": "dead_code",
+      "file": "src/macos.rs",
+      "count": 4,
+      "disposition": "allowed temporary",
+      "classification": "macOS menu/request hooks are reserved for menu-to-Slint wiring and Dock reopen behavior",
+      "sample": "function `take_settings_request` is never used"
+    },
+    {
+      "key": "dead_code|src/scanner.rs",
+      "code": "dead_code",
+      "file": "src/scanner.rs",
+      "count": 4,
+      "disposition": "allowed temporary",
+      "classification": "scanner structs keep parsed mesh/progress fields for thumbnail/preview pipeline evolution",
+      "sample": "field `tag_input` is never read"
+    },
+    {
+      "key": "dead_code|src/strings.rs",
+      "code": "dead_code",
+      "file": "src/strings.rs",
+      "count": 25,
+      "disposition": "allowed temporary",
+      "classification": "legacy string constants remain as i18n extraction anchors during Slint migration",
+      "sample": "constant `MSG_EMPTY_FOLDER` is never used"
+    },
+    {
+      "key": "dead_code|src/utils.rs",
+      "code": "dead_code",
+      "file": "src/utils.rs",
+      "count": 4,
+      "disposition": "allowed temporary",
+      "classification": "utility helpers retained for planned UI/file-size formatting convergence",
+      "sample": "function `truncate_filename` is never used"
+    },
+    {
+      "key": "dead_code|src/view_model.rs",
+      "code": "dead_code",
+      "file": "src/view_model.rs",
+      "count": 4,
+      "disposition": "allowed temporary",
+      "classification": "view-model enums/helpers retained for keyboard focus and alternate sort/density surfaces",
+      "sample": "variants `Scanning` and `Error` are never constructed"
+    },
+    {
+      "key": "unexpected_cfgs|$CARGO_REGISTRY/objc-0.2.7/src/macros.rs",
+      "code": "unexpected_cfgs",
+      "file": "$CARGO_REGISTRY/objc-0.2.7/src/macros.rs",
+      "count": 148,
+      "disposition": "false-positive/tool limitation",
+      "classification": "upstream objc 0.2 macro expands cfg(cargo-clippy); tracked until objc bridge is replaced or dependency changes",
+      "sample": "unexpected `cfg` condition value: `cargo-clippy`"
+    },
+    {
+      "key": "unused_imports|src/macos.rs",
+      "code": "unused_imports",
+      "file": "src/macos.rs",
+      "count": 1,
+      "disposition": "allowed temporary",
+      "classification": "macOS app-menu/window hooks are intentionally exported ahead of full menu wiring; remove when warning budget is tightened",
+      "sample": "unused imports: `configure_window_appearance`, `hide_application`, `take_open_library_request`, and `take_settings_request`"
+    }
+  ]
+}
