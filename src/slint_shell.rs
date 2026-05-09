@@ -747,6 +747,53 @@ pub fn run() -> Result<(), slint::PlatformError> {
     });
 
     let weak = ui.as_weak();
+    let drop_tag_state = state.clone();
+    ui.on_add_tag_to_model(move |model_index, tag| {
+        if let Some(ui) = weak.upgrade() {
+            let mut state = drop_tag_state.borrow_mut();
+            let Some(path) = state.displayed_model_path_from_str(model_index.as_str()) else {
+                ui.set_status_text("Model is no longer available for tag drop".into());
+                return false;
+            };
+
+            let allow_sidecar_writes = state.sidecar_writes_enabled;
+            match persist_add_existing_tag(
+                &mut state.entries,
+                &path,
+                allow_sidecar_writes,
+                tag.as_str(),
+            ) {
+                Ok(Some(TagDropOutcome::Added { tag, count })) if allow_sidecar_writes => {
+                    ui.set_status_text(format!("Tag added: {tag} ({count})").into())
+                }
+                Ok(Some(TagDropOutcome::Added { tag, count })) => {
+                    ui.set_status_text(format!("Demo tag added: {tag} ({count})").into())
+                }
+                Ok(Some(TagDropOutcome::AlreadyPresent { tag, count })) => {
+                    ui.set_status_text(format!("Tag already present: {tag} ({count})").into())
+                }
+                Ok(None) => {
+                    ui.set_status_text("Tag drop target is no longer available".into());
+                    return false;
+                }
+                Err(err) => {
+                    ui.set_status_text(format!("Could not add dropped tag: {err}").into());
+                    return false;
+                }
+            }
+
+            let snapshot = state.snapshot_done();
+            state.reselect_path(&path);
+            apply_snapshot(&ui, &snapshot);
+            apply_detail(&ui, &mut state);
+            apply_settings(&ui, &state);
+            true
+        } else {
+            false
+        }
+    });
+
+    let weak = ui.as_weak();
     let tag_state = state.clone();
     ui.on_remove_tag(move |index| {
         if let Some(ui) = weak.upgrade() {
@@ -2410,6 +2457,56 @@ fn persist_metadata_fields(
     })
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TagDropOutcome {
+    Added { tag: String, count: usize },
+    AlreadyPresent { tag: String, count: usize },
+}
+
+fn persist_add_existing_tag(
+    entries: &mut [scanner::StlFileInfo],
+    path: &Path,
+    allow_sidecar_writes: bool,
+    tag: &str,
+) -> anyhow::Result<Option<TagDropOutcome>> {
+    let tag = tag.trim();
+    if tag.is_empty() {
+        return Ok(None);
+    }
+
+    let Some(entry) = entries.iter_mut().find(|entry| entry.path == path) else {
+        return Ok(None);
+    };
+
+    let current_count = entry.meta.as_ref().map_or(0, |meta| meta.tags.len());
+    if entry
+        .meta
+        .as_ref()
+        .is_some_and(|meta| meta.tags.iter().any(|existing| existing == tag))
+    {
+        return Ok(Some(TagDropOutcome::AlreadyPresent {
+            tag: tag.to_string(),
+            count: current_count,
+        }));
+    }
+
+    if allow_sidecar_writes && !path.exists() {
+        anyhow::bail!("model does not exist: {}", path.display());
+    }
+
+    let mut meta = entry.meta.clone().unwrap_or_default();
+    meta.tags.push(tag.to_string());
+    if allow_sidecar_writes {
+        scanner::write_sidecar(path, &meta)?;
+    }
+    let count = meta.tags.len();
+    entry.meta = Some(meta);
+    Ok(Some(TagDropOutcome::Added {
+        tag: tag.to_string(),
+        count,
+    }))
+}
+
 fn persist_add_tags(
     entries: &mut [scanner::StlFileInfo],
     path: &Path,
@@ -3712,6 +3809,11 @@ impl ShellState {
     fn selected_model_path(&self) -> Option<PathBuf> {
         let idx = self.selected_index?;
         self.displayed.get(idx).map(|entry| entry.path.clone())
+    }
+
+    fn displayed_model_path_from_str(&self, model_index: &str) -> Option<PathBuf> {
+        let index = model_index.trim().parse::<usize>().ok()?;
+        self.displayed.get(index).map(|entry| entry.path.clone())
     }
 
     fn rename_selected_model(&mut self, requested_name: &str) -> anyhow::Result<Option<PathBuf>> {
@@ -6066,6 +6168,70 @@ mod tests {
         assert!(saved.favorite);
         assert_eq!(saved.printed, 2);
         assert_eq!(saved.print_history.len(), 1);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn tag_drop_adds_missing_tag_and_persists_sidecar() {
+        let root = temp_path("tag-drop-add");
+        fs::create_dir_all(&root).unwrap();
+        let model = root.join("part.stl");
+        fs::write(&model, b"solid test\nendsolid test\n").unwrap();
+        let mut entries = vec![test_entry(&model)];
+        entries[0].meta = Some(scanner::SidecarMeta {
+            tags: vec!["rack".to_string()],
+            notes: "preserved".to_string(),
+            ..scanner::SidecarMeta::default()
+        });
+
+        assert_eq!(
+            persist_add_existing_tag(&mut entries, &model, true, "printer").unwrap(),
+            Some(TagDropOutcome::Added {
+                tag: "printer".to_string(),
+                count: 2,
+            })
+        );
+
+        let sidecar = model.with_file_name("part.stl.modelrack.json");
+        let saved: scanner::SidecarMeta =
+            serde_json::from_str(&fs::read_to_string(sidecar).unwrap()).unwrap();
+        assert_eq!(saved.tags, vec!["rack", "printer"]);
+        assert_eq!(saved.notes, "preserved");
+        assert_eq!(
+            entries[0].meta.as_ref().unwrap().tags,
+            vec!["rack", "printer"]
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn tag_drop_skips_existing_tag_without_duplication() {
+        let root = temp_path("tag-drop-existing");
+        fs::create_dir_all(&root).unwrap();
+        let model = root.join("part.stl");
+        fs::write(&model, b"solid test\nendsolid test\n").unwrap();
+        let mut entries = vec![test_entry(&model)];
+        entries[0].meta = Some(scanner::SidecarMeta {
+            tags: vec!["rack".to_string(), "printer".to_string()],
+            ..scanner::SidecarMeta::default()
+        });
+
+        assert_eq!(
+            persist_add_existing_tag(&mut entries, &model, true, "printer").unwrap(),
+            Some(TagDropOutcome::AlreadyPresent {
+                tag: "printer".to_string(),
+                count: 2,
+            })
+        );
+
+        let sidecar = model.with_file_name("part.stl.modelrack.json");
+        assert!(!sidecar.exists());
+        assert_eq!(
+            entries[0].meta.as_ref().unwrap().tags,
+            vec!["rack", "printer"]
+        );
 
         let _ = fs::remove_dir_all(root);
     }

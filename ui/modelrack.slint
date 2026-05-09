@@ -160,12 +160,16 @@ component SidebarLine inherits Rectangle {
     in property <bool> expandable: false;
     in property <bool> expanded: false;
     in property <bool> selected: false;
+    in property <bool> drop-enabled: false;
     callback activated();
     callback toggle-requested();
     callback context-requested(length, length);
+    callback model-dropped(string, string);
 
     height: 26px;
-    background: selected ? Theme.accent-dim : ta-line.has-hover ? Theme.bg-3 : transparent;
+    background: tag-drop.contains-drag ? Theme.accent-dim : selected ? Theme.accent-dim : ta-line.has-hover ? Theme.bg-3 : transparent;
+    border-color: tag-drop.contains-drag ? Theme.accent-line : transparent;
+    border-width: tag-drop.contains-drag ? 1px : 0px;
     border-radius: Theme.radius-btn;
 
     // Active indicator bar
@@ -231,6 +235,18 @@ component SidebarLine inherits Rectangle {
             if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
                 root.context-requested(ta-line.mouse-x, ta-line.mouse-y);
             }
+        }
+    }
+
+    tag-drop := DropArea {
+        width: parent.width;
+        height: parent.height;
+        enabled: root.drop-enabled;
+        can-drop(event) => {
+            event.mime-type == "application/x-modelrack-model-index";
+        }
+        dropped(event) => {
+            root.model-dropped(event.data, root.label);
         }
     }
 }
@@ -869,10 +885,17 @@ component ModelCard inherits Rectangle {
         }
     }
 
-    TouchArea {
+    DragArea {
         width: parent.width;
         height: parent.height;
-        clicked => { root.clicked(root.card-index); }
+        mime-type: "application/x-modelrack-model-index";
+        data: "" + root.card-index;
+
+        TouchArea {
+            width: parent.width;
+            height: parent.height;
+            clicked => { root.clicked(root.card-index); }
+        }
     }
 }
 
@@ -1193,8 +1216,17 @@ component ModelListRow inherits Rectangle {
         overflow: elide;
     }
 
-    list-touch := TouchArea {
-        clicked => { root.clicked(card-index); }
+    list-drag := DragArea {
+        width: parent.width;
+        height: parent.height;
+        mime-type: "application/x-modelrack-model-index";
+        data: "" + root.card-index;
+
+        list-touch := TouchArea {
+            width: parent.width;
+            height: parent.height;
+            clicked => { root.clicked(root.card-index); }
+        }
     }
 }
 
@@ -1419,6 +1451,7 @@ export component ModelRackWindow inherits Window {
     callback sidebar-context-action(string, string, string);
     callback undo-library-action();
     callback select-model(int);
+    callback add-tag-to-model(string, string) -> bool;
     callback toggle-favorite();
     callback rename-model(string) -> bool;
     callback save-metadata(string, string, string);
@@ -1709,8 +1742,10 @@ export component ModelRackWindow inherits Window {
                             icon: @image-url("../assets/icons/tag.svg");
                             label: tag.label;
                             count: tag.count;
+                            drop-enabled: true;
                             selected: active-filter-key == tag.key;
                             activated => { choose-filter(tag.key); }
+                            model-dropped(model, tag) => { add-tag-to-model(model, tag); }
                             context-requested(x, y) => {
                                 sidebar-context-key = tag.key;
                                 sidebar-context-label = tag.label;

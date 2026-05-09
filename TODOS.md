@@ -2,6 +2,13 @@
 
 ## Active
 
+### Pending manual QA: Sidebar tag drag/drop
+**Added:** 2026-05-10
+**State:** Implemented locally, manual QA deferred
+**What:** Drag a model card or list row onto an existing `TAGS` sidebar row to add that tag to the model. If the model already has the tag, the operation must no-op without duplicating it.
+**Verify later:** Confirm card/list drag starts reliably, tag rows highlight during drag, dropping persists `.modelrack.json` for real library files, duplicate tags are skipped, and status text reports added vs already-present outcomes.
+**Current evidence:** Rust persistence path covered by `tag_drop_adds_missing_tag_and_persists_sidecar` and `tag_drop_skips_existing_tag_without_duplication`; full pointer interaction still needs human/manual app QA.
+
 **Current release reality (2026-05-09):** local macOS implementation/polish work is largely complete and warning-clean. TODO-15 macOS traffic-light behavior is accepted complete by latest user verification. Remaining release blockers are external Windows/Linux evidence collection plus final release hygiene. See `docs/release-checklist.md`.
 
 **Status index**
