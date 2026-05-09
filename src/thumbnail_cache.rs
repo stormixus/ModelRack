@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 
 use crate::scanner::{MeshData, StlFileInfo};
 
-const CACHE_VERSION: &str = "v2";
-const THUMB_SIZE: u32 = 192;
+const CACHE_VERSION: &str = "v3";
+const THUMB_SIZE: u32 = 224;
 
 pub fn ensure_thumbnail(entry: &StlFileInfo, mesh: Option<&MeshData>) -> io::Result<PathBuf> {
     let root = platform_cache_root().join("thumbnails").join(CACHE_VERSION);
@@ -118,6 +118,10 @@ fn draw_mesh_shaded(canvas: &mut Canvas, mesh: &MeshData, high: [u8; 4], low: [u
     }
 
     let points = fit_projected_points(canvas, &projected);
+    let screen_points = points
+        .iter()
+        .map(|point| [point[0], point[1]])
+        .collect::<Vec<_>>();
     let mut faces = mesh
         .faces
         .iter()
@@ -129,41 +133,34 @@ fn draw_mesh_shaded(canvas: &mut Canvas, mesh: &MeshData, high: [u8; 4], low: [u
             {
                 return None;
             }
-            let depth = indices
-                .iter()
-                .map(|index| {
-                    let vertex = mesh.vertices[*index];
-                    vertex[0] + vertex[1] + vertex[2]
-                })
-                .sum::<f32>()
-                / 3.0;
+            let depth = indices.iter().map(|index| points[*index][2]).sum::<f32>() / 3.0;
             Some((depth, *face))
         })
         .collect::<Vec<_>>();
 
     faces.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-    let stride = (faces.len() / 1800).max(1);
+    let stride = (faces.len() / 5000).max(1);
     for (_, face) in faces.into_iter().step_by(stride) {
         let fill = shaded_face_color(mesh, face, high, low);
-        draw_face_fill(canvas, &points, face, fill);
+        draw_face_fill(canvas, &screen_points, face, fill);
     }
 
-    draw_mesh_wireframe_points(canvas, mesh, &points, high, low);
+    draw_mesh_wireframe_points(canvas, mesh, &screen_points, high, low);
 }
 
-fn fit_projected_points(canvas: &Canvas, projected: &[[f32; 2]]) -> Vec<[f32; 2]> {
+fn fit_projected_points(canvas: &Canvas, projected: &[[f32; 3]]) -> Vec<[f32; 3]> {
     let (min_x, max_x, min_y, max_y) = bounds_2d(&projected);
     let span_x = (max_x - min_x).max(0.001);
     let span_y = (max_y - min_y).max(0.001);
-    let scale = ((canvas.width as f32 * 0.70) / span_x).min((canvas.height as f32 * 0.64) / span_y);
+    let scale = ((canvas.width as f32 * 0.82) / span_x).min((canvas.height as f32 * 0.70) / span_y);
     let center_x = canvas.width as f32 * 0.50;
-    let center_y = canvas.height as f32 * 0.50;
+    let center_y = canvas.height as f32 * 0.48;
     let offset_x = center_x - ((min_x + max_x) * 0.5 * scale);
     let offset_y = center_y - ((min_y + max_y) * 0.5 * scale);
 
     projected
         .iter()
-        .map(|[x, y]| [x * scale + offset_x, y * scale + offset_y])
+        .map(|[x, y, z]| [x * scale + offset_x, y * scale + offset_y, *z])
         .collect::<Vec<_>>()
 }
 
@@ -174,7 +171,7 @@ fn draw_mesh_wireframe_points(
     high: [u8; 4],
     low: [u8; 4],
 ) {
-    let stride = (mesh.faces.len() / 900).max(1);
+    let stride = (mesh.faces.len() / 1500).max(1);
     for (idx, face) in mesh.faces.iter().enumerate().step_by(stride) {
         let color = if idx % (stride * 3) == 0 { high } else { low };
         draw_face_edges(canvas, &points, *face, color);
@@ -196,7 +193,7 @@ fn shaded_face_color(mesh: &MeshData, face: [u32; 3], high: [u8; 4], low: [u8; 4
         lerp_u8(low[0], high[0], shade),
         lerp_u8(low[1], high[1], shade),
         lerp_u8(low[2], high[2], shade),
-        92,
+        150,
     ]
 }
 
@@ -323,21 +320,57 @@ fn draw_corner_mark(canvas: &mut Canvas, entry: &StlFileInfo, accent: [u8; 3]) {
     }
 }
 
-fn project_vertices(vertices: &[[f32; 3]]) -> Vec<[f32; 2]> {
+fn project_vertices(vertices: &[[f32; 3]]) -> Vec<[f32; 3]> {
+    let Some((min, max)) = bounds_3d(vertices) else {
+        return Vec::new();
+    };
+    let center = [
+        (min[0] + max[0]) * 0.5,
+        (min[1] + max[1]) * 0.5,
+        (min[2] + max[2]) * 0.5,
+    ];
+
+    let yaw = -0.62_f32;
+    let pitch = -0.48_f32;
+    let (sin_yaw, cos_yaw) = yaw.sin_cos();
+    let (sin_pitch, cos_pitch) = pitch.sin_cos();
+
     vertices
         .iter()
         .filter(|vertex| vertex.iter().all(|value| value.is_finite()))
-        .map(|[x, y, z]| [(x - y) * 0.86, (x + y) * 0.34 - z * 0.82])
+        .map(|vertex| {
+            let x = vertex[0] - center[0];
+            let y = vertex[1] - center[1];
+            let z = vertex[2] - center[2];
+            let rx = x * cos_yaw - y * sin_yaw;
+            let ry = x * sin_yaw + y * cos_yaw;
+            let rz = z;
+            let py = ry * cos_pitch - rz * sin_pitch;
+            let pz = ry * sin_pitch + rz * cos_pitch;
+            [rx, -py, pz]
+        })
         .collect()
 }
 
-fn bounds_2d(points: &[[f32; 2]]) -> (f32, f32, f32, f32) {
+fn bounds_2d(points: &[[f32; 3]]) -> (f32, f32, f32, f32) {
     points.iter().fold(
         (f32::MAX, f32::MIN, f32::MAX, f32::MIN),
-        |(min_x, max_x, min_y, max_y), [x, y]| {
+        |(min_x, max_x, min_y, max_y), [x, y, _]| {
             (min_x.min(*x), max_x.max(*x), min_y.min(*y), max_y.max(*y))
         },
     )
+}
+
+fn bounds_3d(vertices: &[[f32; 3]]) -> Option<([f32; 3], [f32; 3])> {
+    let first = *vertices.first()?;
+    let (mut min, mut max) = (first, first);
+    for vertex in vertices {
+        for axis in 0..3 {
+            min[axis] = min[axis].min(vertex[axis]);
+            max[axis] = max[axis].max(vertex[axis]);
+        }
+    }
+    Some((min, max))
 }
 
 fn fallback_dims(hash: &[u8; 32]) -> [f32; 3] {

@@ -25,6 +25,8 @@ export struct SidebarItem {
     label: string,
     count: int,
     depth: int,
+    expandable: bool,
+    expanded: bool,
 }
 
 export struct PrintHistoryRow {
@@ -136,6 +138,7 @@ component SidebarLine inherits Rectangle {
     in property <bool> expanded: false;
     in property <bool> selected: false;
     callback activated();
+    callback toggle-requested();
     callback context-requested(length, length);
 
     height: 26px;
@@ -194,7 +197,13 @@ component SidebarLine inherits Rectangle {
     ta-line := TouchArea {
         width: parent.width;
         height: parent.height;
-        clicked => { root.activated(); }
+        clicked => {
+            if (root.expandable && ta-line.mouse-x < 24px + root.depth * 14px) {
+                root.toggle-requested();
+            } else {
+                root.activated();
+            }
+        }
         pointer-event(event) => {
             if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
                 root.context-requested(ta-line.mouse-x, ta-line.mouse-y);
@@ -835,6 +844,7 @@ export component ModelRackWindow inherits Window {
     callback cycle-density();
     callback toggle-sort();
     callback choose-filter(string);
+    callback toggle-sidebar-folder(string);
     callback sidebar-context-action(string, string, string);
     callback undo-library-action();
     callback select-model(int);
@@ -1040,16 +1050,17 @@ export component ModelRackWindow inherits Window {
                             count: folder.count;
                             depth: folder.depth;
                             reserve-leading: true;
-                            expandable: folder.depth == 0;
-                            expanded: folder.depth == 0;
+                            expandable: folder.expandable;
+                            expanded: folder.expanded;
                             selected: active-filter-key == folder.key;
                             activated => { choose-filter(folder.key); }
+                            toggle-requested => { toggle-sidebar-folder(folder.key); }
                             context-requested(x, y) => {
                                 sidebar-context-key = folder.key;
                                 sidebar-context-label = folder.label;
                                 sidebar-context-is-folder = true;
-                                sidebar-context-x = 6px + folder-row.x + x + 12px;
-                                sidebar-context-y = Theme.titlebar-height + folder-row.y - sidebar-scroll.viewport-y + y + 12px;
+                                sidebar-context-x = folder-row.absolute-position.x - root.absolute-position.x + x + 12px;
+                                sidebar-context-y = folder-row.absolute-position.y - root.absolute-position.y + y + 12px;
                                 sidebar-context-open = true;
                             }
                         }
@@ -1066,8 +1077,8 @@ export component ModelRackWindow inherits Window {
                                 sidebar-context-key = tag.key;
                                 sidebar-context-label = tag.label;
                                 sidebar-context-is-folder = false;
-                                sidebar-context-x = 6px + tag-row.x + x + 12px;
-                                sidebar-context-y = Theme.titlebar-height + tag-row.y - sidebar-scroll.viewport-y + y + 12px;
+                                sidebar-context-x = tag-row.absolute-position.x - root.absolute-position.x + x + 12px;
+                                sidebar-context-y = tag-row.absolute-position.y - root.absolute-position.y + y + 12px;
                                 sidebar-context-open = true;
                             }
                         }
@@ -2504,8 +2515,21 @@ export component ModelRackWindow inherits Window {
         x: 0;
         y: 0;
         width: parent.width;
-        height: parent.height;
+        height: Theme.titlebar-height;
         clicked => { sidebar-context-open = false; }
+    }
+
+    if sidebar-context-open: TouchArea {
+        x: Theme.sidebar-width;
+        y: Theme.titlebar-height;
+        width: parent.width - Theme.sidebar-width;
+        height: parent.height - Theme.titlebar-height;
+        clicked => { sidebar-context-open = false; }
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) {
+                sidebar-context-open = false;
+            }
+        }
     }
 
     if sidebar-context-open: SidebarContextMenu {

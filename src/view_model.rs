@@ -110,6 +110,8 @@ pub struct AppPrefs {
     pub last_folder: Option<PathBuf>,
     #[serde(default)]
     pub excluded_folders: Vec<PathBuf>,
+    #[serde(default)]
+    pub collapsed_folders: Vec<PathBuf>,
 }
 
 impl Default for AppPrefs {
@@ -122,6 +124,7 @@ impl Default for AppPrefs {
             slicer_path: String::new(),
             last_folder: None,
             excluded_folders: Vec::new(),
+            collapsed_folders: Vec::new(),
         }
     }
 }
@@ -167,6 +170,8 @@ pub struct SidebarFolder {
     pub label: String,
     pub count: usize,
     pub depth: usize,
+    pub expandable: bool,
+    pub expanded: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -231,7 +236,7 @@ impl AppViewSnapshot {
         Self {
             library_label: titlebar_path(current_folder),
             sidebar: sidebar_summary(entries),
-            folders: sidebar_folders(entries, current_folder),
+            folders: sidebar_folders(entries, current_folder, &prefs.collapsed_folders),
             tags: sidebar_tags(entries),
             cards: browser_cards(&displayed),
             browser: BrowserSummary {
@@ -319,6 +324,7 @@ pub fn sidebar_summary(entries: &[scanner::StlFileInfo]) -> SidebarSummary {
 pub fn sidebar_folders(
     entries: &[scanner::StlFileInfo],
     root: Option<&Path>,
+    collapsed_folders: &[PathBuf],
 ) -> Vec<SidebarFolder> {
     let Some(root) = root else {
         return Vec::new();
@@ -342,8 +348,24 @@ pub fn sidebar_folders(
         }
     }
 
-    counts
+    let collapsed_folders = collapsed_folders
+        .iter()
+        .filter(|folder| counts.contains_key(*folder))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    let paths = counts
+        .iter()
+        .map(|(path, count)| (path.clone(), *count))
+        .collect::<Vec<_>>();
+
+    paths
         .into_iter()
+        .filter(|(path, _)| {
+            !collapsed_folders
+                .iter()
+                .any(|collapsed| path != collapsed && path.starts_with(collapsed))
+        })
         .map(|(path, count)| {
             let relative = path.strip_prefix(root).unwrap_or(&path);
             let depth = if path == root {
@@ -362,11 +384,17 @@ pub fn sidebar_folders(
                     .unwrap_or("Folder")
                     .to_string()
             };
+            let expandable = counts
+                .keys()
+                .any(|candidate| candidate.parent() == Some(path.as_path()));
+            let expanded = !collapsed_folders.iter().any(|collapsed| collapsed == &path);
             SidebarFolder {
                 path,
                 label,
                 count,
                 depth,
+                expandable,
+                expanded,
             }
         })
         .collect()
@@ -803,6 +831,7 @@ mod tests {
             slicer_path: "/Applications/PrusaSlicer.app".to_string(),
             last_folder: Some(PathBuf::from("/tmp/models")),
             excluded_folders: vec![PathBuf::from("/tmp/models/archived")],
+            collapsed_folders: vec![PathBuf::from("/tmp/models/nested")],
         };
         let json = serde_json::to_string(&prefs).unwrap();
         let loaded: AppPrefs = serde_json::from_str(&json).unwrap();
@@ -813,6 +842,10 @@ mod tests {
         assert_eq!(
             loaded.excluded_folders,
             vec![PathBuf::from("/tmp/models/archived")]
+        );
+        assert_eq!(
+            loaded.collapsed_folders,
+            vec![PathBuf::from("/tmp/models/nested")]
         );
     }
 
@@ -825,6 +858,7 @@ mod tests {
         assert_eq!(loaded.theme, "dark");
         assert_eq!(loaded.language, "en");
         assert!(loaded.excluded_folders.is_empty());
+        assert!(loaded.collapsed_folders.is_empty());
     }
 
     #[test]
@@ -856,14 +890,27 @@ mod tests {
         assert_eq!(summary.ready, 2);
         assert_eq!(summary.errors, 1);
 
-        let folders = sidebar_folders(&entries, Some(Path::new("/tmp/models")));
+        let folders = sidebar_folders(&entries, Some(Path::new("/tmp/models")), &[]);
         assert_eq!(folders.len(), 2);
         assert_eq!(folders[0].label, "models");
         assert_eq!(folders[0].count, 3);
         assert_eq!(folders[0].depth, 0);
+        assert!(folders[0].expandable);
+        assert!(folders[0].expanded);
         assert_eq!(folders[1].label, "nested");
         assert_eq!(folders[1].count, 1);
         assert_eq!(folders[1].depth, 1);
+        assert!(!folders[1].expandable);
+
+        let collapsed = sidebar_folders(
+            &entries,
+            Some(Path::new("/tmp/models")),
+            &[PathBuf::from("/tmp/models")],
+        );
+        assert_eq!(collapsed.len(), 1);
+        assert_eq!(collapsed[0].label, "models");
+        assert!(collapsed[0].expandable);
+        assert!(!collapsed[0].expanded);
 
         let tags = sidebar_tags(&entries);
         assert_eq!(

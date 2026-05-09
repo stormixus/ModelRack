@@ -29,6 +29,8 @@ const MIN_WINDOW_WIDTH: u32 = 960;
 const MIN_WINDOW_HEIGHT: u32 = 640;
 const LIBRARY_WATCH_DEBOUNCE: Duration = Duration::from_millis(750);
 const LIBRARY_WATCH_POLL_INTERVAL: Duration = Duration::from_millis(250);
+const SCAN_ENTRY_BATCH_SIZE: usize = 8;
+const SCAN_ENTRY_BATCH_INTERVAL: Duration = Duration::from_millis(120);
 
 const DEMO_ROOT: &str = "/Users/hwankishin/Library/3d";
 
@@ -181,6 +183,14 @@ pub fn run() -> Result<(), slint::PlatformError> {
     ui.on_choose_filter(move |key| {
         if let Some(ui) = weak.upgrade() {
             apply_filter_key(&ui, &filter_state, key.as_str());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let toggle_folder_state = state.clone();
+    ui.on_toggle_sidebar_folder(move |key| {
+        if let Some(ui) = weak.upgrade() {
+            toggle_sidebar_folder(&ui, &toggle_folder_state, key.as_str());
         }
     });
 
@@ -708,6 +718,14 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 );
             }
             let scan_poll = auto_scan.borrow_mut().poll();
+            if !scan_poll.entry_batches.is_empty() {
+                apply_scan_entry_batches(
+                    &ui,
+                    &auto_state,
+                    scan_poll.entry_batches,
+                    scan_poll.progress.as_ref(),
+                );
+            }
             if let Some(progress) = scan_poll.progress {
                 apply_scan_progress(&ui, &progress);
             }
@@ -852,20 +870,29 @@ struct ScanResult {
 struct ScanProgress {
     generation: u64,
     folder: PathBuf,
+    found: usize,
     scanned: usize,
     total: usize,
     skipped: usize,
     current: String,
 }
 
+struct ScanEntryBatch {
+    generation: u64,
+    folder: PathBuf,
+    entries: Vec<scanner::StlFileInfo>,
+}
+
 #[derive(Default)]
 struct ScanPoll {
     progress: Option<ScanProgress>,
+    entry_batches: Vec<ScanEntryBatch>,
     result: Option<ScanResult>,
 }
 
 enum ScanMessage {
     Progress(ScanProgress),
+    EntryBatch(ScanEntryBatch),
     Result(ScanResult),
 }
 
@@ -922,6 +949,12 @@ impl LibraryScanRuntime {
                         && Some(progress.folder.as_path()) == self.active_folder.as_deref() =>
                 {
                     latest.progress = Some(progress);
+                }
+                ScanMessage::EntryBatch(batch)
+                    if Some(batch.generation) == self.active_generation
+                        && Some(batch.folder.as_path()) == self.active_folder.as_deref() =>
+                {
+                    latest.entry_batches.push(batch);
                 }
                 ScanMessage::Result(result)
                     if Some(result.generation) == self.active_generation
@@ -1154,11 +1187,27 @@ fn apply_scan_progress(ui: &ModelRackWindow, progress: &ScanProgress) {
     ui.set_scan_progress_percent(percent as i32);
     ui.set_status_text(
         format!(
-            "Scanning {} · {} / {} · {} skipped",
-            progress.current, progress.scanned, progress.total, progress.skipped
+            "Scanning {} · found {} · {} / {} · {} skipped",
+            progress.current, progress.found, progress.scanned, progress.total, progress.skipped
         )
         .into(),
     );
+}
+
+fn apply_scan_entry_batches(
+    ui: &ModelRackWindow,
+    state: &Rc<RefCell<ShellState>>,
+    batches: Vec<ScanEntryBatch>,
+    progress: Option<&ScanProgress>,
+) {
+    let snapshot = state
+        .borrow_mut()
+        .apply_scan_entry_batches(batches, progress);
+    if let Some(snapshot) = snapshot {
+        apply_snapshot(ui, &snapshot);
+        apply_detail(ui, &state.borrow());
+        apply_settings(ui, &state.borrow());
+    }
 }
 
 fn rescan_sidebar_folder(
@@ -2209,6 +2258,7 @@ struct ShellState {
     settings_tab: String,
     selected_index: Option<usize>,
     sidecar_writes_enabled: bool,
+    streaming_scan_generation: Option<u64>,
 }
 
 impl Default for ShellState {
@@ -2248,6 +2298,7 @@ impl ShellState {
             settings_tab: "general".to_string(),
             selected_index: Some(0),
             sidecar_writes_enabled: false,
+            streaming_scan_generation: None,
         }
     }
 }
@@ -2860,6 +2911,7 @@ impl ShellState {
         self.skipped = 0;
         self.sidecar_writes_enabled = true;
         self.selected_index = None;
+        self.streaming_scan_generation = None;
         let query = DisplayQuery {
             search_query: &self.search_query,
             library_filter: &self.filter,
@@ -2885,6 +2937,76 @@ impl ShellState {
         self.apply_scan_parts(result.folder, result.entries, result.skipped)
     }
 
+    fn apply_scan_entry_batches(
+        &mut self,
+        batches: Vec<ScanEntryBatch>,
+        progress: Option<&ScanProgress>,
+    ) -> Option<AppViewSnapshot> {
+        let mut updated = false;
+        for batch in batches {
+            if self.current_folder.as_deref() != Some(batch.folder.as_path()) {
+                continue;
+            }
+            if self.streaming_scan_generation != Some(batch.generation) {
+                self.entries.clear();
+                self.displayed.clear();
+                self.skipped = 0;
+                self.selected_index = None;
+                self.streaming_scan_generation = Some(batch.generation);
+            }
+
+            let batch_had_entries = !batch.entries.is_empty();
+            let mut entries = filter_excluded_entries(batch.entries, &self.prefs.excluded_folders);
+            updated |= batch_had_entries;
+            self.entries.append(&mut entries);
+        }
+
+        if !updated {
+            return None;
+        }
+
+        if self.selected_index.is_none() && !self.entries.is_empty() {
+            self.selected_index = Some(0);
+        }
+
+        let status = progress.map_or_else(
+            || ScanStatus::Scanning {
+                found: self.entries.len(),
+                scanned: self.entries.len(),
+                skipped: self.skipped,
+                current: "loading models".to_string(),
+            },
+            |progress| ScanStatus::Scanning {
+                found: self.entries.len(),
+                scanned: progress.scanned,
+                skipped: progress.skipped,
+                current: progress.current.clone(),
+            },
+        );
+        let query = DisplayQuery {
+            search_query: &self.search_query,
+            library_filter: &self.filter,
+            sort_by: self.sort_by,
+            sort_ascending: self.sort_ascending,
+            preserve_order: false,
+        };
+        self.displayed = crate::view_model::filtered_sorted_entries(&self.entries, query);
+        let query = DisplayQuery {
+            search_query: &self.search_query,
+            library_filter: &self.filter,
+            sort_by: self.sort_by,
+            sort_ascending: self.sort_ascending,
+            preserve_order: false,
+        };
+        Some(AppViewSnapshot::from_parts(
+            &self.entries,
+            self.current_folder.as_deref(),
+            &status,
+            &self.prefs,
+            query,
+        ))
+    }
+
     fn apply_scan_parts(
         &mut self,
         folder: PathBuf,
@@ -2896,6 +3018,7 @@ impl ShellState {
         self.prefs.last_folder = Some(folder);
         self.skipped = skipped;
         self.sidecar_writes_enabled = true;
+        self.streaming_scan_generation = None;
         self.selected_index = if self.entries.is_empty() {
             None
         } else {
@@ -2945,6 +3068,25 @@ impl ShellState {
         self.prefs
             .excluded_folders
             .retain(|excluded| !excluded.starts_with(folder));
+    }
+
+    fn toggle_sidebar_folder(&mut self, folder: &Path) -> AppViewSnapshot {
+        if self
+            .prefs
+            .collapsed_folders
+            .iter()
+            .any(|collapsed| collapsed == folder)
+        {
+            self.prefs
+                .collapsed_folders
+                .retain(|collapsed| collapsed != folder);
+        } else {
+            self.prefs
+                .collapsed_folders
+                .retain(|collapsed| !collapsed.starts_with(folder));
+            self.prefs.collapsed_folders.push(folder.to_path_buf());
+        }
+        self.snapshot_done()
     }
 
     fn clear_library_state(&mut self) {
@@ -3045,6 +3187,8 @@ fn apply_snapshot(ui: &ModelRackWindow, snapshot: &AppViewSnapshot) {
             label: folder.label.clone().into(),
             count: folder.count as i32,
             depth: folder.depth as i32,
+            expandable: folder.expandable,
+            expanded: folder.expanded,
         })
         .collect::<Vec<SidebarItem>>();
     ui.set_folder_items(slint::ModelRc::new(slint::VecModel::from(folders)));
@@ -3056,6 +3200,8 @@ fn apply_snapshot(ui: &ModelRackWindow, snapshot: &AppViewSnapshot) {
             label: tag.label.clone().into(),
             count: tag.count as i32,
             depth: 0,
+            expandable: false,
+            expanded: false,
         })
         .collect::<Vec<SidebarItem>>();
     ui.set_tag_items(slint::ModelRc::new(slint::VecModel::from(tags)));
@@ -3138,6 +3284,21 @@ fn apply_filter_key(ui: &ModelRackWindow, state: &Rc<RefCell<ShellState>>, key: 
     apply_snapshot(ui, &snapshot);
     apply_detail(ui, &state.borrow());
     apply_settings(ui, &state.borrow());
+}
+
+fn toggle_sidebar_folder(ui: &ModelRackWindow, state: &Rc<RefCell<ShellState>>, key: &str) {
+    let Some(folder) = folder_path_from_filter_key(key) else {
+        ui.set_status_text("No folder path available for that sidebar item".into());
+        return;
+    };
+    let snapshot = {
+        let mut state = state.borrow_mut();
+        state.toggle_sidebar_folder(&folder)
+    };
+    apply_snapshot(ui, &snapshot);
+    apply_detail(ui, &state.borrow());
+    apply_settings(ui, &state.borrow());
+    save_prefs_status(ui, &state.borrow());
 }
 
 fn apply_settings(ui: &ModelRackWindow, state: &ShellState) {
@@ -3400,10 +3561,13 @@ fn scan_folder_entries(
     tx: &mpsc::Sender<ScanMessage>,
 ) -> (Vec<scanner::StlFileInfo>, usize) {
     let (scan_tx, rx) = crossbeam_channel::unbounded();
-    scanner::scan_folder_stream(folder, scan_tx);
+    let scan_folder = folder.to_path_buf();
+    let scanner_thread = thread::spawn(move || scanner::scan_folder_stream(&scan_folder, scan_tx));
 
     let mut entries = Vec::new();
+    let mut batch = Vec::new();
     let mut skipped = 0usize;
+    let mut last_flush = Instant::now();
     for event in rx {
         match event {
             scanner::ScanEvent::Progress {
@@ -3414,6 +3578,7 @@ fn scan_folder_entries(
                 let _ = tx.send(ScanMessage::Progress(ScanProgress {
                     generation,
                     folder: folder.to_path_buf(),
+                    found: entries.len(),
                     scanned,
                     total,
                     skipped,
@@ -3423,7 +3588,15 @@ fn scan_folder_entries(
             scanner::ScanEvent::Entry { mut info, mesh } => {
                 info.thumbnail_path =
                     crate::thumbnail_cache::ensure_thumbnail(&info, mesh.as_ref()).ok();
-                entries.push(*info);
+                entries.push((*info).clone());
+                batch.push(*info);
+                if batch.len() >= SCAN_ENTRY_BATCH_SIZE
+                    || entries.len() == 1
+                    || last_flush.elapsed() >= SCAN_ENTRY_BATCH_INTERVAL
+                {
+                    flush_scan_entry_batch(tx, generation, folder, &mut batch);
+                    last_flush = Instant::now();
+                }
             }
             scanner::ScanEvent::Done {
                 skipped: done_skipped,
@@ -3434,8 +3607,28 @@ fn scan_folder_entries(
         }
     }
 
+    let _ = scanner_thread.join();
+    flush_scan_entry_batch(tx, generation, folder, &mut batch);
     entries.sort_by(|a, b| a.filename.to_lowercase().cmp(&b.filename.to_lowercase()));
     (entries, skipped)
+}
+
+fn flush_scan_entry_batch(
+    tx: &mpsc::Sender<ScanMessage>,
+    generation: u64,
+    folder: &Path,
+    batch: &mut Vec<scanner::StlFileInfo>,
+) {
+    if batch.is_empty() {
+        return;
+    }
+
+    let entries = std::mem::take(batch);
+    let _ = tx.send(ScanMessage::EntryBatch(ScanEntryBatch {
+        generation,
+        folder: folder.to_path_buf(),
+        entries,
+    }));
 }
 
 fn count_supported_model_files(folder: &Path) -> usize {
@@ -3780,6 +3973,33 @@ mod tests {
     }
 
     #[test]
+    fn scan_folder_entries_emits_partial_entry_batches() {
+        let root = temp_path("streaming-scan-batches");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("a.stl"), b"solid a\nendsolid a\n").unwrap();
+        fs::write(root.join("b.stl"), b"solid b\nendsolid b\n").unwrap();
+        let (tx, rx) = mpsc::channel();
+
+        let (entries, _skipped) = scan_folder_entries(&root, 7, 2, &tx);
+
+        assert_eq!(entries.len(), 2);
+        let mut batch_count = 0;
+        let mut batched_entries = 0;
+        while let Ok(message) = rx.try_recv() {
+            if let ScanMessage::EntryBatch(batch) = message {
+                assert_eq!(batch.generation, 7);
+                assert_eq!(batch.folder, root);
+                batch_count += 1;
+                batched_entries += batch.entries.len();
+            }
+        }
+
+        assert!(batch_count > 0, "scan should emit incremental batches");
+        assert_eq!(batched_entries, 2);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn library_scan_runtime_ignores_stale_generations() {
         let mut runtime = LibraryScanRuntime::new();
         runtime.active_generation = Some(2);
@@ -3921,6 +4141,33 @@ mod tests {
     }
 
     #[test]
+    fn first_scan_entry_batch_replaces_stale_entries() {
+        let root = PathBuf::from("/tmp/modelrack-library");
+        let old = root.join("old.stl");
+        let fresh = root.join("fresh.stl");
+        let mut state = ShellState::with_prefs(AppPrefs::default());
+        state.entries = vec![test_entry(&old)];
+        state.current_folder = Some(root.clone());
+        state.sidecar_writes_enabled = true;
+
+        let snapshot = state
+            .apply_scan_entry_batches(
+                vec![ScanEntryBatch {
+                    generation: 42,
+                    folder: root,
+                    entries: vec![test_entry(&fresh)],
+                }],
+                None,
+            )
+            .expect("first streaming batch should update the snapshot");
+
+        assert_eq!(state.entries.len(), 1);
+        assert_eq!(state.entries[0].path, fresh);
+        assert_eq!(snapshot.browser.total, 1);
+        assert!(snapshot.status_text.contains("found 1"));
+    }
+
+    #[test]
     fn excluded_last_folder_is_not_restored_on_startup() {
         let root = temp_path("excluded-restored-folder");
         let models = root.join("models");
@@ -3949,6 +4196,7 @@ mod tests {
             slicer_path: "/Applications/PrusaSlicer.app".to_string(),
             last_folder: Some(root.join("models")),
             excluded_folders: vec![root.join("models/archived")],
+            collapsed_folders: vec![root.join("models/nested")],
         };
 
         save_app_prefs_to_path(&path, &prefs).unwrap();

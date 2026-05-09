@@ -2,6 +2,32 @@
 
 This checklist is the P0b gate before enforcing visual pixel thresholds.
 
+## Latest automated packaged smoke — 2026-05-09
+
+Command: `scripts/window-chrome-smoke.py`
+
+Report:
+`.omx/artifacts/window-chrome-qa/window-chrome-20260509T075353Z/window-chrome-report.json`
+
+Result: **accepted with script-sensitive note**.
+
+Passed checks:
+
+- `initial_packaged_geometry`
+- `native_macos_menu_bar_contains_app_settings`
+- `native_standard_traffic_lights_hidden_no_duplicate`
+- `custom_titlebar_drag_moves_window`
+- `yellow_minimizes_and_restores`
+- `green_enters_native_fullscreen_and_restores`
+- `capture_smoke_emits_artifacts`
+- `native_rounded_window_corners_visible`
+
+Script-sensitive note:
+
+- `red_custom_light_hides_and_activation_restores`
+  - Evidence: `hidden_observed=false`, `visible_after_restore=true`
+  - Status interpretation: latest user verification accepts red hide/restore as complete; this automation result is kept as historical/script-sensitive evidence, not a current blocker.
+
 ## Source of truth
 
 - The active UI shell is Slint (`src/main.rs` enters `slint_shell::run()`).

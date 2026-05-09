@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 const MAX_STL_PARSE_BYTES: u64 = 100 * 1024 * 1024;
-const MAX_STL_PREVIEW_BYTES: u64 = 5 * 1024 * 1024;
+const MAX_STL_PREVIEW_BYTES: u64 = 32 * 1024 * 1024;
 type ParsedStl = (StlType, Option<usize>, Option<[f32; 3]>, Option<MeshData>);
 
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -218,7 +218,7 @@ fn parse_supported_file(path: &Path, ext: &str) -> Result<(StlFileInfo, Option<M
     match ext {
         "stl" => parse_stl_file(path),
         "3mf" => parse_three_mf_file(path),
-        "obj" => metadata_only_file(path, StlType::Obj).map(|info| (info, None)),
+        "obj" => parse_obj_file(path),
         "step" | "stp" => metadata_only_file(path, StlType::Step).map(|info| (info, None)),
         _ => anyhow::bail!("Unsupported model format: {}", ext),
     }
@@ -281,6 +281,88 @@ fn parse_three_mf_file(path: &Path) -> Result<(StlFileInfo, Option<MeshData>)> {
         },
         mesh_data,
     ))
+}
+
+fn parse_obj_file(path: &Path) -> Result<(StlFileInfo, Option<MeshData>)> {
+    let metadata = std::fs::metadata(path)
+        .with_context(|| format!("Failed to read metadata for {}", path.display()))?;
+    let size = metadata.len();
+    let modified = metadata.modified().ok();
+    if size > MAX_STL_PARSE_BYTES {
+        return metadata_only_file(path, StlType::Obj).map(|info| (info, None));
+    }
+
+    let data = std::fs::read(path).with_context(|| format!("Failed to read {}", path.display()))?;
+    let hash_bytes: [u8; 32] = blake3::hash(&data).into();
+    let text = String::from_utf8_lossy(&data);
+    let mesh_data = parse_obj_mesh(&text);
+    let dimensions = mesh_data.as_ref().and_then(mesh_dimensions);
+    let triangle_count = mesh_data.as_ref().map(|mesh| mesh.faces.len());
+    let filename = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    Ok((
+        StlFileInfo {
+            path: path.to_path_buf(),
+            filename,
+            size,
+            hash: hash_bytes,
+            stl_type: StlType::Obj,
+            triangle_count,
+            dimensions,
+            modified,
+            thumbnail_path: None,
+            meta: read_sidecar(path),
+        },
+        mesh_data,
+    ))
+}
+
+fn parse_obj_mesh(text: &str) -> Option<MeshData> {
+    let mut vertices = Vec::<[f32; 3]>::new();
+    let mut faces = Vec::<[u32; 3]>::new();
+
+    for line in text.lines() {
+        let mut parts = line.split_whitespace();
+        match parts.next() {
+            Some("v") => {
+                let vertex: [f32; 3] = [
+                    parts.next()?.parse().ok()?,
+                    parts.next()?.parse().ok()?,
+                    parts.next()?.parse().ok()?,
+                ];
+                if vertex.iter().all(|value| value.is_finite()) {
+                    vertices.push(vertex);
+                }
+            }
+            Some("f") => {
+                let indices = parts
+                    .filter_map(|part| obj_vertex_index(part, vertices.len()))
+                    .collect::<Vec<_>>();
+                if indices.len() >= 3 {
+                    for index in 1..(indices.len() - 1) {
+                        faces.push([indices[0], indices[index], indices[index + 1]]);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    (!vertices.is_empty() && !faces.is_empty()).then_some(MeshData { vertices, faces })
+}
+
+fn obj_vertex_index(token: &str, vertex_count: usize) -> Option<u32> {
+    let raw = token.split('/').next()?.parse::<isize>().ok()?;
+    let index = if raw < 0 {
+        vertex_count as isize + raw
+    } else {
+        raw - 1
+    };
+    (index >= 0 && (index as usize) < vertex_count).then_some(index as u32)
 }
 
 fn parse_three_mf_mesh_xml(xml: &str) -> Option<MeshData> {
@@ -382,14 +464,7 @@ fn parse_stl_file(path: &Path) -> Result<(StlFileInfo, Option<MeshData>)> {
             None,
         )
     } else {
-        parse_binary_stl_fast(&data).unwrap_or_else(|| {
-            let stl_type = if detect_stl_type(&data) == StlType::Ascii {
-                StlType::Ascii
-            } else {
-                StlType::Unknown
-            };
-            (stl_type, None, None, None)
-        })
+        parse_binary_stl_fast(&data).unwrap_or_else(|| parse_ascii_stl(&data))
     };
 
     // Read sidecar metadata if present
@@ -503,7 +578,7 @@ fn parse_binary_stl_fast(data: &[u8]) -> Option<ParsedStl> {
 
     let triangle_count = u32::from_le_bytes(data[80..84].try_into().ok()?) as usize;
     let expected_len = 84usize.checked_add(triangle_count.checked_mul(50)?)?;
-    if expected_len != data.len() {
+    if expected_len > data.len() {
         return None;
     }
 
@@ -555,6 +630,61 @@ fn parse_binary_stl_fast(data: &[u8]) -> Option<ParsedStl> {
     ))
 }
 
+fn parse_ascii_stl(data: &[u8]) -> ParsedStl {
+    if detect_stl_type(data) != StlType::Ascii {
+        return (StlType::Unknown, None, None, None);
+    }
+
+    let text = String::from_utf8_lossy(data);
+    let mut vertices = Vec::new();
+    let mut faces = Vec::new();
+    let mut min = [f32::MAX; 3];
+    let mut max = [f32::MIN; 3];
+
+    for line in text.lines() {
+        let mut parts = line.split_whitespace();
+        if parts.next() != Some("vertex") {
+            continue;
+        }
+        let Some(vertex) = parse_ascii_vertex(&mut parts) else {
+            continue;
+        };
+        for axis in 0..3 {
+            min[axis] = min[axis].min(vertex[axis]);
+            max[axis] = max[axis].max(vertex[axis]);
+        }
+        vertices.push(vertex);
+        if vertices.len() % 3 == 0 {
+            let base = (vertices.len() - 3) as u32;
+            faces.push([base, base + 1, base + 2]);
+        }
+    }
+
+    if vertices.is_empty() || faces.is_empty() {
+        return (StlType::Ascii, None, None, None);
+    }
+
+    let dimensions = Some([max[0] - min[0], max[1] - min[1], max[2] - min[2]]);
+    (
+        StlType::Ascii,
+        Some(faces.len()),
+        dimensions,
+        Some(MeshData { vertices, faces }),
+    )
+}
+
+fn parse_ascii_vertex<'a>(parts: &mut impl Iterator<Item = &'a str>) -> Option<[f32; 3]> {
+    let vertex: [f32; 3] = [
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+        parts.next()?.parse().ok()?,
+    ];
+    vertex
+        .iter()
+        .all(|value| value.is_finite())
+        .then_some(vertex)
+}
+
 fn binary_stl_triangle_count(data: &[u8]) -> Option<usize> {
     if data.len() < 84 {
         return None;
@@ -562,7 +692,7 @@ fn binary_stl_triangle_count(data: &[u8]) -> Option<usize> {
 
     let triangle_count = u32::from_le_bytes(data[80..84].try_into().ok()?) as usize;
     let expected_len = 84usize.checked_add(triangle_count.checked_mul(50)?)?;
-    (expected_len == data.len()).then_some(triangle_count)
+    (expected_len <= data.len()).then_some(triangle_count)
 }
 
 fn read_f32_le(data: &[u8], start: usize) -> Option<f32> {
@@ -724,7 +854,7 @@ mod tests {
     }
 
     #[test]
-    fn ascii_stl_appears_without_mesh_preview() {
+    fn ascii_stl_appears_with_mesh_preview() {
         let dir =
             std::env::temp_dir().join(format!("modelrack-ascii-stl-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -741,7 +871,47 @@ mod tests {
 
         assert_eq!(result.entries.len(), 1);
         assert!(matches!(result.entries[0].stl_type, StlType::Ascii));
-        assert!(result.meshes.is_empty());
+        assert_eq!(result.entries[0].triangle_count, Some(1));
+        assert_eq!(result.meshes.len(), 1);
+    }
+
+    #[test]
+    fn obj_file_appears_with_mesh_preview() {
+        let dir = std::env::temp_dir().join(format!("modelrack-obj-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("quad.obj");
+        std::fs::write(&path, b"v 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\nf 1 2 3 4\n").unwrap();
+
+        let result = scan_folder(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert_eq!(result.entries.len(), 1);
+        assert!(matches!(result.entries[0].stl_type, StlType::Obj));
+        assert_eq!(result.entries[0].triangle_count, Some(2));
+        assert_eq!(result.meshes.len(), 1);
+    }
+
+    #[test]
+    fn binary_stl_with_trailing_bytes_still_parses_mesh_preview() {
+        let dir = std::env::temp_dir().join(format!(
+            "modelrack-trailing-stl-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("trailing.stl");
+        let mut stl = make_binary_stl(&[[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]]);
+        stl.extend_from_slice(b"extra metadata");
+        std::fs::write(&path, stl).unwrap();
+
+        let result = scan_folder(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert_eq!(result.entries.len(), 1);
+        assert!(matches!(result.entries[0].stl_type, StlType::Binary));
+        assert_eq!(result.entries[0].triangle_count, Some(1));
+        assert_eq!(result.meshes.len(), 1);
     }
 
     #[test]

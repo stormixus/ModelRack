@@ -2,15 +2,15 @@
 
 ## Active
 
-**Current release reality (2026-05-09):** local macOS implementation/polish work is largely complete and warning-clean. Remaining release blockers are external evidence collection, especially Windows/Linux QA. See `docs/release-checklist.md`.
+**Current release reality (2026-05-09):** local macOS implementation/polish work is largely complete and warning-clean. TODO-15 macOS traffic-light behavior is accepted complete by latest user verification. Remaining release blockers are external Windows/Linux evidence collection plus final release hygiene. See `docs/release-checklist.md`.
 
 **Status index**
 
 | TODO | State | Release meaning |
 | --- | --- | --- |
-| 01, 02, 04-11, 13-16 | Done locally | Implemented and verified in the current local macOS Slint shell. |
+| 01, 02, 04-11, 13-16 | Done locally | Implemented and verified/accepted in the current local macOS Slint shell. |
 | 03, 12 | Blocked externally | Require Windows/Linux runner evidence before public release. |
-| 09, 15, 16 | Evidence refresh before tag | Implemented, but final packaged screenshot/window-chrome artifacts should be refreshed from the release build. |
+| 09, 16 | Evidence refreshed locally | Fresh packaged screenshot and masked visual QA artifacts exist for commit `1ad452a`; final tag still needs a clean working tree and any release-owner signoff. |
 
 ### TODO-01: Worker panic handling for thumbnail generation ✅
 **Added:** 2026-05-06 (via /plan-eng-review)
@@ -118,11 +118,11 @@
 **Target:** v0.2.0 Slint shell polish
 **What:** Revisit the macOS traffic-light implementation for the active Slint shell. Custom red should hide the app/window and app-icon activation should restore the existing window, custom yellow should minimize, custom green should enter/exit native macOS full-screen, and the custom titlebar should keep native-feeling movement inside a native NSWindow wrapper.
 **Why:** The frameless Slint/winit/macOS bridge made green-button semantics brittle and lost the native rounded wrapper. The intended hybrid is native macOS chrome as the wrapper for rounded corners, shadow, and full-screen Space transitions, with Slint still drawing the visible custom titlebar/traffic lights.
-**Status:** Implemented locally for the intended macOS hybrid chrome. The active Slint shell creates the winit backend with full-size transparent native content, disables Slint's default menu bar, keeps the NSWindow wrapper for native rounded corners/shadow/full-screen Space transitions, hides native standard buttons so only one custom Slint traffic-light set is visible, and routes custom red/yellow/green to hide, minimize, and native `toggleFullScreen:`. The macOS menu bar now includes `ModelRack > Settings…`, `File > Open Library…`, `File > Close Window`, and `View > Enter Full Screen`. Verification before user stop request: `cargo test` passed 70 tests; packaged smoke evidence reached menu bar/duplicate-button/red/yellow/rounded-corner checks with green exit timing still script-sensitive.
+**Status:** Completed/accepted locally for the intended macOS hybrid chrome. The active Slint shell creates the winit backend with full-size transparent native content, disables Slint's default menu bar, keeps the NSWindow wrapper for native rounded corners/shadow/full-screen Space transitions, hides native standard buttons so only one custom Slint traffic-light set is visible, and routes custom red/yellow/green to hide, minimize, and native `toggleFullScreen:`. Latest user verification on 2026-05-09 accepts the red hide/restore behavior as complete. Automated packaged smoke `.omx/artifacts/window-chrome-qa/window-chrome-20260509T075353Z/window-chrome-report.json` still records an older/script-sensitive red check failure, but TODO-15 is not a current release blocker.
 
 ### TODO-16: Finish Slint mockup parity polish ✅
 **Added:** 2026-05-08 (Ralph visual parity pass)
 **Target:** v0.2.0 Slint shell polish
 **What:** Maintain the completed masked ModelRack mockup parity pass for the active Slint shell. The local polish scope covered toolbar/filter/search/count language, slicer picker, visual masks, card density, path compaction, detail metadata alignment, theme elevations, sidebar hover, grid scroll extent, health score, and build-plate fit row.
 **Why:** The current app matches the main mockup state at the large structural level and has completed local polish for the known UI gaps. Future work here should be evidence refresh or regression repair, not another architecture pass.
-**Status:** Completed locally as a masked visual parity/polish pass. Packaged-app screenshot capture works through `scripts/capture-smoke.sh` with frontmost window bounds, deterministic capture prefs, and visual QA `report.json` output. Toolbar/filter-bar/search/count language, slicer picker/discovery, warning policy, rectangular visual masks, card density/body stack, `~/...` path compaction, mesh-health two-column layout, darker mockup-aligned theme elevations, sidebar hover rows, grid scroll extent, health score pill, and build-plate fit row are implemented. Latest verification for this local pass: `cargo fmt --check`, `python3 scripts/check-warning-baseline.py`, `cargo build`, and `cargo test` passed with zero Rust warnings. Exact pixel-diff parity still needs a fresh packaged screenshot comparison as release evidence, tracked in `docs/release-checklist.md`, not as an unimplemented UI feature.
+**Status:** Completed locally as a masked visual parity/polish pass. Packaged-app screenshot capture works through `scripts/capture-smoke.sh` with frontmost window bounds, deterministic capture prefs, and visual QA `report.json` output. Toolbar/filter-bar/search/count language, slicer picker/discovery, warning policy, rectangular visual masks, card density/body stack, `~/...` path compaction, mesh-health two-column layout, darker mockup-aligned theme elevations, sidebar hover rows, grid scroll extent, health score pill, and build-plate fit row are implemented. Latest refreshed evidence for commit `1ad452a`: `.omx/artifacts/runtime/modelrack-smoke-20260509T075344Z.png` and `.omx/artifacts/visual-qa/modelrack-smoke-20260509T075344Z/current/report.json` (`failure_reason=none`, non-blank image, `docs/visual-masks/todo16-browser-grid.json` masks applied, no reference path so result is `not_compared`). Latest local gates also passed: `cargo fmt --check`, `python3 scripts/check-warning-baseline.py`, `cargo build`, and `cargo test` (73 tests).
