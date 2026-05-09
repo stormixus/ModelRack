@@ -549,6 +549,10 @@ fn titlebar_path(current_folder: Option<&Path>) -> String {
         return "Sample library".to_string();
     };
 
+    display_path_label(path)
+}
+
+pub fn display_path_label(path: &Path) -> String {
     if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
         if let Ok(rest) = path.strip_prefix(&home) {
             if rest.as_os_str().is_empty() {
@@ -895,6 +899,16 @@ mod tests {
         assert_eq!(snapshot.view_mode_label, "List");
         assert_eq!(snapshot.sort_label, "Name ↑");
         assert_eq!(snapshot.active_filter_key, "all");
+    }
+
+    #[test]
+    fn display_path_label_compacts_home_relative_paths() {
+        let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+            return;
+        };
+
+        assert_eq!(display_path_label(&home), "~");
+        assert_eq!(display_path_label(&home.join("Library/3d")), "~/Library/3d");
     }
 
     #[test]

@@ -367,12 +367,14 @@ component ModelCard inherits Rectangle {
 
         // Card body
         Rectangle {
-            height: 52px;
+            height: 62px;
 
             VerticalLayout {
-                padding: 8px;
-                padding-top: 5px;
-                spacing: 2px;
+                padding-left: 9px;
+                padding-right: 9px;
+                padding-top: 7px;
+                padding-bottom: 8px;
+                spacing: 3px;
 
                 Text {
                     text: card.title;
@@ -1255,14 +1257,14 @@ export component ModelRackWindow inherits Window {
                         width: parent.width - 28px;
                         height: parent.height - 28px;
 
-                        property <length> target-card-w: density-label == "S" ? 156px : density-label == "L" ? 244px : 208px;
+                        property <length> target-card-w: density-label == "S" ? 144px : density-label == "L" ? 208px : 168px;
                         property <length> card-w: target-card-w;
                         property <length> gap: 12px;
                         property <bool> full-layout-motion: model-cards.length <= 96;
                         property <length> render-buffer: full-layout-motion ? 1400px : 520px;
                         property <int> cols: max(1, floor((self.width + gap) / (target-card-w + gap)));
                         property <int> rows: ceil(model-cards.length / max(1, cols));
-                        property <length> card-h: card-w + 52px;
+                        property <length> card-h: card-w + 62px;
 
                         viewport-height: rows * (card-h + gap);
                         animate card-w { duration: full-layout-motion ? 260ms : 120ms; easing: ease-in-out; }
@@ -1579,16 +1581,35 @@ export component ModelRackWindow inherits Window {
 
                             // Mesh health
                             SectionHeader { label: "MESH HEALTH"; }
-                            HorizontalLayout {
-                                spacing: 8px;
-                                height: 20px;
-                                Text { text: detail-manifold ? "✓ Manifold" : "✗ Manifold"; color: detail-manifold ? Theme.success : Theme.error; font-size: 12px; }
-                                Text { text: detail-watertight ? "✓ Watertight" : "✗ Watertight"; color: detail-watertight ? Theme.success : Theme.warn; font-size: 12px; }
-                            }
-                            HorizontalLayout {
-                                spacing: 8px;
-                                height: 20px;
-                                Text { text: detail-normals ? "✓ Normals" : "✗ Normals"; color: detail-normals ? Theme.success : Theme.warn; font-size: 12px; }
+                            Rectangle {
+                                height: 44px;
+
+                                Text {
+                                    x: 0px;
+                                    y: 0px;
+                                    width: (parent.width - 10px) / 2;
+                                    text: detail-manifold ? "✓ Manifold" : "✗ Manifold";
+                                    color: detail-manifold ? Theme.success : Theme.error;
+                                    font-size: 12px;
+                                }
+
+                                Text {
+                                    x: (parent.width + 10px) / 2;
+                                    y: 0px;
+                                    width: (parent.width - 10px) / 2;
+                                    text: detail-watertight ? "✓ Watertight" : "✗ Watertight";
+                                    color: detail-watertight ? Theme.success : Theme.warn;
+                                    font-size: 12px;
+                                }
+
+                                Text {
+                                    x: 0px;
+                                    y: 22px;
+                                    width: (parent.width - 10px) / 2;
+                                    text: detail-normals ? "✓ Normals" : "✗ Normals";
+                                    color: detail-normals ? Theme.success : Theme.warn;
+                                    font-size: 12px;
+                                }
                             }
 
                             // Print estimate

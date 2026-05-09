@@ -11,8 +11,9 @@ use std::time::{Duration, Instant};
 use crate::scanner;
 use crate::strings;
 use crate::view_model::{
-    smart_filter_from_key, AppPrefs, AppViewSnapshot, BrowserCard as BrowserCardVm, Density,
-    DisplayQuery, LibraryFilter, ScanStatus, SortBy, ViewMode,
+    display_path_label, smart_filter_from_key, AppPrefs, AppViewSnapshot,
+    BrowserCard as BrowserCardVm, Density, DisplayQuery, LibraryFilter, ScanStatus, SortBy,
+    ViewMode,
 };
 
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
@@ -2545,7 +2546,7 @@ fn detail_parent_label(entry: &scanner::StlFileInfo, state: &ShellState) -> Stri
             format!("Sample library/{}/", relative.display())
         }
     } else {
-        format!("{}/", parent.display())
+        format!("{}/", display_path_label(parent))
     }
 }
 
@@ -2554,7 +2555,7 @@ fn settings_folder_label(state: &ShellState) -> String {
         state
             .current_folder
             .as_ref()
-            .map(|folder| folder.display().to_string())
+            .map(|folder| display_path_label(folder))
             .unwrap_or_else(|| "No folder selected".to_string())
     } else {
         "Sample library (demo, memory-only)".to_string()
