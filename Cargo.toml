@@ -3,6 +3,12 @@ name = "modelrack"
 version = "0.0.3"
 edition = "2021"
 
+[features]
+# The legacy objc 0.2 macros expand `cfg(feature = "cargo-clippy")` in the
+# destination crate. Declaring the compatibility feature keeps rustc's
+# check-cfg lint quiet without weakening linting for the rest of ModelRack.
+cargo-clippy = []
+
 [dependencies]
 slint = { version = "1.16.1", features = ["unstable-fontique-08", "unstable-winit-030"] }
 walkdir = "2"

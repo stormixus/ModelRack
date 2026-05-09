@@ -23,8 +23,6 @@ pub struct SidecarMeta {
     pub author: String,
     #[serde(default)]
     pub added: Option<String>,
-    #[serde(skip, default)]
-    pub tag_input: String,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -77,7 +75,6 @@ pub enum ScanEvent {
 /// Parsed mesh data for thumbnail generation
 #[derive(Clone)]
 pub struct MeshData {
-    pub hash: [u8; 32],
     pub vertices: Vec<[f32; 3]>,
     pub faces: Vec<[u32; 3]>,
 }
@@ -117,7 +114,13 @@ pub fn scan_folder(path: &Path) -> ScanResult {
     scan_folder_stream(path, tx);
     for event in rx {
         match event {
-            ScanEvent::Progress { .. } => {}
+            ScanEvent::Progress {
+                scanned,
+                skipped,
+                current,
+            } => {
+                let _ = (scanned, skipped, current);
+            }
             ScanEvent::Entry { info, mesh } => {
                 if let Some(mesh) = mesh {
                     meshes.push(mesh);
@@ -243,7 +246,7 @@ fn parse_stl_file(path: &Path) -> Result<(StlFileInfo, Option<MeshData>)> {
             None,
         )
     } else {
-        parse_binary_stl_fast(&data, hash_bytes).unwrap_or_else(|| {
+        parse_binary_stl_fast(&data).unwrap_or_else(|| {
             let stl_type = if detect_stl_type(&data) == StlType::Ascii {
                 StlType::Ascii
             } else {
@@ -357,7 +360,7 @@ fn sidecar_path(model_path: &Path) -> PathBuf {
     model_path.with_file_name(format!("{}.modelrack.json", file_name))
 }
 
-fn parse_binary_stl_fast(data: &[u8], hash: [u8; 32]) -> Option<ParsedStl> {
+fn parse_binary_stl_fast(data: &[u8]) -> Option<ParsedStl> {
     if data.len() < 84 {
         return None;
     }
@@ -412,11 +415,7 @@ fn parse_binary_stl_fast(data: &[u8], hash: [u8; 32]) -> Option<ParsedStl> {
         StlType::Binary,
         Some(triangle_count),
         dimensions,
-        Some(MeshData {
-            hash,
-            vertices,
-            faces,
-        }),
+        Some(MeshData { vertices, faces }),
     ))
 }
 

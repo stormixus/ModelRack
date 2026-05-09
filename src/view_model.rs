@@ -17,15 +17,6 @@ pub enum ScanStatus {
         found: usize,
         skipped: usize,
     },
-    Error(String),
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum FocusZone {
-    Sidebar,
-    Search,
-    Grid,
-    Detail,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -74,14 +65,6 @@ pub enum Density {
 }
 
 impl Density {
-    pub fn card_width(self) -> f32 {
-        match self {
-            Self::Small => 130.0,
-            Self::Medium => 168.0,
-            Self::Large => 220.0,
-        }
-    }
-
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Small => "small",
@@ -99,6 +82,10 @@ impl Density {
     }
 }
 
+// Date/Size/Triangles are implemented in filtering and labels, but the current
+// Slint toolbar only exposes Name direction toggling. Keep the variants scoped
+// here until the sort field picker is wired.
+#[allow(dead_code)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SortBy {
     Name,
@@ -399,7 +386,6 @@ pub fn scan_status_text(status: &ScanStatus) -> String {
                 format!("{} models · {} skipped", found, skipped)
             }
         }
-        ScanStatus::Error(message) => format!("Error: {}", message),
     }
 }
 

@@ -3,8 +3,9 @@
 
 The baseline is intentionally count-based rather than rendered-text based so that
 absolute cargo-registry paths and line-number churn do not make the policy noisy.
-A decrease is allowed. New warning buckets or count increases fail until they are
-fixed or explicitly re-baselined with a classification rationale.
+The current baseline is zero warnings; any new warning bucket or count increase
+fails until it is fixed or explicitly re-baselined with a classification
+rationale.
 """
 from __future__ import annotations
 

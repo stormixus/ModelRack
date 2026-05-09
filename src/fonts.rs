@@ -3,10 +3,6 @@ pub const PRETENDARD_VARIABLE: &[u8] = include_bytes!("../assets/fonts/Pretendar
 pub const JETBRAINS_MONO_REGULAR: &[u8] =
     include_bytes!("../assets/fonts/JetBrainsMono-Regular.ttf");
 
-pub const INTER_FAMILY: &str = "Inter";
-pub const PRETENDARD_FAMILY: &str = "Pretendard";
-pub const MONO_FAMILY: &str = "JetBrains Mono";
-
 pub fn install_slint_fonts() {
     use std::sync::Arc;
 

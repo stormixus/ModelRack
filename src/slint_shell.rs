@@ -2823,7 +2823,13 @@ fn scan_folder_entries(folder: &Path) -> (Vec<scanner::StlFileInfo>, usize) {
     let mut skipped = 0usize;
     for event in rx {
         match event {
-            scanner::ScanEvent::Progress { .. } => {}
+            scanner::ScanEvent::Progress {
+                scanned,
+                skipped,
+                current,
+            } => {
+                let _ = (scanned, skipped, current);
+            }
             scanner::ScanEvent::Entry { mut info, mesh } => {
                 info.thumbnail_path =
                     crate::thumbnail_cache::ensure_thumbnail(&info, mesh.as_ref()).ok();

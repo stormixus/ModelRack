@@ -1,6 +1,6 @@
 # Warning policy
 
-ModelRack currently allows a documented Rust warning baseline so stabilization work can distinguish historical noise from newly introduced issues. The policy is intentionally fail-closed for new warning buckets or count increases.
+ModelRack keeps a zero Rust-warning baseline. The warning gate is intentionally fail-closed for any new warning bucket or count increase.
 
 ## Enforcement command
 
@@ -19,12 +19,10 @@ cargo check --message-format=json
 It normalizes local cargo-registry paths, groups warnings by `warning_code|file`, and compares the current counts to `docs/warning-baseline.json`.
 
 Allowed outcome:
-- existing classified buckets may stay the same or decrease;
-- decreases do not require a baseline update.
+- `cargo check --message-format=json` reports zero warnings.
 
 Failing outcome:
-- a new warning bucket appears without a classification;
-- a classified bucket count increases above the baseline;
+- any warning bucket appears;
 - `cargo check` itself fails.
 
 ## Baseline artifact
@@ -32,17 +30,11 @@ Failing outcome:
 The committed baseline is `docs/warning-baseline.json`.
 
 Current baseline command: `cargo check --message-format=json`.
-Current baseline size: 193 warnings across eight classified buckets. Each entry records a `disposition`; the current baseline has seven `allowed temporary` buckets and one `false-positive/tool limitation` bucket, with no accepted `must-fix` bucket.
-
-Classified categories:
-- upstream `objc` `unexpected_cfgs` macro noise from `objc 0.2.7`;
-- intentionally exported macOS app-menu/window hooks pending full menu wiring;
-- retained font constants used as bundled-font documentation while Slint consumes registration side effects;
-- scanner, string, utility, and view-model compatibility helpers retained for active migration/follow-up surfaces.
+Current baseline size: **0 warnings**. Historical warning buckets were removed or made explicit in code: the legacy `objc` macro `cargo-clippy` compatibility feature is declared in `Cargo.toml`, unused migration constants/fields were deleted, test-only utilities compile only for tests, and intentionally retained alternate sort variants use a scoped lint rationale.
 
 ## Updating the baseline
 
-Only update the baseline when the warning has been deliberately fixed, accepted, or reclassified:
+Only update the baseline after deliberately fixing warnings or making an intentional scoped lint decision:
 
 ```bash
 python3 scripts/check-warning-baseline.py --update
@@ -50,11 +42,11 @@ python3 scripts/check-warning-baseline.py
 ```
 
 Before committing an updated baseline:
-1. Prefer fixing or deleting the warning source over expanding the baseline.
-2. Add or revise the bucket disposition/classification in `scripts/check-warning-baseline.py` so future agents know whether the warning is `allowed temporary`, `must-fix`, or `false-positive/tool limitation`.
+1. Prefer fixing or deleting the warning source over adding an allow.
+2. If an allow is necessary, scope it narrowly and document the rationale at the code site.
 3. Run `python3 -m json.tool docs/warning-baseline.json` to validate the artifact.
 4. Include the warning gate and `cargo test` evidence in the handoff.
 
 ## Release gate interpretation
 
-Plan completion allows classified historical warnings only because they are tracked and fail on growth. Release readiness is stricter: each baseline bucket should be either removed, converted to an explicit allow/deny lint policy, or tied to a specific release follow-up before a public release candidate.
+Plan completion and release readiness both require the warning gate to stay at zero. Any future warning must be fixed, deleted, or converted to a narrow explicit lint rationale before landing.

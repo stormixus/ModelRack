@@ -3,6 +3,7 @@ mod macos;
 mod scanner;
 mod strings;
 mod thumbnail_cache;
+#[cfg(test)]
 mod utils;
 mod view_model;
 
