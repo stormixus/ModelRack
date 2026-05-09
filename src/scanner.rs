@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
@@ -216,11 +217,146 @@ fn is_supported_model_ext(ext: &str) -> bool {
 fn parse_supported_file(path: &Path, ext: &str) -> Result<(StlFileInfo, Option<MeshData>)> {
     match ext {
         "stl" => parse_stl_file(path),
-        "3mf" => metadata_only_file(path, StlType::ThreeMf).map(|info| (info, None)),
+        "3mf" => parse_three_mf_file(path),
         "obj" => metadata_only_file(path, StlType::Obj).map(|info| (info, None)),
         "step" | "stp" => metadata_only_file(path, StlType::Step).map(|info| (info, None)),
         _ => anyhow::bail!("Unsupported model format: {}", ext),
     }
+}
+
+fn parse_three_mf_file(path: &Path) -> Result<(StlFileInfo, Option<MeshData>)> {
+    let metadata = std::fs::metadata(path)
+        .with_context(|| format!("Failed to read metadata for {}", path.display()))?;
+    let size = metadata.len();
+    let modified = metadata.modified().ok();
+    if size > MAX_STL_PARSE_BYTES {
+        return metadata_only_file(path, StlType::ThreeMf).map(|info| (info, None));
+    }
+
+    let data = std::fs::read(path).with_context(|| format!("Failed to read {}", path.display()))?;
+    let hash_bytes: [u8; 32] = blake3::hash(&data).into();
+    let mut archive = match zip::ZipArchive::new(Cursor::new(data)) {
+        Ok(archive) => archive,
+        Err(_) => {
+            return metadata_only_file(path, StlType::ThreeMf).map(|info| (info, None));
+        }
+    };
+
+    let mut mesh_data = None;
+    for index in 0..archive.len() {
+        let mut file = archive.by_index(index)?;
+        let name = file.name().to_ascii_lowercase();
+        if !name.ends_with(".model") {
+            continue;
+        }
+
+        let mut xml = String::new();
+        file.read_to_string(&mut xml)?;
+        if let Some(mesh) = parse_three_mf_mesh_xml(&xml) {
+            mesh_data = Some(mesh);
+            break;
+        }
+    }
+
+    let dimensions = mesh_data.as_ref().and_then(mesh_dimensions);
+    let triangle_count = mesh_data.as_ref().map(|mesh| mesh.faces.len());
+    let filename = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    Ok((
+        StlFileInfo {
+            path: path.to_path_buf(),
+            filename,
+            size,
+            hash: hash_bytes,
+            stl_type: StlType::ThreeMf,
+            triangle_count,
+            dimensions,
+            modified,
+            thumbnail_path: None,
+            meta: read_sidecar(path),
+        },
+        mesh_data,
+    ))
+}
+
+fn parse_three_mf_mesh_xml(xml: &str) -> Option<MeshData> {
+    let mut vertices = Vec::new();
+    let mut faces = Vec::new();
+
+    for tag in xml.split('<').filter_map(|part| part.split('>').next()) {
+        let tag = tag.trim();
+        let name = tag
+            .split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .trim_start_matches('/');
+
+        if name.ends_with("vertex") {
+            let vertex = [
+                attr_f32(tag, "x")?,
+                attr_f32(tag, "y")?,
+                attr_f32(tag, "z")?,
+            ];
+            if vertex.iter().all(|value| value.is_finite()) {
+                vertices.push(vertex);
+            }
+        } else if name.ends_with("triangle") {
+            faces.push([
+                attr_u32(tag, "v1")?,
+                attr_u32(tag, "v2")?,
+                attr_u32(tag, "v3")?,
+            ]);
+        }
+    }
+
+    (!vertices.is_empty() && !faces.is_empty()).then_some(MeshData { vertices, faces })
+}
+
+fn attr_f32(tag: &str, attr: &str) -> Option<f32> {
+    attr_value(tag, attr)?.parse().ok()
+}
+
+fn attr_u32(tag: &str, attr: &str) -> Option<u32> {
+    attr_value(tag, attr)?.parse().ok()
+}
+
+fn attr_value<'a>(tag: &'a str, attr: &str) -> Option<&'a str> {
+    for (start, _) in tag.match_indices(attr) {
+        let before = tag[..start].chars().next_back();
+        if before.is_some_and(|ch| !ch.is_whitespace()) {
+            continue;
+        }
+        let rest = &tag[start + attr.len()..];
+        let rest = rest.trim_start();
+        let Some(rest) = rest.strip_prefix('=') else {
+            continue;
+        };
+        let rest = rest.trim_start();
+        let quote = rest.chars().next()?;
+        if quote != '"' && quote != '\'' {
+            continue;
+        }
+        let rest = &rest[quote.len_utf8()..];
+        let end = rest.find(quote)?;
+        return Some(&rest[..end]);
+    }
+    None
+}
+
+fn mesh_dimensions(mesh: &MeshData) -> Option<[f32; 3]> {
+    let first = *mesh.vertices.first()?;
+    let (mut min, mut max) = (first, first);
+    for vertex in &mesh.vertices {
+        for axis in 0..3 {
+            min[axis] = min[axis].min(vertex[axis]);
+            max[axis] = max[axis].max(vertex[axis]);
+        }
+    }
+    Some([max[0] - min[0], max[1] - min[1], max[2] - min[2]])
 }
 
 fn parse_stl_file(path: &Path) -> Result<(StlFileInfo, Option<MeshData>)> {
@@ -535,11 +671,26 @@ mod tests {
     }
 
     #[test]
-    fn scan_includes_metadata_only_3mf_files() {
+    fn scan_includes_3mf_mesh_preview_data() {
         let dir = std::env::temp_dir().join(format!("modelrack-3mf-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir(&dir).unwrap();
-        std::fs::write(dir.join("plate.3mf"), b"not parsed yet").unwrap();
+        let file = std::fs::File::create(dir.join("plate.3mf")).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file(
+            "3D/3dmodel.model",
+            zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored),
+        )
+        .unwrap();
+        std::io::Write::write_all(
+            &mut zip,
+            br#"<model><resources><object id="1"><mesh><vertices>
+                <vertex x="0" y="0" z="0"/><vertex x="1" y="0" z="0"/><vertex x="0" y="1" z="0"/>
+                </vertices><triangles><triangle v1="0" v2="1" v3="2"/></triangles></mesh></object></resources></model>"#,
+        )
+        .unwrap();
+        zip.finish().unwrap();
 
         let result = scan_folder(&dir);
         let _ = std::fs::remove_dir_all(&dir);
@@ -547,7 +698,8 @@ mod tests {
         assert_eq!(result.entries.len(), 1);
         assert_eq!(result.entries[0].filename, "plate.3mf");
         assert!(matches!(result.entries[0].stl_type, StlType::ThreeMf));
-        assert!(result.meshes.is_empty());
+        assert_eq!(result.entries[0].triangle_count, Some(1));
+        assert_eq!(result.meshes.len(), 1);
     }
 
     #[test]

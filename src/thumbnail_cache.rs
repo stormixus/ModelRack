@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use crate::scanner::{MeshData, StlFileInfo};
 
-const CACHE_VERSION: &str = "v1";
+const CACHE_VERSION: &str = "v2";
 const THUMB_SIZE: u32 = 192;
 
 pub fn ensure_thumbnail(entry: &StlFileInfo, mesh: Option<&MeshData>) -> io::Result<PathBuf> {
@@ -102,7 +102,7 @@ fn render_thumbnail(
     );
 
     if let Some(mesh) = mesh.filter(|mesh| !mesh.vertices.is_empty() && !mesh.faces.is_empty()) {
-        draw_mesh_wireframe(&mut canvas, mesh, high, low);
+        draw_mesh_shaded(&mut canvas, mesh, high, low);
     } else {
         draw_dimension_block(&mut canvas, entry, high, low);
     }
@@ -111,12 +111,47 @@ fn render_thumbnail(
     canvas.into_rgba()
 }
 
-fn draw_mesh_wireframe(canvas: &mut Canvas, mesh: &MeshData, high: [u8; 4], low: [u8; 4]) {
+fn draw_mesh_shaded(canvas: &mut Canvas, mesh: &MeshData, high: [u8; 4], low: [u8; 4]) {
     let projected = project_vertices(&mesh.vertices);
     if projected.is_empty() {
         return;
     }
 
+    let points = fit_projected_points(canvas, &projected);
+    let mut faces = mesh
+        .faces
+        .iter()
+        .filter_map(|face| {
+            let indices = [face[0] as usize, face[1] as usize, face[2] as usize];
+            if indices
+                .iter()
+                .any(|index| *index >= points.len() || *index >= mesh.vertices.len())
+            {
+                return None;
+            }
+            let depth = indices
+                .iter()
+                .map(|index| {
+                    let vertex = mesh.vertices[*index];
+                    vertex[0] + vertex[1] + vertex[2]
+                })
+                .sum::<f32>()
+                / 3.0;
+            Some((depth, *face))
+        })
+        .collect::<Vec<_>>();
+
+    faces.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    let stride = (faces.len() / 1800).max(1);
+    for (_, face) in faces.into_iter().step_by(stride) {
+        let fill = shaded_face_color(mesh, face, high, low);
+        draw_face_fill(canvas, &points, face, fill);
+    }
+
+    draw_mesh_wireframe_points(canvas, mesh, &points, high, low);
+}
+
+fn fit_projected_points(canvas: &Canvas, projected: &[[f32; 2]]) -> Vec<[f32; 2]> {
     let (min_x, max_x, min_y, max_y) = bounds_2d(&projected);
     let span_x = (max_x - min_x).max(0.001);
     let span_y = (max_y - min_y).max(0.001);
@@ -126,16 +161,83 @@ fn draw_mesh_wireframe(canvas: &mut Canvas, mesh: &MeshData, high: [u8; 4], low:
     let offset_x = center_x - ((min_x + max_x) * 0.5 * scale);
     let offset_y = center_y - ((min_y + max_y) * 0.5 * scale);
 
-    let points = projected
+    projected
         .iter()
         .map(|[x, y]| [x * scale + offset_x, y * scale + offset_y])
-        .collect::<Vec<_>>();
+        .collect::<Vec<_>>()
+}
 
+fn draw_mesh_wireframe_points(
+    canvas: &mut Canvas,
+    mesh: &MeshData,
+    points: &[[f32; 2]],
+    high: [u8; 4],
+    low: [u8; 4],
+) {
     let stride = (mesh.faces.len() / 900).max(1);
     for (idx, face) in mesh.faces.iter().enumerate().step_by(stride) {
         let color = if idx % (stride * 3) == 0 { high } else { low };
         draw_face_edges(canvas, &points, *face, color);
     }
+}
+
+fn shaded_face_color(mesh: &MeshData, face: [u32; 3], high: [u8; 4], low: [u8; 4]) -> [u8; 4] {
+    let a = mesh.vertices[face[0] as usize];
+    let b = mesh.vertices[face[1] as usize];
+    let c = mesh.vertices[face[2] as usize];
+    let normal = cross(sub(b, a), sub(c, a));
+    let len = (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2])
+        .sqrt()
+        .max(0.001);
+    let normal = [normal[0] / len, normal[1] / len, normal[2] / len];
+    let light = normalize([-0.35, -0.45, 0.82]);
+    let shade = (dot(normal, light).abs() * 0.70 + 0.30).clamp(0.0, 1.0);
+    [
+        lerp_u8(low[0], high[0], shade),
+        lerp_u8(low[1], high[1], shade),
+        lerp_u8(low[2], high[2], shade),
+        92,
+    ]
+}
+
+fn draw_face_fill(canvas: &mut Canvas, points: &[[f32; 2]], face: [u32; 3], color: [u8; 4]) {
+    let indices = [face[0] as usize, face[1] as usize, face[2] as usize];
+    if indices.iter().any(|index| *index >= points.len()) {
+        return;
+    }
+    canvas.draw_triangle(
+        points[indices[0]],
+        points[indices[1]],
+        points[indices[2]],
+        color,
+    );
+}
+
+fn sub(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+}
+
+fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+}
+
+fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+fn normalize(v: [f32; 3]) -> [f32; 3] {
+    let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt().max(0.001);
+    [v[0] / len, v[1] / len, v[2] / len]
+}
+
+fn lerp_u8(a: u8, b: u8, t: f32) -> u8 {
+    (a as f32 + (b as f32 - a as f32) * t)
+        .round()
+        .clamp(0.0, 255.0) as u8
 }
 
 fn draw_face_edges(canvas: &mut Canvas, points: &[[f32; 2]], face: [u32; 3], color: [u8; 4]) {
@@ -310,6 +412,39 @@ impl Canvas {
         }
     }
 
+    fn draw_triangle(&mut self, a: [f32; 2], b: [f32; 2], c: [f32; 2], color: [u8; 4]) {
+        let min_x = a[0].min(b[0]).min(c[0]).floor().max(0.0) as i32;
+        let max_x = a[0]
+            .max(b[0])
+            .max(c[0])
+            .ceil()
+            .min((self.width.saturating_sub(1)) as f32) as i32;
+        let min_y = a[1].min(b[1]).min(c[1]).floor().max(0.0) as i32;
+        let max_y = a[1]
+            .max(b[1])
+            .max(c[1])
+            .ceil()
+            .min((self.height.saturating_sub(1)) as f32) as i32;
+        let area = edge_function(a, b, c);
+        if area.abs() < 0.001 {
+            return;
+        }
+
+        for y in min_y..=max_y {
+            for x in min_x..=max_x {
+                let p = [x as f32 + 0.5, y as f32 + 0.5];
+                let w0 = edge_function(b, c, p);
+                let w1 = edge_function(c, a, p);
+                let w2 = edge_function(a, b, p);
+                if (area > 0.0 && w0 >= 0.0 && w1 >= 0.0 && w2 >= 0.0)
+                    || (area < 0.0 && w0 <= 0.0 && w1 <= 0.0 && w2 <= 0.0)
+                {
+                    self.blend_pixel(x, y, color);
+                }
+            }
+        }
+    }
+
     fn draw_line(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, color: [u8; 4]) {
         let mut x0 = x0.round() as i32;
         let mut y0 = y0.round() as i32;
@@ -352,6 +487,10 @@ impl Canvas {
         }
         self.data[idx + 3] = (color[3] as f32 + self.data[idx + 3] as f32 * inv).min(255.0) as u8;
     }
+}
+
+fn edge_function(a: [f32; 2], b: [f32; 2], c: [f32; 2]) -> f32 {
+    (c[0] - a[0]) * (b[1] - a[1]) - (c[1] - a[1]) * (b[0] - a[0])
 }
 
 fn encode_rgba_png(width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {

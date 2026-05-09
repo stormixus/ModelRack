@@ -322,26 +322,43 @@ pub fn sidebar_folders(
     };
 
     let mut counts: BTreeMap<PathBuf, usize> = BTreeMap::new();
+    counts.insert(root.to_path_buf(), 0);
     for entry in entries {
         let Some(parent) = entry.path.parent() else {
             continue;
         };
-        if parent == root {
-            continue;
+        *counts.entry(root.to_path_buf()).or_insert(0) += 1;
+        if let Ok(relative_parent) = parent.strip_prefix(root) {
+            let mut ancestor = root.to_path_buf();
+            for component in relative_parent.components() {
+                ancestor.push(component.as_os_str());
+                *counts.entry(ancestor.clone()).or_insert(0) += 1;
+            }
+        } else {
+            *counts.entry(parent.to_path_buf()).or_insert(0) += 1;
         }
-        *counts.entry(parent.to_path_buf()).or_insert(0) += 1;
     }
 
     counts
         .into_iter()
         .map(|(path, count)| {
             let relative = path.strip_prefix(root).unwrap_or(&path);
-            let depth = relative.components().count().saturating_sub(1).min(3);
-            let label = path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or("Folder")
-                .to_string();
+            let depth = if path == root {
+                0
+            } else {
+                relative.components().count().min(4)
+            };
+            let label = if path == root {
+                root.file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("Library")
+                    .to_string()
+            } else {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("Folder")
+                    .to_string()
+            };
             SidebarFolder {
                 path,
                 label,
@@ -831,9 +848,13 @@ mod tests {
         assert_eq!(summary.errors, 1);
 
         let folders = sidebar_folders(&entries, Some(Path::new("/tmp/models")));
-        assert_eq!(folders.len(), 1);
-        assert_eq!(folders[0].label, "nested");
-        assert_eq!(folders[0].count, 1);
+        assert_eq!(folders.len(), 2);
+        assert_eq!(folders[0].label, "models");
+        assert_eq!(folders[0].count, 3);
+        assert_eq!(folders[0].depth, 0);
+        assert_eq!(folders[1].label, "nested");
+        assert_eq!(folders[1].count, 1);
+        assert_eq!(folders[1].depth, 1);
 
         let tags = sidebar_tags(&entries);
         assert_eq!(

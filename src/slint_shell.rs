@@ -1,8 +1,8 @@
 use std::cell::RefCell;
 use std::fs;
-use std::io;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::rc::Rc;
 use std::sync::mpsc;
 use std::thread;
@@ -34,9 +34,9 @@ const DEMO_ROOT: &str = "/Users/hwankishin/Library/3d";
 
 pub fn run() -> Result<(), slint::PlatformError> {
     configure_slint_backend()?;
+    crate::fonts::install_slint_fonts();
 
     let ui = ModelRackWindow::new()?;
-    crate::fonts::install_slint_fonts();
     let state = Rc::new(RefCell::new(ShellState::load()));
     let watcher_runtime = Rc::new(RefCell::new(LibraryWatcherRuntime::new()));
     let scan_runtime = Rc::new(RefCell::new(LibraryScanRuntime::new()));
@@ -45,7 +45,8 @@ pub fn run() -> Result<(), slint::PlatformError> {
     apply_snapshot(&ui, &snapshot);
     apply_detail(&ui, &state.borrow());
     apply_settings(&ui, &state.borrow());
-    if let Some(folder) = state.borrow().restored_real_folder_candidate() {
+    let restored_folder = state.borrow().restored_real_folder_candidate();
+    if let Some(folder) = restored_folder {
         start_folder_scan(
             &ui,
             &state,
@@ -179,17 +180,41 @@ pub fn run() -> Result<(), slint::PlatformError> {
     let filter_state = state.clone();
     ui.on_choose_filter(move |key| {
         if let Some(ui) = weak.upgrade() {
-            let snapshot = {
-                let mut state = filter_state.borrow_mut();
-                if let Some(filter) = smart_filter_from_key(key.as_str()) {
-                    state.filter = filter;
+            apply_filter_key(&ui, &filter_state, key.as_str());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let sidebar_context_state = state.clone();
+    ui.on_sidebar_context_action(move |action, key, label| {
+        if let Some(ui) = weak.upgrade() {
+            match action.as_str() {
+                "filter" => apply_filter_key(&ui, &sidebar_context_state, key.as_str()),
+                "reveal" => {
+                    let Some(path) = folder_path_from_filter_key(key.as_str()) else {
+                        ui.set_status_text("No folder path available for that sidebar item".into());
+                        return;
+                    };
+                    match reveal_path_in_file_manager(&path) {
+                        Ok(()) => {
+                            ui.set_status_text(format!("Revealing {}", path.display()).into())
+                        }
+                        Err(err) => {
+                            ui.set_status_text(format!("Could not reveal folder: {}", err).into())
+                        }
+                    }
                 }
-                state.selected_index = None;
-                state.snapshot_done()
-            };
-            apply_snapshot(&ui, &snapshot);
-            apply_detail(&ui, &filter_state.borrow());
-            apply_settings(&ui, &filter_state.borrow());
+                "copy" => {
+                    let text = folder_path_from_filter_key(key.as_str())
+                        .map(|path| path.display().to_string())
+                        .unwrap_or_else(|| label.to_string());
+                    match copy_text_to_clipboard(&text) {
+                        Ok(()) => ui.set_status_text(format!("Copied {}", text).into()),
+                        Err(err) => ui.set_status_text(format!("Could not copy: {}", err).into()),
+                    }
+                }
+                _ => {}
+            }
         }
     });
 
@@ -1477,6 +1502,89 @@ fn run_launch_command(command: LaunchCommand) -> io::Result<()> {
     Ok(())
 }
 
+fn folder_path_from_filter_key(key: &str) -> Option<PathBuf> {
+    key.strip_prefix("folder:")
+        .filter(|path| !path.trim().is_empty())
+        .map(PathBuf::from)
+}
+
+fn reveal_path_in_file_manager(path: &Path) -> io::Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open").arg("-R").arg(path).status()?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer")
+            .arg(format!("/select,{}", path.display()))
+            .status()?;
+        return Ok(());
+    }
+
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        let target = if path.is_dir() {
+            path
+        } else {
+            path.parent().unwrap_or(path)
+        };
+        Command::new("xdg-open").arg(target).status()?;
+        Ok(())
+    }
+}
+
+fn copy_text_to_clipboard(text: &str) -> io::Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        let mut child = Command::new("pbcopy").stdin(Stdio::piped()).spawn()?;
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin.write_all(text.as_bytes())?;
+        }
+        let status = child.wait()?;
+        if !status.success() {
+            return Err(io::Error::other(format!(
+                "pbcopy exited with status {}",
+                status
+            )));
+        }
+        return Ok(());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let mut child = Command::new("clip").stdin(Stdio::piped()).spawn()?;
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin.write_all(text.as_bytes())?;
+        }
+        let status = child.wait()?;
+        if !status.success() {
+            return Err(io::Error::other(format!(
+                "clip exited with status {}",
+                status
+            )));
+        }
+        return Ok(());
+    }
+
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    {
+        let mut child = Command::new("wl-copy").stdin(Stdio::piped()).spawn()?;
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin.write_all(text.as_bytes())?;
+        }
+        let status = child.wait()?;
+        if !status.success() {
+            return Err(io::Error::other(format!(
+                "wl-copy exited with status {}",
+                status
+            )));
+        }
+        Ok(())
+    }
+}
+
 fn persist_favorite_toggle(
     entries: &mut [scanner::StlFileInfo],
     path: &Path,
@@ -2560,6 +2668,20 @@ fn settings_folder_label(state: &ShellState) -> String {
     } else {
         "Sample library (demo, memory-only)".to_string()
     }
+}
+
+fn apply_filter_key(ui: &ModelRackWindow, state: &Rc<RefCell<ShellState>>, key: &str) {
+    let snapshot = {
+        let mut state = state.borrow_mut();
+        if let Some(filter) = smart_filter_from_key(key) {
+            state.filter = filter;
+        }
+        state.selected_index = None;
+        state.snapshot_done()
+    };
+    apply_snapshot(ui, &snapshot);
+    apply_detail(ui, &state.borrow());
+    apply_settings(ui, &state.borrow());
 }
 
 fn apply_settings(ui: &ModelRackWindow, state: &ShellState) {

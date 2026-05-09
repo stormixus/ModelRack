@@ -37,23 +37,25 @@ shell; wgpu should not expand back into a full-application UI renderer.
    - Bundled fonts are registered at launch: Inter for Latin, Pretendard for Korean
      fallback, and JetBrains Mono for path/hash/count surfaces.
 
-3. **Port primary panes** ✅ / continuing polish
+3. **Port primary panes** ✅
    - Sidebar smart filters/folders/tags are Slint-backed.
    - Toolbar search, view mode, density, sort direction, and folder actions are Slint-backed.
    - Grid/browser cards, detail metadata editing, print-history editing, and settings panel
      are Slint-backed.
-   - Remaining work is polish and small feature completion, not a shell-selection decision:
-     slicer candidate discovery/dropdown, visual QA evidence, and cross-platform QA.
+   - Slicer discovery/default/manual launch behavior, visual QA masks, native macOS chrome,
+     and zero-warning policy are now part of the active Slint shell contract.
 
-4. **Embed visualization surfaces** in progress
+4. **Embed visualization surfaces** ✅ / external QA pending
    - Keep wgpu isolated from text-heavy UI.
    - Reuse focused thumbnail/preview rendering paths for STL visualization.
    - Validate GPU thumbnail/preview behavior through visual QA and cross-platform release QA.
+   - Local thumbnail/detail-preview smoke is covered by macOS artifacts; Windows/Linux evidence
+     remains a release QA blocker, not a migration blocker.
 
-5. **Retire stale migration assumptions** in progress
+5. **Retire stale migration assumptions** ✅
    - Do not plan new work around an egui/default-shell bridge unless a future decision
      explicitly reintroduces one.
-   - Preserve native smoke screenshots and add deterministic pixel comparison on top of the
+   - Preserve native smoke screenshots and deterministic masked pixel comparison through the
      visual QA artifact harness.
 
 ## Non-goals
@@ -66,11 +68,10 @@ shell; wgpu should not expand back into a full-application UI renderer.
 
 ## Remaining Follow-ups
 
-- Deterministic visual QA artifacts with nonblank reference/current images, diffs, and
-  report metadata.
-- macOS frameless titlebar/traffic-light behavior verification and green maximize/restore
-  resolution or explicit masking/deferral.
-- Slicer candidate discovery/dropdown while preserving current manual/default launcher behavior.
-- Windows/Linux release QA evidence for Slint launch, wgpu preview/thumbnail paths, HiDPI,
-  folder picker, sidecar writes, and slicer launch.
-- Warning baseline and release-gate triage.
+Local Slint migration work is complete for the current release train. Remaining follow-ups are
+release-evidence gates tracked in `docs/release-checklist.md`:
+
+- refresh packaged macOS visual QA/window-chrome artifacts after the final build;
+- collect Windows/Linux release QA evidence for Slint launch, thumbnail/detail-preview paths,
+  HiDPI, folder picker, sidecar writes, and slicer launch;
+- keep `python3 scripts/check-warning-baseline.py` at zero warnings before tagging.

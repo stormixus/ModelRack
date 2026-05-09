@@ -136,6 +136,7 @@ component SidebarLine inherits Rectangle {
     in property <bool> expanded: false;
     in property <bool> selected: false;
     callback activated();
+    callback context-requested(length, length);
 
     height: 26px;
     background: selected ? Theme.accent-dim : ta-line.has-hover ? Theme.bg-3 : transparent;
@@ -194,6 +195,11 @@ component SidebarLine inherits Rectangle {
         width: parent.width;
         height: parent.height;
         clicked => { root.activated(); }
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                root.context-requested(ta-line.mouse-x, ta-line.mouse-y);
+            }
+        }
     }
 }
 
@@ -231,6 +237,168 @@ component SectionHeader inherits Rectangle {
         }
 
         plus-touch := TouchArea {}
+    }
+}
+
+component ContextMenuItem inherits Rectangle {
+    in property <string> label;
+    in property <string> hint;
+    in property <image> icon;
+    callback activated();
+
+    height: hint == "" ? 30px : 38px;
+    background: ta-menu-item.has-hover ? Theme.bg-4 : transparent;
+    border-radius: 5px;
+
+    SvgIcon {
+        x: 8px;
+        y: (parent.height - 14px) / 2;
+        width: 14px;
+        height: 14px;
+        icon: root.icon;
+        tint: ta-menu-item.has-hover ? Theme.fg-0 : Theme.fg-2;
+    }
+
+    Text {
+        x: 30px;
+        y: hint == "" ? (parent.height - self.height) / 2 : 6px;
+        width: parent.width - 38px;
+        text: label;
+        color: Theme.fg-0;
+        font-size: Theme.font-body;
+        overflow: elide;
+    }
+
+    if hint != "": Text {
+        x: 30px;
+        y: 21px;
+        width: parent.width - 38px;
+        text: hint;
+        color: Theme.fg-3;
+        font-family: "JetBrains Mono";
+        font-size: Theme.font-overline;
+        overflow: elide;
+    }
+
+    ta-menu-item := TouchArea {
+        clicked => { root.activated(); }
+    }
+}
+
+component SidebarContextMenu inherits Rectangle {
+    in property <string> target-label;
+    in property <bool> target-is-folder;
+    callback action(string);
+
+    width: 188px;
+    height: target-is-folder ? 132px : 96px;
+    background: Theme.bg-2;
+    border-color: Theme.line-2;
+    border-width: 1px;
+    border-radius: 8px;
+
+    VerticalLayout {
+        padding: 4px;
+        spacing: 1px;
+
+        Text {
+            height: 20px;
+            text: target-label;
+            color: Theme.fg-3;
+            font-family: "JetBrains Mono";
+            font-size: Theme.font-overline;
+            overflow: elide;
+        }
+
+        ContextMenuItem {
+            label: target-is-folder ? "Filter this folder" : "Filter this tag";
+            hint: "";
+            icon: @image-url("../assets/icons/filter.svg");
+            activated => { root.action("filter"); }
+        }
+
+        if target-is-folder: ContextMenuItem {
+            label: "Reveal in Finder";
+            hint: "";
+            icon: @image-url("../assets/icons/folder-open.svg");
+            activated => { root.action("reveal"); }
+        }
+
+        ContextMenuItem {
+            label: target-is-folder ? "Copy path" : "Copy tag";
+            hint: "";
+            icon: @image-url("../assets/icons/duplicate.svg");
+            activated => { root.action("copy"); }
+        }
+    }
+}
+
+component SlicerMenuItem inherits Rectangle {
+    in property <string> label;
+    in property <string> detail;
+    in property <bool> selected;
+    callback activated();
+
+    height: 40px;
+    background: selected ? Theme.accent-dim : ta-slicer-menu-item.has-hover ? Theme.bg-4 : transparent;
+    border-radius: 5px;
+
+    Rectangle {
+        x: 8px;
+        y: (parent.height - 22px) / 2;
+        width: 22px;
+        height: 22px;
+        background: selected ? Theme.accent : Theme.bg-3;
+        border-color: selected ? Theme.accent : Theme.line;
+        border-width: 1px;
+        border-radius: 5px;
+
+        Text {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: parent.height;
+            text: label == "System default STL opener" ? "D" : "S";
+            color: selected ? #0e2a32 : Theme.fg-1;
+            font-size: 11px;
+            font-weight: 700;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+
+    Text {
+        x: 38px;
+        y: 6px;
+        width: parent.width - 62px;
+        text: label;
+        color: Theme.fg-0;
+        font-size: Theme.font-body;
+        overflow: elide;
+    }
+
+    Text {
+        x: 38px;
+        y: 22px;
+        width: parent.width - 62px;
+        text: detail;
+        color: Theme.fg-3;
+        font-family: "JetBrains Mono";
+        font-size: Theme.font-overline;
+        overflow: elide;
+    }
+
+    if selected: Text {
+        x: parent.width - 20px;
+        y: (parent.height - self.height) / 2;
+        text: "✓";
+        color: Theme.accent;
+        font-size: 14px;
+        font-weight: 600;
+    }
+
+    ta-slicer-menu-item := TouchArea {
+        clicked => { root.activated(); }
     }
 }
 
@@ -619,6 +787,13 @@ export component ModelRackWindow inherits Window {
     in property <string> settings-density-label;
     in property <string> settings-slicer-label;
     in property <[SlicerCandidate]> settings-slicer-candidates;
+    property <bool> sidebar-context-open: false;
+    property <string> sidebar-context-key;
+    property <string> sidebar-context-label;
+    property <bool> sidebar-context-is-folder: false;
+    property <length> sidebar-context-x: 0px;
+    property <length> sidebar-context-y: 0px;
+    property <bool> slicer-menu-open: false;
 
     // Callbacks
     callback open-folder();
@@ -638,6 +813,7 @@ export component ModelRackWindow inherits Window {
     callback cycle-density();
     callback toggle-sort();
     callback choose-filter(string);
+    callback sidebar-context-action(string, string, string);
     callback select-model(int);
     callback toggle-favorite();
     callback save-metadata(string, string, string);
@@ -818,7 +994,7 @@ export component ModelRackWindow inherits Window {
 
                         if folder-items.length > 0: SectionHeader { label: "FOLDERS"; show-add: true; }
 
-                        for folder in folder-items: SidebarLine {
+                        for folder in folder-items: folder-row := SidebarLine {
                             icon: folder.depth == 0 ? @image-url("../assets/icons/folder-open.svg") : @image-url("../assets/icons/folder.svg");
                             label: folder.label;
                             count: folder.count;
@@ -828,17 +1004,52 @@ export component ModelRackWindow inherits Window {
                             expanded: folder.depth == 0;
                             selected: active-filter-key == folder.key;
                             activated => { choose-filter(folder.key); }
+                            context-requested(x, y) => {
+                                sidebar-context-key = folder.key;
+                                sidebar-context-label = folder.label;
+                                sidebar-context-is-folder = true;
+                                sidebar-context-x = folder-row.x + x;
+                                sidebar-context-y = folder-row.y + y;
+                                sidebar-context-open = true;
+                            }
                         }
 
                         if tag-items.length > 0: SectionHeader { label: "TAGS"; show-add: true; }
 
-                        for tag in tag-items: SidebarLine {
+                        for tag in tag-items: tag-row := SidebarLine {
                             icon: @image-url("../assets/icons/tag.svg");
                             label: tag.label;
                             count: tag.count;
                             selected: active-filter-key == tag.key;
                             activated => { choose-filter(tag.key); }
+                            context-requested(x, y) => {
+                                sidebar-context-key = tag.key;
+                                sidebar-context-label = tag.label;
+                                sidebar-context-is-folder = false;
+                                sidebar-context-x = tag-row.x + x;
+                                sidebar-context-y = tag-row.y + y;
+                                sidebar-context-open = true;
+                            }
                         }
+                    }
+                }
+
+                if sidebar-context-open: TouchArea {
+                    x: 0;
+                    y: 0;
+                    width: parent.width;
+                    height: parent.height;
+                    clicked => { sidebar-context-open = false; }
+                }
+
+                if sidebar-context-open: SidebarContextMenu {
+                    x: sidebar-context-x + self.width > parent.width - 8px ? parent.width - self.width - 8px : sidebar-context-x;
+                    y: sidebar-context-y + self.height > parent.height - 8px ? parent.height - self.height - 8px : sidebar-context-y;
+                    target-label: sidebar-context-label;
+                    target-is-folder: sidebar-context-is-folder;
+                    action(action) => {
+                        sidebar-context-open = false;
+                        sidebar-context-action(action, sidebar-context-key, sidebar-context-label);
                     }
                 }
             }
@@ -1506,30 +1717,131 @@ export component ModelRackWindow inherits Window {
                                 alignment: start;
 
                                 Rectangle {
-                                    width: slicer-text.width + 32px;
+                                    width: 224px;
                                     height: 28px;
-                                    background: ta-slicer.has-hover ? #6fc8e0 : Theme.accent;
-                                    border-radius: Theme.radius-btn;
 
-                                    slicer-text := Text {
-                                        x: 26px;
-                                        y: (parent.height - self.height) / 2;
-                                        text: "Open in Slicer";
-                                        color: #0e2a32;
-                                        font-size: Theme.font-body;
-                                        font-weight: 500;
+                                    Rectangle {
+                                        x: 0;
+                                        y: 0;
+                                        width: parent.width - 27px;
+                                        height: 28px;
+                                        background: ta-slicer.has-hover ? #6fc8e0 : Theme.accent;
+                                        border-radius: Theme.radius-btn;
+
+                                        slicer-text := Text {
+                                            x: 26px;
+                                            y: (parent.height - self.height) / 2;
+                                            width: parent.width - self.x - 68px;
+                                            text: "Open in Slicer";
+                                            color: #0e2a32;
+                                            font-size: Theme.font-body;
+                                            font-weight: 500;
+                                            overflow: elide;
+                                        }
+
+                                        Text {
+                                            x: parent.width - self.width - 8px;
+                                            y: (parent.height - self.height) / 2;
+                                            text: settings-slicer-label;
+                                            color: #0e2a32cc;
+                                            font-family: "JetBrains Mono";
+                                            font-size: 10px;
+                                            overflow: elide;
+                                        }
+
+                                        SvgIcon {
+                                            x: 9px;
+                                            y: (parent.height - 13px) / 2;
+                                            width: 13px;
+                                            height: 13px;
+                                            icon: @image-url("../assets/icons/slicer.svg");
+                                            tint: #0e2a32;
+                                        }
+
+                                        ta-slicer := TouchArea { clicked => { open-in-slicer(); } }
                                     }
 
-                                    SvgIcon {
-                                        x: 9px;
-                                        y: (parent.height - 13px) / 2;
-                                        width: 13px;
-                                        height: 13px;
-                                        icon: @image-url("../assets/icons/slicer.svg");
-                                        tint: #0e2a32;
+                                    Rectangle {
+                                        x: parent.width - 28px;
+                                        y: 0;
+                                        width: 28px;
+                                        height: 28px;
+                                        background: ta-slicer-caret.has-hover ? #6fc8e0 : Theme.accent;
+                                        border-radius: Theme.radius-btn;
+
+                                        Rectangle {
+                                            x: 0;
+                                            y: 5px;
+                                            width: 1px;
+                                            height: parent.height - 10px;
+                                            background: #0e2a3233;
+                                        }
+
+                                        SvgIcon {
+                                            x: (parent.width - 10px) / 2;
+                                            y: (parent.height - 10px) / 2;
+                                            width: 10px;
+                                            height: 10px;
+                                            icon: @image-url("../assets/icons/chevron-right.svg");
+                                            tint: #0e2a32;
+                                            transform-origin: { x: 5px, y: 5px };
+                                            transform-rotation: slicer-menu-open ? -90deg : 90deg;
+                                        }
+
+                                        ta-slicer-caret := TouchArea {
+                                            clicked => { slicer-menu-open = !slicer-menu-open; }
+                                        }
                                     }
 
-                                    ta-slicer := TouchArea { clicked => { open-in-slicer(); } }
+                                    if slicer-menu-open: Rectangle {
+                                        x: 0;
+                                        y: parent.height + 5px;
+                                        width: 280px;
+                                        height: 40px * settings-slicer-candidates.length + 64px;
+                                        background: Theme.bg-2;
+                                        border-color: Theme.line-2;
+                                        border-width: 1px;
+                                        border-radius: 8px;
+
+                                        VerticalLayout {
+                                            padding: 4px;
+                                            spacing: 1px;
+
+                                            Text {
+                                                height: 24px;
+                                                text: "Open with…";
+                                                color: Theme.fg-3;
+                                                font-size: Theme.font-overline;
+                                                font-weight: 600;
+                                                letter-spacing: 0.6px;
+                                            }
+
+                                            for candidate in settings-slicer-candidates: SlicerMenuItem {
+                                                label: candidate.label;
+                                                detail: candidate.detail;
+                                                selected: candidate.selected;
+                                                activated => {
+                                                    choose-settings-slicer(candidate.path);
+                                                    slicer-menu-open = false;
+                                                }
+                                            }
+
+                                            Rectangle {
+                                                height: 1px;
+                                                background: Theme.line;
+                                            }
+
+                                            ContextMenuItem {
+                                                label: "Choose another slicer…";
+                                                hint: "";
+                                                icon: @image-url("../assets/icons/plus.svg");
+                                                activated => {
+                                                    slicer-menu-open = false;
+                                                    choose-slicer();
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
 
                                 Rectangle {
