@@ -19,7 +19,7 @@ use crate::view_model::{
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use slint::winit_030::winit::dpi::PhysicalSize;
 use slint::winit_030::WinitWindowAccessor;
-use slint::Model;
+use slint::{Color, Model, Rgba8Pixel, SharedPixelBuffer};
 
 slint::include_modules!();
 
@@ -45,7 +45,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
     let snapshot = state.borrow_mut().snapshot_idle();
 
     apply_snapshot(&ui, &snapshot);
-    apply_detail(&ui, &state.borrow());
+    apply_detail_rc(&ui, &state);
     apply_settings(&ui, &state.borrow());
     let restored_folder = state.borrow().restored_real_folder_candidate();
     if let Some(folder) = restored_folder {
@@ -97,7 +97,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 state.snapshot_done()
             };
             apply_snapshot(&ui, &snapshot);
-            apply_detail(&ui, &search_state.borrow());
+            apply_detail_rc(&ui, &search_state);
             apply_settings(&ui, &search_state.borrow());
         }
     });
@@ -169,12 +169,14 @@ pub fn run() -> Result<(), slint::PlatformError> {
             let snapshot = {
                 let mut state = sort_state.borrow_mut();
                 state.sort_ascending = !state.sort_ascending;
+                state.prefs.sort_ascending = state.sort_ascending;
                 state.selected_index = None;
                 state.snapshot_done()
             };
             apply_snapshot(&ui, &snapshot);
-            apply_detail(&ui, &sort_state.borrow());
+            apply_detail_rc(&ui, &sort_state);
             apply_settings(&ui, &sort_state.borrow());
+            save_prefs_status(&ui, &sort_state.borrow());
         }
     });
 
@@ -314,6 +316,99 @@ pub fn run() -> Result<(), slint::PlatformError> {
 
     let weak = ui.as_weak();
     let settings_state = state.clone();
+    ui.on_choose_settings_language(move |language| {
+        if let Some(ui) = weak.upgrade() {
+            {
+                let mut state = settings_state.borrow_mut();
+                state.choose_language(language.as_str());
+            }
+            apply_settings(&ui, &settings_state.borrow());
+            save_prefs_status(&ui, &settings_state.borrow());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let settings_state = state.clone();
+    ui.on_choose_settings_theme(move |theme| {
+        if let Some(ui) = weak.upgrade() {
+            {
+                let mut state = settings_state.borrow_mut();
+                state.choose_theme(theme.as_str());
+            }
+            apply_settings(&ui, &settings_state.borrow());
+            save_prefs_status(&ui, &settings_state.borrow());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let settings_state = state.clone();
+    ui.on_choose_settings_sort(move |sort| {
+        if let Some(ui) = weak.upgrade() {
+            let snapshot = {
+                let mut state = settings_state.borrow_mut();
+                state.choose_sort(sort.as_str());
+                state.selected_index = None;
+                state.snapshot_done()
+            };
+            apply_snapshot(&ui, &snapshot);
+            apply_detail_rc(&ui, &settings_state);
+            apply_settings(&ui, &settings_state.borrow());
+            save_prefs_status(&ui, &settings_state.borrow());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let settings_state = state.clone();
+    ui.on_choose_settings_thumbnail_style(move |style| {
+        if let Some(ui) = weak.upgrade() {
+            {
+                let mut state = settings_state.borrow_mut();
+                state.choose_thumbnail_style(style.as_str());
+                ui.set_status_text("Thumbnail style preference updated".into());
+            }
+            apply_settings(&ui, &settings_state.borrow());
+            save_prefs_status(&ui, &settings_state.borrow());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let settings_state = state.clone();
+    ui.on_choose_settings_thumbnail_lighting(move |lighting| {
+        if let Some(ui) = weak.upgrade() {
+            {
+                let mut state = settings_state.borrow_mut();
+                state.choose_thumbnail_lighting(lighting.as_str());
+                ui.set_status_text("Thumbnail lighting preference updated".into());
+            }
+            apply_settings(&ui, &settings_state.borrow());
+            save_prefs_status(&ui, &settings_state.borrow());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let settings_state = state.clone();
+    ui.on_choose_settings_thumbnail_aa(move |aa| {
+        if let Some(ui) = weak.upgrade() {
+            {
+                let mut state = settings_state.borrow_mut();
+                state.choose_thumbnail_aa(aa.as_str());
+                ui.set_status_text("Thumbnail anti-aliasing preference updated".into());
+            }
+            apply_settings(&ui, &settings_state.borrow());
+            save_prefs_status(&ui, &settings_state.borrow());
+        }
+    });
+
+    let weak = ui.as_weak();
+    ui.on_check_updates(move || {
+        if let Some(ui) = weak.upgrade() {
+            ui.set_status_text(update_status_text().into());
+            ui.set_settings_update_status(update_status_text().into());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let settings_state = state.clone();
     ui.on_cycle_settings_language(move || {
         if let Some(ui) = weak.upgrade() {
             {
@@ -391,12 +486,133 @@ pub fn run() -> Result<(), slint::PlatformError> {
     });
 
     let weak = ui.as_weak();
+    let settings_state = state.clone();
+    ui.on_toggle_settings_printer(move |key| {
+        if let Some(ui) = weak.upgrade() {
+            {
+                let mut state = settings_state.borrow_mut();
+                match state.toggle_printer_profile(&key) {
+                    Ok(()) => ui.set_status_text(
+                        settings_printer_status(&state.prefs, &load_printer_profiles()).into(),
+                    ),
+                    Err(message) => ui.set_status_text(message.into()),
+                }
+            }
+            apply_detail_rc(&ui, &settings_state);
+            apply_settings(&ui, &settings_state.borrow());
+            save_prefs_status(&ui, &settings_state.borrow());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let settings_state = state.clone();
+    ui.on_choose_settings_printer_maker(move |maker| {
+        if let Some(ui) = weak.upgrade() {
+            {
+                let mut state = settings_state.borrow_mut();
+                state.choose_settings_printer_maker(maker.as_str());
+            }
+            apply_settings(&ui, &settings_state.borrow());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let settings_state = state.clone();
+    ui.on_choose_settings_printer_model(move |model| {
+        if let Some(ui) = weak.upgrade() {
+            {
+                let mut state = settings_state.borrow_mut();
+                state.choose_settings_printer_model(model.as_str());
+            }
+            apply_settings(&ui, &settings_state.borrow());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let settings_state = state.clone();
+    ui.on_choose_settings_printer_nozzle(move |nozzle| {
+        if let Some(ui) = weak.upgrade() {
+            {
+                let mut state = settings_state.borrow_mut();
+                match state.choose_settings_printer_nozzle(nozzle.as_str()) {
+                    Ok(()) => ui.set_status_text(
+                        settings_printer_status(&state.prefs, &load_printer_profiles()).into(),
+                    ),
+                    Err(message) => ui.set_status_text(message.into()),
+                }
+            }
+            apply_detail_rc(&ui, &settings_state);
+            apply_settings(&ui, &settings_state.borrow());
+            save_prefs_status(&ui, &settings_state.borrow());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let settings_state = state.clone();
+    ui.on_choose_settings_default_printer(move |key| {
+        if let Some(ui) = weak.upgrade() {
+            {
+                let mut state = settings_state.borrow_mut();
+                state.choose_default_printer(&key);
+                ui.set_status_text(
+                    settings_printer_status(&state.prefs, &load_printer_profiles()).into(),
+                );
+            }
+            apply_detail_rc(&ui, &settings_state);
+            apply_settings(&ui, &settings_state.borrow());
+            save_prefs_status(&ui, &settings_state.borrow());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let estimate_state = state.clone();
+    ui.on_choose_estimate_printer(move |key| {
+        if let Some(ui) = weak.upgrade() {
+            let mut state = estimate_state.borrow_mut();
+            state.choose_estimate_printer(&key);
+            apply_detail(&ui, &mut state);
+        }
+    });
+
+    let weak = ui.as_weak();
     let select_state = state.clone();
     ui.on_select_model(move |index| {
         if let Some(ui) = weak.upgrade() {
             let mut state = select_state.borrow_mut();
             state.selected_index = Some(index as usize);
-            apply_detail(&ui, &state);
+            state.reset_preview_orbit();
+            state.reset_preview_plate();
+            apply_detail(&ui, &mut state);
+        }
+    });
+
+    let weak = ui.as_weak();
+    let plate_state = state.clone();
+    ui.on_choose_preview_plate(move |index| {
+        if let Some(ui) = weak.upgrade() {
+            let mut state = plate_state.borrow_mut();
+            state.choose_preview_plate(index);
+            apply_detail(&ui, &mut state);
+        }
+    });
+
+    let weak = ui.as_weak();
+    let orbit_state = state.clone();
+    ui.on_preview_orbit(move |delta_x, delta_y| {
+        if let Some(ui) = weak.upgrade() {
+            let mut state = orbit_state.borrow_mut();
+            state.orbit_preview(delta_x, delta_y);
+            apply_detail(&ui, &mut state);
+        }
+    });
+
+    let weak = ui.as_weak();
+    let orbit_reset_state = state.clone();
+    ui.on_preview_orbit_reset(move || {
+        if let Some(ui) = weak.upgrade() {
+            let mut state = orbit_reset_state.borrow_mut();
+            state.reset_preview_orbit();
+            apply_detail(&ui, &mut state);
         }
     });
 
@@ -423,7 +639,35 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 }
                 let snapshot = state.snapshot_done();
                 apply_snapshot(&ui, &snapshot);
-                apply_detail(&ui, &state);
+                apply_detail(&ui, &mut state);
+            }
+        }
+    });
+
+    let weak = ui.as_weak();
+    let metadata_state = state.clone();
+    ui.on_rename_model(move |name| {
+        let Some(ui) = weak.upgrade() else {
+            return false;
+        };
+        let mut state = metadata_state.borrow_mut();
+        match state.rename_selected_model(name.as_str()) {
+            Ok(Some(new_path)) => {
+                let snapshot = state.snapshot_done();
+                state.reselect_path(&new_path);
+                ui.set_status_text(format!("Renamed to {}", new_path.display()).into());
+                apply_snapshot(&ui, &snapshot);
+                apply_detail(&ui, &mut state);
+                apply_settings(&ui, &state);
+                true
+            }
+            Ok(None) => {
+                ui.set_status_text("Select a model before renaming".into());
+                false
+            }
+            Err(err) => {
+                ui.set_status_text(format!("Could not rename model: {}", err).into());
+                false
             }
         }
     });
@@ -459,7 +703,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
             let snapshot = state.snapshot_done();
             state.reselect_path(&path);
             apply_snapshot(&ui, &snapshot);
-            apply_detail(&ui, &state);
+            apply_detail(&ui, &mut state);
             apply_settings(&ui, &state);
         }
     });
@@ -497,7 +741,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
             let snapshot = state.snapshot_done();
             state.reselect_path(&path);
             apply_snapshot(&ui, &snapshot);
-            apply_detail(&ui, &state);
+            apply_detail(&ui, &mut state);
             apply_settings(&ui, &state);
         }
     });
@@ -530,7 +774,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
             let snapshot = state.snapshot_done();
             state.reselect_path(&path);
             apply_snapshot(&ui, &snapshot);
-            apply_detail(&ui, &state);
+            apply_detail(&ui, &mut state);
             apply_settings(&ui, &state);
         }
     });
@@ -564,7 +808,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
             let snapshot = state.snapshot_done();
             state.reselect_path(&path);
             apply_snapshot(&ui, &snapshot);
-            apply_detail(&ui, &state);
+            apply_detail(&ui, &mut state);
             apply_settings(&ui, &state);
         }
     });
@@ -610,7 +854,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 let snapshot = state.snapshot_done();
                 state.reselect_path(&path);
                 apply_snapshot(&ui, &snapshot);
-                apply_detail(&ui, &state);
+                apply_detail(&ui, &mut state);
                 apply_settings(&ui, &state);
             }
         },
@@ -649,7 +893,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
             let snapshot = state.snapshot_done();
             state.reselect_path(&path);
             apply_snapshot(&ui, &snapshot);
-            apply_detail(&ui, &state);
+            apply_detail(&ui, &mut state);
             apply_settings(&ui, &state);
         }
     });
@@ -1103,7 +1347,7 @@ fn is_refresh_relevant_path(path: &Path) -> bool {
         .map(|ext| {
             matches!(
                 ext.to_ascii_lowercase().as_str(),
-                "stl" | "3mf" | "obj" | "step" | "stp"
+                "stl" | "3mf" | "obj" | "step" | "stp" | "scad"
             )
         })
         .unwrap_or(false)
@@ -1144,7 +1388,7 @@ fn start_folder_scan(
     ui.set_scan_progress_percent(0);
     let snapshot = state.borrow_mut().begin_folder_scan(folder, status);
     apply_snapshot(ui, &snapshot);
-    apply_detail(ui, &state.borrow());
+    apply_detail_rc(ui, state);
     apply_settings(ui, &state.borrow());
     save_prefs_status(ui, &state.borrow());
     match scan_runtime.borrow_mut().request_scan(folder) {
@@ -1205,7 +1449,7 @@ fn apply_scan_entry_batches(
         .apply_scan_entry_batches(batches, progress);
     if let Some(snapshot) = snapshot {
         apply_snapshot(ui, &snapshot);
-        apply_detail(ui, &state.borrow());
+        apply_detail_rc(ui, state);
         apply_settings(ui, &state.borrow());
     }
 }
@@ -1267,7 +1511,7 @@ fn remove_sidebar_folder_from_library(
         }
     };
     apply_snapshot(ui, &snapshot);
-    apply_detail(ui, &state.borrow());
+    apply_detail_rc(ui, state);
     apply_settings(ui, &state.borrow());
     save_prefs_status(ui, &state.borrow());
     ui.set_status_text(format!("Removed {label} from library").into());
@@ -1312,7 +1556,7 @@ fn move_sidebar_folder_to_trash(
             if active_root.as_deref() != Some(folder) {
                 let snapshot = state.borrow_mut().snapshot_done();
                 apply_snapshot(ui, &snapshot);
-                apply_detail(ui, &state.borrow());
+                apply_detail_rc(ui, state);
                 apply_settings(ui, &state.borrow());
             }
             save_prefs_status(ui, &state.borrow());
@@ -1465,7 +1709,7 @@ fn undo_library_action(
     } else {
         let snapshot = state.borrow_mut().snapshot_done();
         apply_snapshot(ui, &snapshot);
-        apply_detail(ui, &state.borrow());
+        apply_detail_rc(ui, state);
         apply_settings(ui, &state.borrow());
         ui.set_status_text(
             format!(
@@ -1484,7 +1728,7 @@ fn clear_deleted_library(ui: &ModelRackWindow, state: &Rc<RefCell<ShellState>>) 
         state.snapshot_idle()
     };
     apply_snapshot(ui, &snapshot);
-    apply_detail(ui, &state.borrow());
+    apply_detail_rc(ui, state);
     apply_settings(ui, &state.borrow());
     save_prefs_status(ui, &state.borrow());
 }
@@ -1496,22 +1740,33 @@ fn apply_scan_result(ui: &ModelRackWindow, state: &Rc<RefCell<ShellState>>, resu
     ui.set_scan_progress_percent(-1);
     let snapshot = state.borrow_mut().apply_scan_result(result);
     apply_snapshot(ui, &snapshot);
-    apply_detail(ui, &state.borrow());
+    apply_detail_rc(ui, state);
     apply_settings(ui, &state.borrow());
     save_prefs_status(ui, &state.borrow());
 }
 
-fn apply_detail(ui: &ModelRackWindow, state: &ShellState) {
+fn apply_detail_rc(ui: &ModelRackWindow, state: &Rc<RefCell<ShellState>>) {
+    let mut state = state.borrow_mut();
+    apply_detail(ui, &mut state);
+}
+
+fn apply_detail(ui: &ModelRackWindow, state: &mut ShellState) {
     ui.set_selected_card_index(state.selected_index.map(|i| i as i32).unwrap_or(-1));
     if let Some(idx) = state.selected_index {
-        if let Some(entry) = state.displayed.get(idx) {
+        if let Some(entry) = state.displayed.get(idx).cloned() {
             ui.set_has_selection(true);
             ui.set_selected_thumb_key(crate::view_model::thumbnail_key(&entry.filename).into());
-            let (thumb_image, thumb_ready) = load_thumbnail_image(entry.thumbnail_path.as_deref());
+            let yaw = state.preview_orbit_yaw;
+            let pitch = state.preview_orbit_pitch;
+            let preview = state.selected_preview(&entry);
+            let (thumb_image, thumb_ready) = preview
+                .as_ref()
+                .map(|preview| render_detail_preview_image(&entry, &preview.mesh, yaw, pitch))
+                .unwrap_or_else(|| load_thumbnail_image(entry.thumbnail_path.as_deref()));
             ui.set_selected_thumb_image(thumb_image);
             ui.set_selected_thumb_ready(thumb_ready);
             ui.set_detail_name(entry.filename.clone().into());
-            ui.set_detail_path(detail_parent_label(entry, state).into());
+            ui.set_detail_path(detail_parent_label(&entry, state).into());
             ui.set_detail_format(
                 match entry.stl_type {
                     scanner::StlType::Binary => "Binary STL",
@@ -1519,14 +1774,56 @@ fn apply_detail(ui: &ModelRackWindow, state: &ShellState) {
                     scanner::StlType::ThreeMf => "3MF",
                     scanner::StlType::Obj => "OBJ",
                     scanner::StlType::Step => "STEP",
+                    scanner::StlType::Scad => "SCAD",
                     scanner::StlType::LargeStl => "Large STL",
                     scanner::StlType::Unknown => "Unknown",
                 }
                 .into(),
             );
+            let plate_count = preview.as_ref().map_or(0, |preview| preview.plate_count);
+            ui.set_detail_has_plates(plate_count > 1);
+            ui.set_detail_plate_summary(
+                preview
+                    .as_ref()
+                    .filter(|preview| preview.plate_count > 1)
+                    .map(|preview| {
+                        format!(
+                            "{} plates · showing {}",
+                            preview.plate_count, preview.selected_label
+                        )
+                    })
+                    .unwrap_or_default()
+                    .into(),
+            );
+            ui.set_detail_plate_selected_label(
+                preview
+                    .as_ref()
+                    .filter(|preview| preview.plate_count > 1)
+                    .map(|preview| preview.selected_label.clone())
+                    .unwrap_or_default()
+                    .into(),
+            );
+            ui.set_detail_plate_tabs(slint::ModelRc::new(slint::VecModel::from(
+                preview
+                    .as_ref()
+                    .map(|preview| {
+                        preview
+                            .tab_rows
+                            .iter()
+                            .map(|tab| PlateTab {
+                                label: tab.label.clone().into(),
+                                index: tab.index,
+                                selected: tab.selected,
+                            })
+                            .collect::<Vec<PlateTab>>()
+                    })
+                    .unwrap_or_default(),
+            )));
             ui.set_detail_tris(
-                entry
-                    .triangle_count
+                preview
+                    .as_ref()
+                    .map(|preview| preview.triangle_count)
+                    .or(entry.triangle_count)
                     .map(|t| {
                         if t >= 1_000_000 {
                             format!("{:.2}M", t as f64 / 1_000_000.0)
@@ -1540,16 +1837,26 @@ fn apply_detail(ui: &ModelRackWindow, state: &ShellState) {
                     .into(),
             );
             ui.set_detail_dims(
-                entry
-                    .dimensions
+                preview
+                    .as_ref()
+                    .and_then(|preview| preview.dimensions)
+                    .or(entry.dimensions)
                     .map(|[x, y, z]| format!("{:.1} × {:.1} × {:.1} mm", x, y, z))
                     .unwrap_or_else(|| "—".to_string())
                     .into(),
             );
             ui.set_detail_volume(
-                entry
-                    .dimensions
-                    .map(|[x, y, z]| format!("{:.1} cm³", x * y * z / 1000.0 * 0.30))
+                preview
+                    .as_ref()
+                    .and_then(|preview| preview.volume_cm3)
+                    .map(|volume| format!("{:.1} cm³", volume))
+                    .or_else(|| {
+                        preview
+                            .as_ref()
+                            .and_then(|preview| preview.dimensions)
+                            .or(entry.dimensions)
+                            .map(|[x, y, z]| format!("~{:.1} cm³", x * y * z / 1000.0 * 0.12))
+                    })
                     .unwrap_or_else(|| "—".to_string())
                     .into(),
             );
@@ -1649,7 +1956,16 @@ fn apply_detail(ui: &ModelRackWindow, state: &ShellState) {
 
             // Mesh health (deterministic from triangle count)
             let manifold = entry.stl_type != scanner::StlType::Unknown;
-            let watertight = manifold && entry.triangle_count.unwrap_or(0) > 100;
+            let selected_triangle_count = preview
+                .as_ref()
+                .map(|preview| preview.triangle_count)
+                .or(entry.triangle_count)
+                .unwrap_or(0);
+            let selected_dimensions = preview
+                .as_ref()
+                .and_then(|preview| preview.dimensions)
+                .or(entry.dimensions);
+            let watertight = manifold && selected_triangle_count > 100;
             let normals = manifold;
             ui.set_detail_manifold(manifold);
             ui.set_detail_watertight(watertight);
@@ -1661,46 +1977,69 @@ fn apply_detail(ui: &ModelRackWindow, state: &ShellState) {
             );
 
             // Print estimate
-            if let Some([x, y, z]) = entry.dimensions {
-                let bbox_cm3 = x * y * z / 1000.0;
-                let part_vol = bbox_cm3 * 0.30;
-                let grams = (part_vol * 0.45 + part_vol * 0.55 * 0.15) * 1.24;
-                let minutes = (grams / 0.6).max(6.0) as u32;
-                let hours = minutes / 60;
-                let mins = minutes % 60;
-                ui.set_detail_estimate_time(
-                    if hours > 0 {
-                        format!("{}h {}m", hours, mins)
-                    } else {
-                        format!("{}m", mins)
-                    }
-                    .into(),
-                );
-                ui.set_detail_estimate_grams(format!("{}g", grams as u32).into());
-                ui.set_detail_estimate_layers(format!("{}", (z / 0.20) as u32).into());
-                ui.set_detail_bed_fit(x <= 256.0 && y <= 256.0 && z <= 256.0);
+            if let Some([x, y, z]) = selected_dimensions {
+                let catalog = load_printer_profiles();
+                let profile = state.selected_estimate_profile(&catalog);
+                let selected_volume_cm3 = preview.as_ref().and_then(|preview| preview.volume_cm3);
+                let estimate =
+                    estimate_print_for_dimensions([x, y, z], selected_volume_cm3, &profile);
+                ui.set_detail_estimate_time(estimate.time_label.into());
+                ui.set_detail_estimate_grams(estimate.grams_label.into());
+                ui.set_detail_estimate_layers(estimate.layers_label.into());
+                ui.set_detail_bed_fit(estimate.bed_fit);
+                ui.set_detail_estimate_printer_label(profile.label.clone().into());
+                ui.set_detail_estimate_printer_detail(printer_detail(&profile).into());
+                let printer_choices =
+                    estimate_printer_choices(&state.prefs, &catalog, &profile.key);
+                ui.set_detail_estimate_has_printer_choices(printer_choices.len() > 1);
+                ui.set_detail_estimate_printers(slint::ModelRc::new(slint::VecModel::from(
+                    printer_choices,
+                )));
             } else {
-                ui.set_detail_estimate_time("".into());
-                ui.set_detail_estimate_grams("".into());
-                ui.set_detail_estimate_layers("".into());
-                ui.set_detail_bed_fit(false);
+                clear_print_estimate(ui);
             }
         } else {
             ui.set_has_selection(false);
             ui.set_selected_thumb_key("rack".into());
             ui.set_selected_thumb_image(slint::Image::default());
             ui.set_selected_thumb_ready(false);
+            clear_detail_plate_tabs(ui);
             clear_detail_tag_chips(ui);
             clear_detail_print_history(ui);
+            clear_print_estimate(ui);
         }
     } else {
         ui.set_has_selection(false);
         ui.set_selected_thumb_key("rack".into());
         ui.set_selected_thumb_image(slint::Image::default());
         ui.set_selected_thumb_ready(false);
+        clear_detail_plate_tabs(ui);
         clear_detail_tag_chips(ui);
         clear_detail_print_history(ui);
+        clear_print_estimate(ui);
     }
+}
+
+fn clear_print_estimate(ui: &ModelRackWindow) {
+    ui.set_detail_estimate_time("".into());
+    ui.set_detail_estimate_grams("".into());
+    ui.set_detail_estimate_layers("".into());
+    ui.set_detail_estimate_printer_label("".into());
+    ui.set_detail_estimate_printer_detail("".into());
+    ui.set_detail_estimate_has_printer_choices(false);
+    ui.set_detail_estimate_printers(slint::ModelRc::new(slint::VecModel::from(Vec::<
+        PrinterProfileChoice,
+    >::new())));
+    ui.set_detail_bed_fit(false);
+}
+
+fn clear_detail_plate_tabs(ui: &ModelRackWindow) {
+    ui.set_detail_has_plates(false);
+    ui.set_detail_plate_summary("".into());
+    ui.set_detail_plate_selected_label("".into());
+    ui.set_detail_plate_tabs(slint::ModelRc::new(slint::VecModel::from(
+        Vec::<PlateTab>::new(),
+    )));
 }
 
 fn clear_detail_tag_chips(ui: &ModelRackWindow) {
@@ -2216,6 +2555,111 @@ fn update_model_meta(
     Ok(Some(meta))
 }
 
+fn persist_model_rename(
+    entries: &mut [scanner::StlFileInfo],
+    path: &Path,
+    allow_file_writes: bool,
+    requested_name: &str,
+) -> anyhow::Result<Option<PathBuf>> {
+    let Some(entry) = entries.iter_mut().find(|entry| entry.path == path) else {
+        return Ok(None);
+    };
+    let new_file_name = normalized_model_file_name(requested_name, &entry.path)?;
+    let parent = entry
+        .path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("model path has no parent folder"))?;
+    let new_path = parent.join(new_file_name);
+
+    if new_path == entry.path {
+        return Ok(Some(entry.path.clone()));
+    }
+
+    if allow_file_writes {
+        if !entry.path.exists() {
+            anyhow::bail!("model does not exist: {}", entry.path.display());
+        }
+        if new_path.exists() {
+            anyhow::bail!("target already exists: {}", new_path.display());
+        }
+        let old_sidecar = scanner::sidecar_path(&entry.path);
+        let new_sidecar = scanner::sidecar_path(&new_path);
+        if old_sidecar.exists() && new_sidecar.exists() {
+            anyhow::bail!("metadata sidecar already exists: {}", new_sidecar.display());
+        }
+
+        fs::rename(&entry.path, &new_path).map_err(|err| {
+            anyhow::anyhow!(
+                "failed to rename {} to {}: {}",
+                entry.path.display(),
+                new_path.display(),
+                err
+            )
+        })?;
+        if old_sidecar.exists() {
+            fs::rename(&old_sidecar, &new_sidecar).map_err(|err| {
+                anyhow::anyhow!(
+                    "renamed model, but failed to rename sidecar {} to {}: {}",
+                    old_sidecar.display(),
+                    new_sidecar.display(),
+                    err
+                )
+            })?;
+        }
+    }
+
+    entry.path = new_path.clone();
+    entry.filename = new_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default()
+        .to_string();
+    Ok(Some(new_path))
+}
+
+fn normalized_model_file_name(
+    requested_name: &str,
+    original_path: &Path,
+) -> anyhow::Result<String> {
+    let trimmed = requested_name.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("filename cannot be empty");
+    }
+    if trimmed == "." || trimmed == ".." {
+        anyhow::bail!("filename cannot be {}", trimmed);
+    }
+    if trimmed
+        .chars()
+        .any(|ch| matches!(ch, '/' | '\\' | ':' | '\0'))
+    {
+        anyhow::bail!("filename cannot contain path separators");
+    }
+    if Path::new(trimmed)
+        .file_name()
+        .and_then(|name| name.to_str())
+        != Some(trimmed)
+    {
+        anyhow::bail!("filename must stay in the same folder");
+    }
+
+    let mut file_name = trimmed.to_string();
+    if Path::new(&file_name).extension().is_none() {
+        if let Some(ext) = original_path.extension().and_then(|ext| ext.to_str()) {
+            file_name.push('.');
+            file_name.push_str(ext);
+        }
+    }
+    let ext = Path::new(&file_name)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(str::to_lowercase)
+        .unwrap_or_default();
+    if !scanner::is_supported_model_ext(&ext) {
+        anyhow::bail!("unsupported model extension: {}", ext);
+    }
+    Ok(file_name)
+}
+
 fn is_excluded_path(path: &Path, excluded_folders: &[PathBuf]) -> bool {
     excluded_folders
         .iter()
@@ -2257,8 +2701,64 @@ struct ShellState {
     settings_open: bool,
     settings_tab: String,
     selected_index: Option<usize>,
+    preview_orbit_yaw: f32,
+    preview_orbit_pitch: f32,
+    preview_mesh: Option<(PathBuf, scanner::MeshData)>,
+    preview_plates: Option<(PathBuf, Vec<scanner::ThreeMfPlate>)>,
+    preview_plate_index: Option<usize>,
+    settings_printer_maker: String,
+    settings_printer_model: String,
+    estimate_printer_key: String,
     sidecar_writes_enabled: bool,
     streaming_scan_generation: Option<u64>,
+}
+
+struct PreviewSelection {
+    mesh: scanner::MeshData,
+    plate_count: usize,
+    selected_label: String,
+    tab_rows: Vec<PreviewPlateTab>,
+    triangle_count: usize,
+    dimensions: Option<[f32; 3]>,
+    volume_cm3: Option<f32>,
+}
+
+struct PreviewPlateTab {
+    label: String,
+    index: i32,
+    selected: bool,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, PartialEq)]
+struct PrinterProfile {
+    key: String,
+    label: String,
+    #[serde(default)]
+    printer_label: String,
+    #[serde(default)]
+    process_label: String,
+    #[serde(default)]
+    nozzle_diameter_mm: f32,
+    build_volume: [f32; 3],
+    layer_height_mm: f32,
+    grams_per_minute: f32,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct PrinterProfileCatalog {
+    #[serde(default, rename = "version")]
+    _version: u32,
+    #[serde(default)]
+    default_profile_key: String,
+    #[serde(default)]
+    profiles: Vec<PrinterProfile>,
+}
+
+struct PrintEstimate {
+    time_label: String,
+    grams_label: String,
+    layers_label: String,
+    bed_fit: bool,
 }
 
 impl Default for ShellState {
@@ -2283,6 +2783,13 @@ impl ShellState {
 
     fn with_prefs(prefs: AppPrefs) -> Self {
         let entries = demo_entries();
+        let catalog = load_printer_profiles();
+        let mut prefs = prefs;
+        let sort_by = sort_by_from_key(&prefs.sort_by);
+        prefs.sort_by = sort_key(sort_by).to_string();
+        let sort_ascending = prefs.sort_ascending;
+        let estimate_printer_key = default_printer_key_for_prefs(&prefs, &catalog);
+        let default_profile = default_printer_profile(&prefs, &catalog);
         Self {
             entries,
             displayed: Vec::new(),
@@ -2291,12 +2798,20 @@ impl ShellState {
             undo_stack: Vec::new(),
             search_query: String::new(),
             filter: LibraryFilter::All,
-            sort_by: SortBy::Name,
-            sort_ascending: true,
+            sort_by,
+            sort_ascending,
             skipped: 0,
             settings_open: false,
             settings_tab: "general".to_string(),
             selected_index: Some(0),
+            preview_orbit_yaw: -0.62,
+            preview_orbit_pitch: -0.48,
+            preview_mesh: None,
+            preview_plates: None,
+            preview_plate_index: Some(0),
+            settings_printer_maker: printer_maker_label(&default_profile),
+            settings_printer_model: printer_model_label(&default_profile),
+            estimate_printer_key,
             sidecar_writes_enabled: false,
             streaming_scan_generation: None,
         }
@@ -2335,6 +2850,7 @@ fn demo_entry(root: &Path, index: usize, model: DemoModel) -> scanner::StlFileIn
         stl_type: model.stl_type,
         triangle_count: model.tris,
         dimensions: model.dims,
+        three_mf_plate_count: None,
         modified: demo_modified(index),
         meta: Some(scanner::SidecarMeta {
             tags: model.tags.iter().map(|tag| (*tag).to_string()).collect(),
@@ -3126,11 +3642,28 @@ impl ShellState {
         self.prefs.density = Density::from_str(density).as_str().to_string();
     }
 
+    fn choose_language(&mut self, language: &str) {
+        self.prefs.language = match language {
+            "ko" => "ko",
+            "ja" => "ja",
+            _ => "en",
+        }
+        .to_string();
+    }
+
     fn cycle_language(&mut self) {
         self.prefs.language = match self.prefs.language.as_str() {
             "en" => "ko",
             "ko" => "ja",
             _ => "en",
+        }
+        .to_string();
+    }
+
+    fn choose_theme(&mut self, theme: &str) {
+        self.prefs.theme = match theme {
+            "light" => "light",
+            _ => "dark",
         }
         .to_string();
     }
@@ -3143,9 +3676,294 @@ impl ShellState {
         };
     }
 
+    fn choose_sort(&mut self, sort: &str) {
+        self.sort_by = sort_by_from_key(sort);
+        self.prefs.sort_by = sort_key(self.sort_by).to_string();
+    }
+
+    fn choose_thumbnail_style(&mut self, style: &str) {
+        self.prefs.thumbnail_style = match style {
+            "wire" => "wire",
+            "normal" => "normal",
+            _ => "iso",
+        }
+        .to_string();
+    }
+
+    fn choose_thumbnail_lighting(&mut self, lighting: &str) {
+        self.prefs.thumbnail_lighting = match lighting {
+            "even" => "even",
+            "rim" => "rim",
+            _ => "studio",
+        }
+        .to_string();
+    }
+
+    fn choose_thumbnail_aa(&mut self, aa: &str) {
+        self.prefs.thumbnail_aa = match aa {
+            "off" => "off",
+            "msaa2x" => "msaa2x",
+            "msaa8x" => "msaa8x",
+            _ => "msaa4x",
+        }
+        .to_string();
+    }
+
     fn selected_model_path(&self) -> Option<PathBuf> {
         let idx = self.selected_index?;
         self.displayed.get(idx).map(|entry| entry.path.clone())
+    }
+
+    fn rename_selected_model(&mut self, requested_name: &str) -> anyhow::Result<Option<PathBuf>> {
+        let Some(path) = self.selected_model_path() else {
+            return Ok(None);
+        };
+        persist_model_rename(
+            &mut self.entries,
+            &path,
+            self.sidecar_writes_enabled,
+            requested_name,
+        )
+    }
+
+    fn reset_preview_orbit(&mut self) {
+        self.preview_orbit_yaw = -0.62;
+        self.preview_orbit_pitch = -0.48;
+    }
+
+    fn reset_preview_plate(&mut self) {
+        self.preview_plate_index = Some(0);
+    }
+
+    fn choose_preview_plate(&mut self, index: i32) {
+        self.preview_plate_index = usize::try_from(index).ok();
+        self.reset_preview_orbit();
+    }
+
+    fn toggle_printer_profile(&mut self, key: &str) -> Result<(), &'static str> {
+        let catalog = load_printer_profiles();
+        let Some(profile) = printer_profile(&catalog, key) else {
+            return Err("Unknown printer profile");
+        };
+        let mut active = active_printer_keys(&self.prefs, &catalog);
+        if active.iter().any(|active_key| active_key == &profile.key) {
+            if active.len() == 1 {
+                return Err("Keep at least one printer enabled for estimates");
+            }
+            active.retain(|active_key| active_key != &profile.key);
+        } else {
+            active.push(profile.key.clone());
+        }
+        self.prefs.active_printer_keys = active;
+        normalize_printer_prefs(&mut self.prefs, &catalog);
+        self.ensure_estimate_printer_is_active(&catalog);
+        Ok(())
+    }
+
+    fn choose_settings_printer_maker(&mut self, maker: &str) {
+        let catalog = load_printer_profiles();
+        let maker = maker.trim();
+        if maker.is_empty() {
+            return;
+        }
+        self.settings_printer_maker = maker.to_string();
+        if let Some(profile) = catalog
+            .iter()
+            .find(|profile| printer_maker_label(profile) == self.settings_printer_maker)
+        {
+            self.settings_printer_model = printer_model_label(profile);
+        }
+    }
+
+    fn choose_settings_printer_model(&mut self, model: &str) {
+        let catalog = load_printer_profiles();
+        let model = model.trim();
+        if catalog.iter().any(|profile| {
+            printer_maker_label(profile) == self.settings_printer_maker
+                && printer_model_label(profile) == model
+        }) {
+            self.settings_printer_model = model.to_string();
+        }
+    }
+
+    fn choose_settings_printer_nozzle(&mut self, nozzle: &str) -> Result<(), &'static str> {
+        let catalog = load_printer_profiles();
+        let Some(profile) = catalog.iter().find(|profile| {
+            printer_maker_label(profile) == self.settings_printer_maker
+                && printer_model_label(profile) == self.settings_printer_model
+                && format!("{:.1}mm", profile.nozzle_diameter_mm) == nozzle.trim()
+        }) else {
+            return Err("Unknown printer/nozzle combination");
+        };
+        let mut active = active_printer_keys(&self.prefs, &catalog);
+        if !active.iter().any(|key| key == &profile.key) {
+            active.push(profile.key.clone());
+        }
+        self.prefs.active_printer_keys = active;
+        self.prefs.default_printer_key = profile.key.clone();
+        self.estimate_printer_key = profile.key.clone();
+        normalize_printer_prefs(&mut self.prefs, &catalog);
+        Ok(())
+    }
+
+    fn choose_default_printer(&mut self, key: &str) {
+        let catalog = load_printer_profiles();
+        if let Some(profile) = printer_profile(&catalog, key) {
+            let mut active = active_printer_keys(&self.prefs, &catalog);
+            if !active.iter().any(|active_key| active_key == &profile.key) {
+                active.push(profile.key.clone());
+            }
+            self.prefs.active_printer_keys = active;
+            self.prefs.default_printer_key = profile.key.clone();
+            self.estimate_printer_key = profile.key.clone();
+            normalize_printer_prefs(&mut self.prefs, &catalog);
+        }
+    }
+
+    fn choose_estimate_printer(&mut self, key: &str) {
+        let catalog = load_printer_profiles();
+        if active_printer_profiles(&self.prefs, &catalog)
+            .iter()
+            .any(|profile| profile.key == key.trim())
+        {
+            self.estimate_printer_key = key.to_string();
+        }
+    }
+
+    fn selected_estimate_profile(&mut self, catalog: &[PrinterProfile]) -> PrinterProfile {
+        self.ensure_estimate_printer_is_active(catalog);
+        printer_profile(catalog, &self.estimate_printer_key)
+            .cloned()
+            .unwrap_or_else(|| default_printer_profile(&self.prefs, catalog))
+    }
+
+    fn ensure_estimate_printer_is_active(&mut self, catalog: &[PrinterProfile]) {
+        let active = active_printer_keys(&self.prefs, catalog);
+        if !active
+            .iter()
+            .any(|active_key| active_key == &self.estimate_printer_key)
+        {
+            self.estimate_printer_key = default_printer_key_for_prefs(&self.prefs, catalog);
+        }
+    }
+
+    fn orbit_preview(&mut self, delta_x: f32, delta_y: f32) {
+        self.preview_orbit_yaw += delta_x * 0.012;
+        self.preview_orbit_pitch = (self.preview_orbit_pitch + delta_y * 0.010).clamp(-1.25, 1.25);
+    }
+
+    fn selected_preview(&mut self, entry: &scanner::StlFileInfo) -> Option<PreviewSelection> {
+        if entry.stl_type == scanner::StlType::ThreeMf {
+            return self.selected_three_mf_preview(entry);
+        }
+
+        let selected_path = entry.path.clone();
+        let needs_load = self
+            .preview_mesh
+            .as_ref()
+            .is_none_or(|(path, _)| *path != selected_path);
+        if needs_load {
+            self.preview_mesh = scanner::parse_preview_mesh(&selected_path)
+                .ok()
+                .flatten()
+                .map(|mesh| (selected_path.clone(), mesh));
+        }
+        self.preview_mesh
+            .as_ref()
+            .and_then(|(path, mesh)| (*path == selected_path).then_some(mesh.clone()))
+            .map(|mesh| PreviewSelection {
+                triangle_count: mesh.faces.len(),
+                dimensions: scanner::mesh_dimensions(&mesh),
+                volume_cm3: scanner::mesh_volume_cm3(&mesh),
+                mesh,
+                plate_count: 0,
+                selected_label: String::new(),
+                tab_rows: Vec::new(),
+            })
+    }
+
+    fn selected_three_mf_preview(
+        &mut self,
+        entry: &scanner::StlFileInfo,
+    ) -> Option<PreviewSelection> {
+        let selected_path = entry.path.clone();
+        let needs_load = self
+            .preview_plates
+            .as_ref()
+            .is_none_or(|(path, _)| *path != selected_path);
+        if needs_load {
+            self.preview_plates = scanner::parse_preview_plates(&selected_path)
+                .ok()
+                .flatten()
+                .map(|plates| (selected_path.clone(), plates));
+        }
+        let plates = self
+            .preview_plates
+            .as_ref()
+            .and_then(|(path, plates)| (*path == selected_path).then_some(plates.clone()))?;
+        if plates.is_empty() {
+            return None;
+        }
+
+        if plates.len() == 1 {
+            let mesh = plates[0].mesh.clone();
+            return Some(PreviewSelection {
+                triangle_count: mesh.faces.len(),
+                dimensions: scanner::mesh_dimensions(&mesh),
+                volume_cm3: scanner::mesh_volume_cm3(&mesh),
+                mesh,
+                plate_count: 1,
+                selected_label: plates[0].label.clone(),
+                tab_rows: Vec::new(),
+            });
+        }
+
+        if let Some(index) = self.preview_plate_index {
+            if index >= plates.len() {
+                self.preview_plate_index = Some(0);
+            }
+        }
+
+        let selected_plate_index = self.preview_plate_index;
+        let (mesh, selected_label) = if let Some(index) = selected_plate_index {
+            (plates[index].mesh.clone(), plates[index].label.clone())
+        } else {
+            (
+                scanner::arranged_three_mf_overview_mesh(&plates)?,
+                "All plates".to_string(),
+            )
+        };
+        let triangle_count = if selected_plate_index.is_some() {
+            mesh.faces.len()
+        } else {
+            plates.iter().map(|plate| plate.mesh.faces.len()).sum()
+        };
+        let mut tab_rows = Vec::with_capacity(plates.len() + 1);
+        tab_rows.push(PreviewPlateTab {
+            label: "All plates".to_string(),
+            index: -1,
+            selected: selected_plate_index.is_none(),
+        });
+        tab_rows.extend(
+            plates
+                .iter()
+                .enumerate()
+                .map(|(index, plate)| PreviewPlateTab {
+                    label: plate.label.clone(),
+                    index: index as i32,
+                    selected: selected_plate_index == Some(index),
+                }),
+        );
+
+        Some(PreviewSelection {
+            dimensions: scanner::mesh_dimensions(&mesh),
+            volume_cm3: scanner::mesh_volume_cm3(&mesh),
+            mesh,
+            plate_count: plates.len(),
+            selected_label,
+            tab_rows,
+            triangle_count,
+        })
     }
 
     fn reselect_path(&mut self, path: &Path) {
@@ -3282,7 +4100,7 @@ fn apply_filter_key(ui: &ModelRackWindow, state: &Rc<RefCell<ShellState>>, key: 
         state.snapshot_done()
     };
     apply_snapshot(ui, &snapshot);
-    apply_detail(ui, &state.borrow());
+    apply_detail_rc(ui, state);
     apply_settings(ui, &state.borrow());
 }
 
@@ -3296,34 +4114,468 @@ fn toggle_sidebar_folder(ui: &ModelRackWindow, state: &Rc<RefCell<ShellState>>, 
         state.toggle_sidebar_folder(&folder)
     };
     apply_snapshot(ui, &snapshot);
-    apply_detail(ui, &state.borrow());
+    apply_detail_rc(ui, state);
     apply_settings(ui, &state.borrow());
     save_prefs_status(ui, &state.borrow());
 }
 
 fn apply_settings(ui: &ModelRackWindow, state: &ShellState) {
+    apply_theme(ui, &state.prefs.theme);
     let discovered_slicers = discover_slicer_candidates();
     let slicer_rows = slicer_choice_rows(&state.prefs.slicer_path, &discovered_slicers);
+    let (selected_slicer_icon, selected_slicer_icon_ready) = slicer_rows
+        .iter()
+        .find(|row| row.selected)
+        .map(|row| load_ui_image(row.icon_path.as_deref()))
+        .unwrap_or_else(|| (slint::Image::default(), false));
     ui.set_settings_open(state.settings_open);
     ui.set_settings_tab(state.settings_tab.clone().into());
+    ui.set_settings_language_key(state.prefs.language.clone().into());
     ui.set_settings_language_label(language_label(&state.prefs.language).into());
+    ui.set_settings_theme_key(state.prefs.theme.clone().into());
     ui.set_settings_theme_label(theme_label(&state.prefs.theme).into());
+    ui.set_settings_sort_key(sort_key(state.sort_by).into());
+    ui.set_settings_sort_ascending(state.sort_ascending);
+    ui.set_settings_thumbnail_style(state.prefs.thumbnail_style.clone().into());
+    ui.set_settings_thumbnail_lighting(state.prefs.thumbnail_lighting.clone().into());
+    ui.set_settings_thumbnail_aa(state.prefs.thumbnail_aa.clone().into());
     ui.set_settings_folder_label(settings_folder_label(state).into());
     ui.set_settings_density_label(Density::from_str(&state.prefs.density).as_str().into());
     ui.set_settings_slicer_label(
         slicer_label_for_path(&state.prefs.slicer_path, &slicer_rows).into(),
     );
+    ui.set_settings_slicer_icon_image(selected_slicer_icon);
+    ui.set_settings_slicer_icon_ready(selected_slicer_icon_ready);
     ui.set_settings_slicer_candidates(slint::ModelRc::new(slint::VecModel::from(
         slicer_rows
             .into_iter()
-            .map(|row| SlicerCandidate {
-                label: row.label.into(),
-                path: row.path.into(),
-                detail: row.detail.into(),
-                selected: row.selected,
+            .map(|row| {
+                let (icon_image, icon_ready) = load_ui_image(row.icon_path.as_deref());
+                SlicerCandidate {
+                    label: row.label.into(),
+                    path: row.path.into(),
+                    detail: row.detail.into(),
+                    icon_image,
+                    icon_ready,
+                    selected: row.selected,
+                }
             })
             .collect::<Vec<SlicerCandidate>>(),
     )));
+    let printer_catalog = load_printer_profiles();
+    let printer_rows = settings_printer_choices(&state.prefs, &printer_catalog);
+    ui.set_settings_printer_summary(
+        settings_printer_summary(&state.prefs, &printer_catalog).into(),
+    );
+    ui.set_settings_default_printer_label(
+        default_printer_profile(&state.prefs, &printer_catalog)
+            .label
+            .into(),
+    );
+    ui.set_settings_printer_active_count(
+        active_printer_profiles(&state.prefs, &printer_catalog).len() as i32,
+    );
+    ui.set_settings_printer_profiles(slint::ModelRc::new(slint::VecModel::from(printer_rows)));
+    let maker_values = unique_sorted(
+        printer_catalog
+            .iter()
+            .map(printer_maker_label)
+            .collect::<Vec<_>>(),
+    );
+    let model_values = unique_sorted(
+        printer_catalog
+            .iter()
+            .filter(|profile| printer_maker_label(profile) == state.settings_printer_maker)
+            .map(printer_model_label)
+            .collect::<Vec<_>>(),
+    );
+    let nozzle_values = unique_sorted(
+        printer_catalog
+            .iter()
+            .filter(|profile| {
+                printer_maker_label(profile) == state.settings_printer_maker
+                    && printer_model_label(profile) == state.settings_printer_model
+            })
+            .map(|profile| format!("{:.1}mm", profile.nozzle_diameter_mm))
+            .collect::<Vec<_>>(),
+    );
+    ui.set_settings_printer_maker_label(state.settings_printer_maker.clone().into());
+    ui.set_settings_printer_model_label(state.settings_printer_model.clone().into());
+    ui.set_settings_printer_makers(slint::ModelRc::new(slint::VecModel::from(choice_rows(
+        maker_values,
+        &state.settings_printer_maker,
+    ))));
+    ui.set_settings_printer_models(slint::ModelRc::new(slint::VecModel::from(choice_rows(
+        model_values,
+        &state.settings_printer_model,
+    ))));
+    ui.set_settings_printer_nozzles(slint::ModelRc::new(slint::VecModel::from(
+        nozzle_values
+            .into_iter()
+            .map(|value| ChoiceRow {
+                selected: state
+                    .prefs
+                    .active_printer_keys
+                    .iter()
+                    .filter_map(|key| printer_profile(&printer_catalog, key))
+                    .any(|profile| {
+                        printer_maker_label(profile) == state.settings_printer_maker
+                            && printer_model_label(profile) == state.settings_printer_model
+                            && format!("{:.1}mm", profile.nozzle_diameter_mm) == value
+                    }),
+                key: value.clone().into(),
+                label: value.into(),
+            })
+            .collect::<Vec<ChoiceRow>>(),
+    )));
+    ui.set_settings_update_status(update_status_text().into());
+}
+
+fn apply_theme(ui: &ModelRackWindow, theme: &str) {
+    let globals = ui.global::<Theme>();
+    if theme == "light" {
+        globals.set_bg_0(rgb(0xf6, 0xf7, 0xf9));
+        globals.set_bg_1(rgb(0xee, 0xf1, 0xf4));
+        globals.set_bg_2(rgb(0xe5, 0xe9, 0xee));
+        globals.set_bg_3(rgb(0xd8, 0xde, 0xe6));
+        globals.set_bg_4(rgb(0xc8, 0xd1, 0xdc));
+        globals.set_bg_5(rgb(0xb9, 0xc6, 0xd4));
+        globals.set_fg_0(rgb(0x12, 0x18, 0x20));
+        globals.set_fg_1(rgb(0x36, 0x40, 0x4d));
+        globals.set_fg_2(rgb(0x66, 0x70, 0x7d));
+        globals.set_fg_3(rgb(0x8a, 0x94, 0xa0));
+        globals.set_line(rgba(0x00, 0x00, 0x00, 0x18));
+        globals.set_line_2(rgba(0x00, 0x00, 0x00, 0x26));
+        globals.set_line_3(rgba(0x00, 0x00, 0x00, 0x36));
+    } else {
+        globals.set_bg_0(rgb(0x15, 0x17, 0x1b));
+        globals.set_bg_1(rgb(0x1b, 0x1e, 0x23));
+        globals.set_bg_2(rgb(0x20, 0x23, 0x29));
+        globals.set_bg_3(rgb(0x29, 0x2d, 0x34));
+        globals.set_bg_4(rgb(0x34, 0x39, 0x43));
+        globals.set_bg_5(rgb(0x46, 0x50, 0x5c));
+        globals.set_fg_0(rgb(0xf0, 0xf2, 0xf5));
+        globals.set_fg_1(rgb(0xc0, 0xc5, 0xcc));
+        globals.set_fg_2(rgb(0x8c, 0x92, 0x9b));
+        globals.set_fg_3(rgb(0x60, 0x67, 0x71));
+        globals.set_line(rgba(0xff, 0xff, 0xff, 0x0f));
+        globals.set_line_2(rgba(0xff, 0xff, 0xff, 0x1a));
+        globals.set_line_3(rgba(0xff, 0xff, 0xff, 0x29));
+    }
+}
+
+fn rgb(r: u8, g: u8, b: u8) -> Color {
+    Color::from_rgb_u8(r, g, b)
+}
+
+fn rgba(r: u8, g: u8, b: u8, a: u8) -> Color {
+    Color::from_argb_u8(a, r, g, b)
+}
+
+fn update_status_text() -> String {
+    format!(
+        "Release channel: GitHub Releases · current {} · not checked",
+        env!("CARGO_PKG_VERSION")
+    )
+}
+
+fn bundled_printer_profiles_json() -> &'static str {
+    include_str!("../assets/data/printer_profiles.json")
+}
+
+fn load_printer_profiles() -> Vec<PrinterProfile> {
+    load_printer_profiles_from_str(bundled_printer_profiles_json())
+}
+
+fn load_printer_profiles_from_str(json: &str) -> Vec<PrinterProfile> {
+    let catalog = serde_json::from_str::<PrinterProfileCatalog>(json)
+        .unwrap_or_else(|_| fallback_printer_catalog());
+    let mut profiles = catalog
+        .profiles
+        .into_iter()
+        .filter_map(normalize_printer_profile)
+        .collect::<Vec<_>>();
+    if profiles.is_empty() {
+        profiles = fallback_printer_catalog()
+            .profiles
+            .into_iter()
+            .filter_map(normalize_printer_profile)
+            .collect();
+    }
+    profiles
+}
+
+fn fallback_printer_catalog() -> PrinterProfileCatalog {
+    PrinterProfileCatalog {
+        _version: 1,
+        default_profile_key: "bambu-p1s-0.4".to_string(),
+        profiles: vec![PrinterProfile {
+            key: "bambu-p1s-0.4".to_string(),
+            label: "Bambu P1S · 0.4mm".to_string(),
+            printer_label: "Bambu P1S".to_string(),
+            process_label: "0.20 Standard".to_string(),
+            nozzle_diameter_mm: 0.4,
+            build_volume: [256.0, 256.0, 256.0],
+            layer_height_mm: 0.20,
+            grams_per_minute: 0.60,
+        }],
+    }
+}
+
+fn normalize_printer_profile(mut profile: PrinterProfile) -> Option<PrinterProfile> {
+    profile.key = profile.key.trim().to_string();
+    profile.label = profile.label.trim().to_string();
+    profile.printer_label = profile.printer_label.trim().to_string();
+    profile.process_label = profile.process_label.trim().to_string();
+    if profile.key.is_empty()
+        || profile.label.is_empty()
+        || !profile
+            .build_volume
+            .iter()
+            .all(|value| value.is_finite() && *value > 0.0)
+        || !profile.layer_height_mm.is_finite()
+        || profile.layer_height_mm <= 0.0
+        || !profile.grams_per_minute.is_finite()
+        || profile.grams_per_minute <= 0.0
+    {
+        return None;
+    }
+    if profile.printer_label.is_empty() {
+        profile.printer_label = profile.label.clone();
+    }
+    if profile.process_label.is_empty() {
+        profile.process_label = format!("{:.2}mm layer", profile.layer_height_mm);
+    }
+    if !profile.nozzle_diameter_mm.is_finite() || profile.nozzle_diameter_mm <= 0.0 {
+        profile.nozzle_diameter_mm = 0.4;
+    }
+    Some(profile)
+}
+
+fn bundled_default_printer_key(catalog: &[PrinterProfile]) -> String {
+    serde_json::from_str::<PrinterProfileCatalog>(bundled_printer_profiles_json())
+        .ok()
+        .and_then(|catalog_json| {
+            let key = catalog_json.default_profile_key.trim().to_string();
+            catalog
+                .iter()
+                .any(|profile| profile.key == key)
+                .then_some(key)
+        })
+        .or_else(|| catalog.first().map(|profile| profile.key.clone()))
+        .unwrap_or_else(|| "bambu-p1s-0.4".to_string())
+}
+
+fn printer_profile<'a>(catalog: &'a [PrinterProfile], key: &str) -> Option<&'a PrinterProfile> {
+    let trimmed = key.trim();
+    catalog
+        .iter()
+        .find(|profile| profile.key == trimmed)
+        .or_else(|| {
+            legacy_printer_key(trimmed)
+                .and_then(|key| catalog.iter().find(|profile| profile.key == key))
+        })
+}
+
+fn legacy_printer_key(key: &str) -> Option<&'static str> {
+    match key {
+        "bambu-p1s" => Some("bambu-p1s-0.4"),
+        "prusa-mk4" => Some("prusa-mk4-0.4"),
+        "creality-k1" => Some("creality-k1-0.4"),
+        "snapmaker-j1" => Some("snapmaker-j1-0.4"),
+        _ => None,
+    }
+}
+
+fn active_printer_keys(prefs: &AppPrefs, catalog: &[PrinterProfile]) -> Vec<String> {
+    let mut keys = Vec::new();
+    for key in prefs
+        .active_printer_keys
+        .iter()
+        .filter_map(|key| printer_profile(catalog, key).map(|profile| profile.key.clone()))
+    {
+        if !keys.iter().any(|existing| existing == &key) {
+            keys.push(key);
+        }
+    }
+    if keys.is_empty() {
+        keys.push(default_printer_key_for_prefs(prefs, catalog));
+    }
+    keys
+}
+
+fn active_printer_profiles(prefs: &AppPrefs, catalog: &[PrinterProfile]) -> Vec<PrinterProfile> {
+    active_printer_keys(prefs, catalog)
+        .iter()
+        .filter_map(|key| printer_profile(catalog, key).cloned())
+        .collect()
+}
+
+fn default_printer_key_for_prefs(prefs: &AppPrefs, catalog: &[PrinterProfile]) -> String {
+    let active = prefs
+        .active_printer_keys
+        .iter()
+        .filter_map(|key| printer_profile(catalog, key).map(|profile| profile.key.clone()))
+        .collect::<Vec<_>>();
+    if active.iter().any(|key| {
+        printer_profile(catalog, &prefs.default_printer_key)
+            .is_some_and(|profile| profile.key == *key)
+    }) {
+        printer_profile(catalog, &prefs.default_printer_key)
+            .map(|profile| profile.key.clone())
+            .unwrap_or_else(|| bundled_default_printer_key(catalog))
+    } else {
+        active
+            .first()
+            .cloned()
+            .unwrap_or_else(|| bundled_default_printer_key(catalog))
+    }
+}
+
+fn default_printer_profile(prefs: &AppPrefs, catalog: &[PrinterProfile]) -> PrinterProfile {
+    printer_profile(catalog, &default_printer_key_for_prefs(prefs, catalog))
+        .cloned()
+        .or_else(|| catalog.first().cloned())
+        .unwrap_or_else(|| fallback_printer_catalog().profiles.remove(0))
+}
+
+fn normalize_printer_prefs(prefs: &mut AppPrefs, catalog: &[PrinterProfile]) {
+    prefs.active_printer_keys = active_printer_keys(prefs, catalog);
+    prefs.default_printer_key = default_printer_key_for_prefs(prefs, catalog);
+}
+
+fn printer_detail(profile: &PrinterProfile) -> String {
+    format!(
+        "{} · {:.1}mm nozzle · {} · {} × {} × {}",
+        profile.printer_label,
+        profile.nozzle_diameter_mm,
+        profile.process_label,
+        profile.build_volume[0] as u32,
+        profile.build_volume[1] as u32,
+        profile.build_volume[2] as u32
+    )
+}
+
+fn printer_model_label(profile: &PrinterProfile) -> String {
+    let label = profile.printer_label.trim();
+    for maker in ["Bambu", "Prusa", "Creality", "Snapmaker"] {
+        if let Some(model) = label.strip_prefix(&format!("{maker} ")) {
+            return model.to_string();
+        }
+    }
+    label.to_string()
+}
+
+fn printer_maker_label(profile: &PrinterProfile) -> String {
+    profile
+        .printer_label
+        .split_whitespace()
+        .next()
+        .unwrap_or(profile.printer_label.as_str())
+        .to_string()
+}
+
+fn choice_rows(values: Vec<String>, selected: &str) -> Vec<ChoiceRow> {
+    values
+        .into_iter()
+        .map(|value| ChoiceRow {
+            key: value.clone().into(),
+            label: value.clone().into(),
+            selected: value == selected,
+        })
+        .collect()
+}
+
+fn unique_sorted(mut values: Vec<String>) -> Vec<String> {
+    values.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+    values.dedup();
+    values
+}
+
+fn settings_printer_summary(prefs: &AppPrefs, catalog: &[PrinterProfile]) -> String {
+    let active = active_printer_profiles(prefs, catalog);
+    if active.len() == 1 {
+        active[0].label.clone()
+    } else {
+        format!("{} profiles", active.len())
+    }
+}
+
+fn settings_printer_status(prefs: &AppPrefs, catalog: &[PrinterProfile]) -> String {
+    let active = active_printer_profiles(prefs, catalog);
+    if active.len() == 1 {
+        format!("Print estimates use {}", active[0].label)
+    } else {
+        format!(
+            "{} printer profiles enabled · default {}",
+            active.len(),
+            default_printer_profile(prefs, catalog).label
+        )
+    }
+}
+
+fn settings_printer_choices(
+    prefs: &AppPrefs,
+    catalog: &[PrinterProfile],
+) -> Vec<PrinterProfileChoice> {
+    let active = active_printer_keys(prefs, catalog);
+    let default_key = default_printer_key_for_prefs(prefs, catalog);
+    catalog
+        .iter()
+        .map(|profile| PrinterProfileChoice {
+            key: profile.key.clone().into(),
+            label: profile.label.clone().into(),
+            detail: printer_detail(profile).into(),
+            selected: active.iter().any(|key| key == &profile.key),
+            defaulted: default_key == profile.key,
+        })
+        .collect()
+}
+
+fn estimate_printer_choices(
+    prefs: &AppPrefs,
+    catalog: &[PrinterProfile],
+    selected_key: &str,
+) -> Vec<PrinterProfileChoice> {
+    let default_key = default_printer_key_for_prefs(prefs, catalog);
+    active_printer_profiles(prefs, catalog)
+        .iter()
+        .map(|profile| PrinterProfileChoice {
+            key: profile.key.clone().into(),
+            label: profile.label.clone().into(),
+            detail: printer_detail(profile).into(),
+            selected: profile.key == selected_key,
+            defaulted: default_key == profile.key,
+        })
+        .collect()
+}
+
+fn estimate_print_for_dimensions(
+    dimensions: [f32; 3],
+    mesh_volume_cm3: Option<f32>,
+    profile: &PrinterProfile,
+) -> PrintEstimate {
+    let [x, y, z] = dimensions;
+    let bbox_cm3 = x.max(0.0) * y.max(0.0) * z.max(0.0) / 1000.0;
+    let part_volume_cm3 = mesh_volume_cm3
+        .filter(|volume| volume.is_finite() && *volume > 0.0)
+        .unwrap_or(bbox_cm3 * 0.12);
+    let grams = part_volume_cm3 * 1.24 * 1.08;
+    let minutes = (grams / profile.grams_per_minute).max(6.0).ceil() as u32;
+    let hours = minutes / 60;
+    let mins = minutes % 60;
+    PrintEstimate {
+        time_label: if hours > 0 {
+            format!("{}h {}m", hours, mins)
+        } else {
+            format!("{}m", mins)
+        },
+        grams_label: format!("{}g", grams.ceil() as u32),
+        layers_label: format!("{}", (z / profile.layer_height_mm).ceil().max(1.0) as u32),
+        bed_fit: x <= profile.build_volume[0]
+            && y <= profile.build_volume[1]
+            && z <= profile.build_volume[2],
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -3331,6 +4583,7 @@ struct DiscoveredSlicer {
     label: String,
     path: PathBuf,
     detail: String,
+    icon_path: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -3338,6 +4591,7 @@ struct SlicerChoiceRow {
     label: String,
     path: String,
     detail: String,
+    icon_path: Option<PathBuf>,
     selected: bool,
 }
 
@@ -3372,6 +4626,7 @@ fn slicer_choice_rows(
         label: "System default STL opener".to_string(),
         path: String::new(),
         detail: default_slicer_detail(),
+        icon_path: None,
         selected: selected.is_empty(),
     });
 
@@ -3381,15 +4636,18 @@ fn slicer_choice_rows(
             label: slicer.label.clone(),
             path: path.clone(),
             detail: slicer.detail.clone(),
+            icon_path: slicer.icon_path.clone(),
             selected: selected == path,
         });
     }
 
     if !selected.is_empty() && !rows.iter().any(|row| row.path == selected) {
+        let manual_path = PathBuf::from(selected);
         rows.push(SlicerChoiceRow {
             label: display_slicer_path(selected),
             path: selected.to_string(),
             detail: "Manual selection".to_string(),
+            icon_path: slicer_icon_png_path(&manual_path),
             selected: true,
         });
     }
@@ -3406,6 +4664,24 @@ fn display_slicer_path(path: &str) -> String {
         .filter(|name| !name.is_empty())
         .unwrap_or(trimmed)
         .to_string()
+}
+
+fn sort_key(sort_by: SortBy) -> &'static str {
+    match sort_by {
+        SortBy::Name => "name",
+        SortBy::Date => "date",
+        SortBy::Size => "size",
+        SortBy::Triangles => "triangles",
+    }
+}
+
+fn sort_by_from_key(key: &str) -> SortBy {
+    match key {
+        "date" => SortBy::Date,
+        "size" => SortBy::Size,
+        "triangles" => SortBy::Triangles,
+        _ => SortBy::Name,
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -3446,12 +4722,157 @@ fn discover_slicer_candidates() -> Vec<DiscoveredSlicer> {
 
 fn push_unique_slicer(out: &mut Vec<DiscoveredSlicer>, label: &str, path: PathBuf, detail: &str) {
     if path.exists() && !out.iter().any(|candidate| candidate.path == path) {
+        let icon_path = slicer_icon_png_path(&path);
         out.push(DiscoveredSlicer {
             label: label.to_string(),
             path,
             detail: detail.to_string(),
+            icon_path,
         });
     }
+}
+
+#[cfg(target_os = "macos")]
+fn slicer_icon_png_path(app: &Path) -> Option<PathBuf> {
+    let is_app_bundle = app
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("app"));
+    if !is_app_bundle {
+        return None;
+    }
+
+    let icns = macos_app_icon_icns(app)?;
+    let cache_dir = platform_cache_root().join("slicer-icons-v1");
+    let hash = blake3::hash(app.to_string_lossy().as_bytes())
+        .to_hex()
+        .to_string();
+    let output = cache_dir.join(format!("{hash}.png"));
+    if output.exists() {
+        return Some(output);
+    }
+
+    fs::create_dir_all(&cache_dir).ok()?;
+    let tmp_output = cache_dir.join(format!("{hash}.tmp.png"));
+    let status = Command::new("sips")
+        .args(["-s", "format", "png"])
+        .arg(&icns)
+        .arg("--out")
+        .arg(&tmp_output)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .ok()?;
+    if !status.success() || !tmp_output.exists() {
+        let _ = fs::remove_file(&tmp_output);
+        return None;
+    }
+
+    fs::rename(&tmp_output, &output).ok()?;
+    Some(output)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn slicer_icon_png_path(_path: &Path) -> Option<PathBuf> {
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn macos_app_icon_icns(app: &Path) -> Option<PathBuf> {
+    let resources = app.join("Contents").join("Resources");
+    let mut icons = fs::read_dir(&resources)
+        .ok()?
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("icns"))
+        })
+        .collect::<Vec<_>>();
+    if icons.is_empty() {
+        return None;
+    }
+
+    let app_key = app
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .map(compact_ascii_key)
+        .unwrap_or_default();
+    icons.sort_by_key(|path| {
+        std::cmp::Reverse(
+            path.file_stem()
+                .and_then(|name| name.to_str())
+                .map(|stem| macos_icon_score(stem, &app_key))
+                .unwrap_or(0),
+        )
+    });
+    icons.into_iter().next()
+}
+
+#[cfg(target_os = "macos")]
+fn macos_icon_score(stem: &str, app_key: &str) -> i32 {
+    let key = compact_ascii_key(stem);
+    if key == "icon" {
+        100
+    } else if !app_key.is_empty() && key == app_key {
+        90
+    } else if !app_key.is_empty() && (key.contains(app_key) || app_key.contains(&key)) {
+        80
+    } else if key.contains("appicon") {
+        70
+    } else if key.contains("icon") {
+        60
+    } else {
+        0
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn compact_ascii_key(text: &str) -> String {
+    text.chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .flat_map(|ch| ch.to_lowercase())
+        .collect()
+}
+
+fn platform_cache_root() -> PathBuf {
+    if let Ok(path) = std::env::var("MODELRACK_CACHE_DIR") {
+        if !path.is_empty() {
+            return PathBuf::from(path);
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(home) = std::env::var_os("HOME") {
+            return PathBuf::from(home)
+                .join("Library")
+                .join("Caches")
+                .join("ModelRack");
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+            return PathBuf::from(local_app_data)
+                .join("ModelRack")
+                .join("Cache");
+        }
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        if let Some(cache_home) = std::env::var_os("XDG_CACHE_HOME") {
+            return PathBuf::from(cache_home).join("modelrack");
+        }
+        if let Some(home) = std::env::var_os("HOME") {
+            return PathBuf::from(home).join(".cache").join("modelrack");
+        }
+    }
+
+    std::env::temp_dir().join("modelrack-cache")
 }
 
 #[cfg(target_os = "macos")]
@@ -3459,28 +4880,86 @@ fn discover_macos_slicer_candidates_in_roots<I>(roots: I) -> Vec<DiscoveredSlice
 where
     I: IntoIterator<Item = PathBuf>,
 {
-    const MAC_SLICERS: &[(&str, &str)] = &[
-        ("OrcaSlicer", "OrcaSlicer.app"),
-        ("Bambu Studio", "BambuStudio.app"),
-        ("PrusaSlicer", "PrusaSlicer.app"),
-        ("UltiMaker Cura", "UltiMaker Cura.app"),
-        ("Cura", "Cura.app"),
-        ("SuperSlicer", "SuperSlicer.app"),
-        ("ideaMaker", "ideaMaker.app"),
-    ];
-
     let mut out = Vec::new();
     for root in roots {
-        for (label, bundle) in MAC_SLICERS {
-            push_unique_slicer(
-                &mut out,
-                label,
-                root.join(bundle),
-                "Detected macOS app bundle",
-            );
+        for app in macos_app_bundles(&root, 2) {
+            if let Some(label) = macos_slicer_label(&app) {
+                push_unique_slicer(&mut out, &label, app, "Detected installed macOS app");
+            }
         }
     }
+    out.sort_by(|a, b| a.label.to_lowercase().cmp(&b.label.to_lowercase()));
     out
+}
+
+#[cfg(target_os = "macos")]
+fn macos_app_bundles(root: &Path, max_depth: usize) -> Vec<PathBuf> {
+    fn visit(dir: &Path, depth: usize, max_depth: usize, out: &mut Vec<PathBuf>) {
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let is_app = path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("app"));
+            if is_app {
+                out.push(path);
+            } else if depth < max_depth {
+                visit(&path, depth + 1, max_depth, out);
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    visit(root, 0, max_depth, &mut out);
+    out
+}
+
+#[cfg(target_os = "macos")]
+fn macos_slicer_label(app: &Path) -> Option<String> {
+    let stem = app.file_stem()?.to_str()?.trim();
+    let compact = stem
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .flat_map(|ch| ch.to_lowercase())
+        .collect::<String>();
+    let label = match compact.as_str() {
+        "bambustudio" => "Bambu Studio",
+        "orcaslicer" => "OrcaSlicer",
+        "prusaslicer" => "PrusaSlicer",
+        "ultimakercura" => "UltiMaker Cura",
+        "cura" => "Cura",
+        "superslicer" => "SuperSlicer",
+        "ideamaker" => "ideaMaker",
+        "snapmakerorca" => "Snapmaker Orca",
+        "crealityprint" => "Creality Print",
+        "chitubox" => "CHITUBOX",
+        "lycheeslicer" => "Lychee Slicer",
+        "simplify3d" => "Simplify3D",
+        "flashprint" => "FlashPrint",
+        "mattercontrol" => "MatterControl",
+        "anycubicslicer" => "Anycubic Slicer",
+        "qidislicer" => "QIDI Slicer",
+        "raise3dideamaker" => "ideaMaker",
+        _ if compact.contains("slicer") => stem,
+        _ if compact.contains("creality") && compact.contains("print") => stem,
+        _ if compact.contains("snapmaker") && compact.contains("orca") => stem,
+        _ if compact.contains("bambu") && compact.contains("studio") => stem,
+        _ if compact.contains("orca") && !compact.contains("chrome") => stem,
+        _ if compact.contains("prusa") => stem,
+        _ if compact.contains("cura") => stem,
+        _ if compact.contains("chitubox") => stem,
+        _ if compact.contains("lychee") => stem,
+        _ if compact.contains("simplify3d") => stem,
+        _ if compact.contains("flashprint") => stem,
+        _ => return None,
+    };
+    Some(label.to_string())
 }
 
 #[cfg(target_os = "windows")]
@@ -3647,7 +5126,7 @@ fn is_supported_model_path(path: &Path) -> bool {
         .map(|extension| {
             matches!(
                 extension.to_ascii_lowercase().as_str(),
-                "stl" | "3mf" | "obj" | "step" | "stp"
+                "stl" | "3mf" | "obj" | "step" | "stp" | "scad"
             )
         })
         .unwrap_or(false)
@@ -3674,6 +5153,10 @@ fn browser_card(card: &BrowserCardVm) -> BrowserCard {
 }
 
 fn load_thumbnail_image(path: Option<&Path>) -> (slint::Image, bool) {
+    load_ui_image(path)
+}
+
+fn load_ui_image(path: Option<&Path>) -> (slint::Image, bool) {
     let Some(path) = path else {
         return (slint::Image::default(), false);
     };
@@ -3681,13 +5164,37 @@ fn load_thumbnail_image(path: Option<&Path>) -> (slint::Image, bool) {
         Ok(image) => (image, true),
         Err(err) => {
             eprintln!(
-                "Warning: failed to load thumbnail {}: {:?}",
+                "Warning: failed to load image {}: {:?}",
                 path.display(),
                 err
             );
             (slint::Image::default(), false)
         }
     }
+}
+
+fn render_detail_preview_image(
+    entry: &scanner::StlFileInfo,
+    mesh: &scanner::MeshData,
+    yaw: f32,
+    pitch: f32,
+) -> (slint::Image, bool) {
+    const DETAIL_PREVIEW_WIDTH: u32 = 720;
+    const DETAIL_PREVIEW_HEIGHT: u32 = 560;
+    let pixels = crate::thumbnail_cache::render_preview_rgba(
+        entry,
+        Some(mesh),
+        DETAIL_PREVIEW_WIDTH,
+        DETAIL_PREVIEW_HEIGHT,
+        yaw,
+        pitch,
+    );
+    let buffer = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
+        &pixels,
+        DETAIL_PREVIEW_WIDTH,
+        DETAIL_PREVIEW_HEIGHT,
+    );
+    (slint::Image::from_rgba8(buffer), true)
 }
 
 fn tag_chip(tag: &String) -> TagChip {
@@ -3735,6 +5242,7 @@ mod tests {
             stl_type: scanner::StlType::Binary,
             triangle_count: Some(1),
             dimensions: Some([1.0, 1.0, 1.0]),
+            three_mf_plate_count: None,
             modified: None,
             thumbnail_path: None,
             meta: None,
@@ -3748,6 +5256,7 @@ mod tests {
         assert!(is_refresh_relevant_path(Path::new("mount.obj")));
         assert!(is_refresh_relevant_path(Path::new("bracket.step")));
         assert!(is_refresh_relevant_path(Path::new("bracket.stp")));
+        assert!(is_refresh_relevant_path(Path::new("fixture.scad")));
         assert!(is_refresh_relevant_path(Path::new(
             "part.stl.modelrack.json"
         )));
@@ -4194,6 +5703,13 @@ mod tests {
             theme: "light".to_string(),
             language: "ko".to_string(),
             slicer_path: "/Applications/PrusaSlicer.app".to_string(),
+            sort_by: "size".to_string(),
+            sort_ascending: false,
+            thumbnail_style: "normal".to_string(),
+            thumbnail_lighting: "even".to_string(),
+            thumbnail_aa: "msaa2x".to_string(),
+            active_printer_keys: vec!["bambu-p1s-0.4".to_string()],
+            default_printer_key: "bambu-p1s-0.4".to_string(),
             last_folder: Some(root.join("models")),
             excluded_folders: vec![root.join("models/archived")],
             collapsed_folders: vec![root.join("models/nested")],
@@ -4247,6 +5763,7 @@ mod tests {
             label: "OrcaSlicer".to_string(),
             path: PathBuf::from("/Applications/OrcaSlicer.app"),
             detail: "Detected macOS app bundle".to_string(),
+            icon_path: None,
         }];
         let rows = slicer_choice_rows("/Applications/OrcaSlicer.app", &discovered);
 
@@ -4260,6 +5777,87 @@ mod tests {
         );
     }
 
+    #[test]
+    fn printer_prefs_keep_default_inside_active_selection() {
+        let catalog = load_printer_profiles();
+        let mut prefs = AppPrefs {
+            active_printer_keys: vec![
+                "unknown".to_string(),
+                "prusa-mk4-0.4".to_string(),
+                "bambu-p1s-0.4".to_string(),
+                "prusa-mk4-0.4".to_string(),
+            ],
+            default_printer_key: "missing".to_string(),
+            ..AppPrefs::default()
+        };
+
+        normalize_printer_prefs(&mut prefs, &catalog);
+
+        assert_eq!(
+            prefs.active_printer_keys,
+            vec!["prusa-mk4-0.4".to_string(), "bambu-p1s-0.4".to_string()]
+        );
+        assert_eq!(prefs.default_printer_key, "prusa-mk4-0.4");
+        assert_eq!(settings_printer_summary(&prefs, &catalog), "2 profiles");
+    }
+
+    #[test]
+    fn settings_printer_selector_initializes_as_maker_model_nozzle_hierarchy() {
+        let mut state = ShellState::with_prefs(AppPrefs::default());
+
+        assert_eq!(state.settings_printer_maker, "Bambu");
+        assert_eq!(state.settings_printer_model, "P1S");
+
+        state.choose_settings_printer_maker("Prusa");
+        assert_eq!(state.settings_printer_maker, "Prusa");
+        assert_eq!(state.settings_printer_model, "MK4");
+
+        state.choose_settings_printer_nozzle("0.4mm").unwrap();
+        assert_eq!(state.prefs.default_printer_key, "prusa-mk4-0.4");
+        assert_eq!(state.estimate_printer_key, "prusa-mk4-0.4");
+        assert!(state
+            .prefs
+            .active_printer_keys
+            .contains(&"prusa-mk4-0.4".to_string()));
+    }
+
+    #[test]
+    fn toggling_printers_never_removes_the_last_active_profile() {
+        let mut state = ShellState::with_prefs(AppPrefs::default());
+
+        let catalog = load_printer_profiles();
+
+        assert!(state.toggle_printer_profile("bambu-p1s-0.4").is_err());
+        state.toggle_printer_profile("prusa-mk4-0.4").unwrap();
+        state.choose_default_printer("prusa-mk4-0.4");
+        state.toggle_printer_profile("bambu-p1s-0.4").unwrap();
+
+        assert_eq!(
+            state.prefs.active_printer_keys,
+            vec!["prusa-mk4-0.4".to_string()]
+        );
+        assert_eq!(state.prefs.default_printer_key, "prusa-mk4-0.4");
+        assert_eq!(
+            state.selected_estimate_profile(&catalog).key,
+            "prusa-mk4-0.4"
+        );
+    }
+
+    #[test]
+    fn print_estimate_uses_selected_printer_volume_and_speed() {
+        let catalog = load_printer_profiles();
+        let dimensions = [240.0, 220.0, 230.0];
+        let bambu = printer_profile(&catalog, "bambu-p1s-0.4").unwrap();
+        let prusa = printer_profile(&catalog, "prusa-mk4-0.4").unwrap();
+
+        let bambu_estimate = estimate_print_for_dimensions(dimensions, Some(120.0), bambu);
+        let prusa_estimate = estimate_print_for_dimensions(dimensions, Some(120.0), prusa);
+
+        assert!(bambu_estimate.bed_fit);
+        assert!(!prusa_estimate.bed_fit);
+        assert_ne!(bambu_estimate.time_label, prusa_estimate.time_label);
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn macos_slicer_discovery_finds_known_app_bundles() {
@@ -4267,6 +5865,9 @@ mod tests {
         let apps = root.join("Applications");
         fs::create_dir_all(apps.join("OrcaSlicer.app")).unwrap();
         fs::create_dir_all(apps.join("PrusaSlicer.app")).unwrap();
+        fs::create_dir_all(apps.join("Snapmaker Orca.app")).unwrap();
+        fs::create_dir_all(apps.join("Creality Print.app")).unwrap();
+        fs::create_dir_all(apps.join("Google Chrome.app")).unwrap();
 
         let found = discover_macos_slicer_candidates_in_roots(vec![apps]);
 
@@ -4275,7 +5876,12 @@ mod tests {
                 .iter()
                 .map(|candidate| candidate.label.as_str())
                 .collect::<Vec<_>>(),
-            vec!["OrcaSlicer", "PrusaSlicer"]
+            vec![
+                "Creality Print",
+                "OrcaSlicer",
+                "PrusaSlicer",
+                "Snapmaker Orca"
+            ]
         );
         let _ = fs::remove_dir_all(root);
     }
@@ -4583,6 +6189,67 @@ mod tests {
         assert_eq!(meta.author, "You");
         assert_eq!(meta.notes, "memo");
         assert!(!model.with_file_name("missing.stl.modelrack.json").exists());
+    }
+
+    #[test]
+    fn rename_selected_model_renames_file_and_sidecar() {
+        let root = temp_path("rename-model");
+        fs::create_dir_all(&root).unwrap();
+        let old_path = root.join("old-part.stl");
+        fs::write(&old_path, b"solid old\nendsolid old\n").unwrap();
+        scanner::write_sidecar(
+            &old_path,
+            &scanner::SidecarMeta {
+                tags: vec!["rack".to_string()],
+                ..scanner::SidecarMeta::default()
+            },
+        )
+        .unwrap();
+
+        let mut state = ShellState::with_prefs(AppPrefs::default());
+        state.entries = vec![test_entry(&old_path)];
+        state.current_folder = Some(root.clone());
+        state.sidecar_writes_enabled = true;
+        state.snapshot_done();
+        state.selected_index = Some(0);
+
+        let new_path = state
+            .rename_selected_model("renamed-part")
+            .unwrap()
+            .unwrap();
+        assert_eq!(new_path, root.join("renamed-part.stl"));
+        assert!(!old_path.exists());
+        assert!(new_path.exists());
+        assert!(!scanner::sidecar_path(&old_path).exists());
+        assert!(scanner::sidecar_path(&new_path).exists());
+        assert_eq!(state.entries[0].filename, "renamed-part.stl");
+        assert_eq!(state.entries[0].path, new_path);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn rename_selected_model_rejects_folder_escape_and_existing_targets() {
+        let root = temp_path("rename-invalid");
+        fs::create_dir_all(&root).unwrap();
+        let old_path = root.join("part.stl");
+        let existing_path = root.join("existing.stl");
+        fs::write(&old_path, b"solid old\nendsolid old\n").unwrap();
+        fs::write(&existing_path, b"solid existing\nendsolid existing\n").unwrap();
+
+        let mut state = ShellState::with_prefs(AppPrefs::default());
+        state.entries = vec![test_entry(&old_path)];
+        state.current_folder = Some(root.clone());
+        state.sidecar_writes_enabled = true;
+        state.snapshot_done();
+        state.selected_index = Some(0);
+
+        assert!(state.rename_selected_model("../escape.stl").is_err());
+        assert!(state.rename_selected_model("existing.stl").is_err());
+        assert!(old_path.exists());
+        assert_eq!(state.entries[0].path, old_path);
+
+        let _ = fs::remove_dir_all(root);
     }
 
     #[test]

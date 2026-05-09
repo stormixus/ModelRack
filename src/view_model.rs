@@ -106,6 +106,20 @@ pub struct AppPrefs {
     pub language: String,
     #[serde(default)]
     pub slicer_path: String,
+    #[serde(default = "default_sort_by")]
+    pub sort_by: String,
+    #[serde(default = "default_sort_ascending")]
+    pub sort_ascending: bool,
+    #[serde(default = "default_thumbnail_style")]
+    pub thumbnail_style: String,
+    #[serde(default = "default_thumbnail_lighting")]
+    pub thumbnail_lighting: String,
+    #[serde(default = "default_thumbnail_aa")]
+    pub thumbnail_aa: String,
+    #[serde(default = "default_active_printer_keys")]
+    pub active_printer_keys: Vec<String>,
+    #[serde(default = "default_printer_key")]
+    pub default_printer_key: String,
     #[serde(default)]
     pub last_folder: Option<PathBuf>,
     #[serde(default)]
@@ -122,6 +136,13 @@ impl Default for AppPrefs {
             theme: default_theme(),
             language: default_language(),
             slicer_path: String::new(),
+            sort_by: default_sort_by(),
+            sort_ascending: default_sort_ascending(),
+            thumbnail_style: default_thumbnail_style(),
+            thumbnail_lighting: default_thumbnail_lighting(),
+            thumbnail_aa: default_thumbnail_aa(),
+            active_printer_keys: default_active_printer_keys(),
+            default_printer_key: default_printer_key(),
             last_folder: None,
             excluded_folders: Vec::new(),
             collapsed_folders: Vec::new(),
@@ -143,6 +164,34 @@ fn default_language() -> String {
 
 fn default_view_mode() -> String {
     "grid".to_string()
+}
+
+fn default_sort_by() -> String {
+    "name".to_string()
+}
+
+fn default_sort_ascending() -> bool {
+    true
+}
+
+fn default_thumbnail_style() -> String {
+    "iso".to_string()
+}
+
+fn default_thumbnail_lighting() -> String {
+    "studio".to_string()
+}
+
+fn default_thumbnail_aa() -> String {
+    "msaa4x".to_string()
+}
+
+fn default_printer_key() -> String {
+    "bambu-p1s-0.4".to_string()
+}
+
+fn default_active_printer_keys() -> Vec<String> {
+    vec![default_printer_key()]
 }
 
 pub struct DisplayQuery<'a> {
@@ -266,14 +315,7 @@ pub fn browser_cards(entries: &[scanner::StlFileInfo]) -> Vec<BrowserCard> {
                 stable_key: entry.path.display().to_string(),
                 slot_index,
                 title: entry.filename.clone(),
-                subtitle: format!(
-                    "{} · {}",
-                    format_size(entry.size),
-                    entry
-                        .triangle_count
-                        .map(format_triangle_count)
-                        .unwrap_or_else(|| "— tris".to_string())
-                ),
+                subtitle: browser_card_subtitle(entry),
                 author: entry
                     .meta
                     .as_ref()
@@ -282,7 +324,7 @@ pub fn browser_cards(entries: &[scanner::StlFileInfo]) -> Vec<BrowserCard> {
                 relative_modified: relative_modified_label(entry.modified),
                 thumb_key: thumbnail_key(&entry.filename).to_string(),
                 thumb_path: entry.thumbnail_path.clone(),
-                badge: stl_type_label(entry.stl_type).to_string(),
+                badge: browser_card_badge(entry),
                 printed_count,
                 favorite,
                 printed,
@@ -292,6 +334,31 @@ pub fn browser_cards(entries: &[scanner::StlFileInfo]) -> Vec<BrowserCard> {
         .collect::<Vec<_>>();
     cards.sort_by(|a, b| a.stable_key.cmp(&b.stable_key));
     cards
+}
+
+fn browser_card_subtitle(entry: &scanner::StlFileInfo) -> String {
+    let triangle_label = entry
+        .triangle_count
+        .map(format_triangle_count)
+        .unwrap_or_else(|| "— tris".to_string());
+    if let Some(plate_count) = entry.three_mf_plate_count {
+        format!(
+            "{} · {} plates · {}",
+            format_size(entry.size),
+            plate_count,
+            triangle_label
+        )
+    } else {
+        format!("{} · {}", format_size(entry.size), triangle_label)
+    }
+}
+
+fn browser_card_badge(entry: &scanner::StlFileInfo) -> String {
+    if let Some(plate_count) = entry.three_mf_plate_count {
+        format!("3MF · {} plates", plate_count)
+    } else {
+        stl_type_label(entry.stl_type).to_string()
+    }
 }
 
 pub fn sidebar_summary(entries: &[scanner::StlFileInfo]) -> SidebarSummary {
@@ -605,6 +672,7 @@ fn stl_type_label(stl_type: scanner::StlType) -> &'static str {
         scanner::StlType::ThreeMf => "3MF",
         scanner::StlType::Obj => "OBJ",
         scanner::StlType::Step => "STEP",
+        scanner::StlType::Scad => "SCAD",
         scanner::StlType::LargeStl => "LARGE",
         scanner::StlType::Unknown => "ERR",
     }
@@ -793,6 +861,7 @@ mod tests {
             stl_type: StlType::Binary,
             triangle_count: Some(1),
             dimensions: Some([1.0, 1.0, 1.0]),
+            three_mf_plate_count: None,
             modified: None,
             thumbnail_path: None,
             meta: None,
@@ -829,6 +898,13 @@ mod tests {
             theme: "light".to_string(),
             language: "ko".to_string(),
             slicer_path: "/Applications/PrusaSlicer.app".to_string(),
+            sort_by: "triangles".to_string(),
+            sort_ascending: false,
+            thumbnail_style: "wire".to_string(),
+            thumbnail_lighting: "rim".to_string(),
+            thumbnail_aa: "msaa8x".to_string(),
+            active_printer_keys: vec!["bambu-p1s-0.4".to_string(), "prusa-mk4-0.4".to_string()],
+            default_printer_key: "prusa-mk4-0.4".to_string(),
             last_folder: Some(PathBuf::from("/tmp/models")),
             excluded_folders: vec![PathBuf::from("/tmp/models/archived")],
             collapsed_folders: vec![PathBuf::from("/tmp/models/nested")],
@@ -838,7 +914,17 @@ mod tests {
 
         assert_eq!(Density::from_str(&loaded.density), Density::Large);
         assert_eq!(ViewMode::from_str(&loaded.view_mode), ViewMode::Masonry);
+        assert_eq!(loaded.sort_by, "triangles");
+        assert!(!loaded.sort_ascending);
+        assert_eq!(loaded.thumbnail_style, "wire");
+        assert_eq!(loaded.thumbnail_lighting, "rim");
+        assert_eq!(loaded.thumbnail_aa, "msaa8x");
         assert_eq!(loaded.last_folder, Some(PathBuf::from("/tmp/models")));
+        assert_eq!(
+            loaded.active_printer_keys,
+            vec!["bambu-p1s-0.4".to_string(), "prusa-mk4-0.4".to_string()]
+        );
+        assert_eq!(loaded.default_printer_key, "prusa-mk4-0.4");
         assert_eq!(
             loaded.excluded_folders,
             vec![PathBuf::from("/tmp/models/archived")]
@@ -857,6 +943,16 @@ mod tests {
         assert_eq!(ViewMode::from_str(&loaded.view_mode), ViewMode::Grid);
         assert_eq!(loaded.theme, "dark");
         assert_eq!(loaded.language, "en");
+        assert_eq!(loaded.sort_by, "name");
+        assert!(loaded.sort_ascending);
+        assert_eq!(loaded.thumbnail_style, "iso");
+        assert_eq!(loaded.thumbnail_lighting, "studio");
+        assert_eq!(loaded.thumbnail_aa, "msaa4x");
+        assert_eq!(
+            loaded.active_printer_keys,
+            vec!["bambu-p1s-0.4".to_string()]
+        );
+        assert_eq!(loaded.default_printer_key, "bambu-p1s-0.4");
         assert!(loaded.excluded_folders.is_empty());
         assert!(loaded.collapsed_folders.is_empty());
     }
@@ -1028,6 +1124,20 @@ mod tests {
                 error: false,
             }]
         );
+    }
+
+    #[test]
+    fn browser_cards_badge_multi_plate_3mf_files() {
+        let mut model = entry("/tmp/models/project.3mf", 4);
+        model.stl_type = StlType::ThreeMf;
+        model.size = 1024;
+        model.triangle_count = Some(2_000);
+        model.three_mf_plate_count = Some(3);
+
+        let cards = browser_cards(&[model]);
+
+        assert_eq!(cards[0].subtitle, "1.0 KB · 3 plates · 2.0K tris");
+        assert_eq!(cards[0].badge, "3MF · 3 plates");
     }
 
     #[test]

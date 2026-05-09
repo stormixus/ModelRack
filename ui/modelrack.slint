@@ -1,5 +1,6 @@
 import { Button, LineEdit, ScrollView, TextEdit } from "std-widgets.slint";
 import { Theme } from "theme.slint";
+export { Theme } from "theme.slint";
 
 // ─── Data structs ────────────────────────────────────────
 
@@ -45,10 +46,32 @@ export struct TagChip {
     label: string,
 }
 
+export struct PlateTab {
+    label: string,
+    index: int,
+    selected: bool,
+}
+
 export struct SlicerCandidate {
     label: string,
     path: string,
     detail: string,
+    icon-image: image,
+    icon-ready: bool,
+    selected: bool,
+}
+
+export struct PrinterProfileChoice {
+    key: string,
+    label: string,
+    detail: string,
+    selected: bool,
+    defaulted: bool,
+}
+
+export struct ChoiceRow {
+    key: string,
+    label: string,
     selected: bool,
 }
 
@@ -366,6 +389,8 @@ component SidebarContextMenu inherits Rectangle {
 component SlicerMenuItem inherits Rectangle {
     in property <string> label;
     in property <string> detail;
+    in property <image> icon-image;
+    in property <bool> icon-ready: false;
     in property <bool> selected;
     callback activated();
 
@@ -383,7 +408,16 @@ component SlicerMenuItem inherits Rectangle {
         border-width: 1px;
         border-radius: 5px;
 
-        Text {
+        if icon-ready: Image {
+            x: 3px;
+            y: 3px;
+            width: parent.width - 6px;
+            height: parent.height - 6px;
+            source: root.icon-image;
+            image-fit: contain;
+        }
+
+        if !icon-ready: Text {
             x: 0;
             y: 0;
             width: parent.width;
@@ -465,6 +499,240 @@ component FilterChip inherits Rectangle {
         width: parent.width;
         height: parent.height;
         clicked => { root.dismiss(); }
+    }
+}
+
+component PlateDropdown inherits Rectangle {
+    in property <[PlateTab]> tabs;
+    in property <string> current-label;
+    in property <bool> open: false;
+    callback activated(int);
+    callback toggled();
+    callback dismissed();
+
+    property <length> row-height: 28px;
+    property <length> menu-height: min(188px, tabs.length * row-height);
+
+    width: 220px;
+    height: open ? 32px + menu-height : 28px;
+    background: transparent;
+
+    Rectangle {
+        width: parent.width;
+        height: 28px;
+        background: plate-dropdown-touch.has-hover || root.open ? #000000cc : #00000088;
+        border-color: root.open ? Theme.accent-line : #ffffff24;
+        border-width: 1px;
+        border-radius: 6px;
+
+        Text {
+            x: 9px;
+            y: (parent.height - self.height) / 2;
+            width: parent.width - 34px;
+            text: root.current-label;
+            color: Theme.fg-1;
+            font-family: "JetBrains Mono";
+            font-size: 11px;
+            font-weight: 700;
+            overflow: elide;
+        }
+
+        Text {
+            x: parent.width - 20px;
+            y: (parent.height - self.height) / 2 - 1px;
+            text: root.open ? "⌃" : "⌄";
+            color: Theme.fg-2;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        plate-dropdown-touch := TouchArea {
+            clicked => { root.toggled(); }
+        }
+    }
+
+    if open: TouchArea {
+        x: -3000px;
+        y: -3000px;
+        width: 7000px;
+        height: 7000px;
+        z: 10;
+        clicked => { root.dismissed(); }
+    }
+
+    if open: Rectangle {
+        y: 32px;
+        width: parent.width;
+        height: root.menu-height;
+        z: 20;
+        background: #202329fa;
+        border-color: Theme.line-3;
+        border-width: 1px;
+        border-radius: 8px;
+
+        Flickable {
+            x: 1px;
+            y: 1px;
+            width: parent.width - 2px;
+            height: parent.height - 2px;
+            viewport-height: tabs.length * root.row-height;
+
+            for tab[index] in tabs: Rectangle {
+                x: 3px;
+                y: index * root.row-height;
+                width: parent.width - 6px;
+                height: root.row-height;
+                background: tab.selected ? Theme.accent-dim : plate-row-touch.has-hover ? Theme.bg-4 : transparent;
+                border-radius: 5px;
+
+                Text {
+                    x: 8px;
+                    y: (parent.height - self.height) / 2;
+                    width: parent.width - 30px;
+                    text: tab.label;
+                    color: tab.selected ? Theme.fg-0 : Theme.fg-1;
+                    font-family: "JetBrains Mono";
+                    font-size: 11px;
+                    font-weight: tab.selected ? 700 : 500;
+                    overflow: elide;
+                }
+
+                if tab.selected: Text {
+                    x: parent.width - 18px;
+                    y: (parent.height - self.height) / 2;
+                    text: "✓";
+                    color: Theme.accent;
+                    font-size: 12px;
+                    font-weight: 700;
+                }
+
+                plate-row-touch := TouchArea {
+                    clicked => { root.activated(tab.index); }
+                }
+            }
+        }
+    }
+}
+
+component EstimatePrinterDropdown inherits Rectangle {
+    in property <[PrinterProfileChoice]> printers;
+    in property <string> current-label;
+    in property <bool> open: false;
+    callback activated(string);
+    callback toggled();
+    callback dismissed();
+
+    property <length> row-height: 36px;
+    property <length> menu-height: min(178px, printers.length * row-height);
+
+    width: 220px;
+    height: open ? 30px + menu-height : 26px;
+    background: transparent;
+
+    Rectangle {
+        width: parent.width;
+        height: 26px;
+        background: printer-dropdown-touch.has-hover || root.open ? Theme.bg-4 : Theme.bg-2;
+        border-color: root.open ? Theme.accent-line : Theme.line;
+        border-width: 1px;
+        border-radius: 6px;
+
+        Text {
+            x: 9px;
+            y: (parent.height - self.height) / 2;
+            width: parent.width - 34px;
+            text: root.current-label;
+            color: Theme.fg-0;
+            font-family: "JetBrains Mono";
+            font-size: 10.5px;
+            font-weight: 700;
+            overflow: elide;
+        }
+
+        Text {
+            x: parent.width - 20px;
+            y: (parent.height - self.height) / 2 - 1px;
+            text: root.open ? "⌃" : "⌄";
+            color: Theme.fg-2;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        printer-dropdown-touch := TouchArea {
+            clicked => { root.toggled(); }
+        }
+    }
+
+    if open: TouchArea {
+        x: -3000px;
+        y: -3000px;
+        width: 7000px;
+        height: 7000px;
+        z: 10;
+        clicked => { root.dismissed(); }
+    }
+
+    if open: Rectangle {
+        y: 30px;
+        width: parent.width;
+        height: root.menu-height;
+        z: 20;
+        background: #202329fa;
+        border-color: Theme.line-3;
+        border-width: 1px;
+        border-radius: 8px;
+
+        Flickable {
+            x: 1px;
+            y: 1px;
+            width: parent.width - 2px;
+            height: parent.height - 2px;
+            viewport-height: printers.length * root.row-height;
+
+            for printer[index] in printers: Rectangle {
+                x: 3px;
+                y: index * root.row-height;
+                width: parent.width - 6px;
+                height: root.row-height;
+                background: printer.selected ? Theme.accent-dim : printer-row-touch.has-hover ? Theme.bg-4 : transparent;
+                border-radius: 5px;
+
+                Text {
+                    x: 8px;
+                    y: 5px;
+                    width: parent.width - 32px;
+                    text: printer.label;
+                    color: printer.selected ? Theme.fg-0 : Theme.fg-1;
+                    font-size: Theme.font-body;
+                    font-weight: printer.selected ? 700 : 500;
+                    overflow: elide;
+                }
+
+                Text {
+                    x: 8px;
+                    y: 20px;
+                    width: parent.width - 32px;
+                    text: printer.detail;
+                    color: Theme.fg-3;
+                    font-family: "JetBrains Mono";
+                    font-size: Theme.font-overline;
+                    overflow: elide;
+                }
+
+                if printer.selected: Text {
+                    x: parent.width - 18px;
+                    y: (parent.height - self.height) / 2;
+                    text: "✓";
+                    color: Theme.accent;
+                    font-size: 12px;
+                    font-weight: 700;
+                }
+
+                printer-row-touch := TouchArea {
+                    clicked => { root.activated(printer.key); }
+                }
+            }
+        }
     }
 }
 
@@ -655,8 +923,9 @@ component SettingsTabButton inherits Rectangle {
 component SettingsRow inherits Rectangle {
     in property <string> label;
     in property <string> value;
+    in property <string> hint: "";
 
-    height: 38px;
+    height: hint == "" ? 50px : 58px;
     background: transparent;
     border-width: 0;
 
@@ -670,23 +939,262 @@ component SettingsRow inherits Rectangle {
 
     Text {
         x: 0;
-        y: (parent.height - self.height) / 2;
+        y: hint == "" ? (parent.height - self.height) / 2 : 13px;
+        width: 180px;
         text: label;
         color: Theme.fg-1;
         font-size: Theme.font-body;
         font-weight: 500;
     }
 
+    if hint != "": Text {
+        x: 0;
+        y: 31px;
+        width: 180px;
+        text: hint;
+        color: Theme.fg-3;
+        font-size: Theme.font-meta;
+        overflow: elide;
+    }
+
     Text {
-        x: 180px;
+        x: 196px;
         y: (parent.height - self.height) / 2;
-        width: parent.width - 180px;
+        width: parent.width - 196px;
         text: value;
         horizontal-alignment: right;
         color: Theme.fg-2;
         font-family: "JetBrains Mono";
         font-size: Theme.font-meta;
         overflow: elide;
+    }
+}
+
+component SettingsOptionButton inherits Rectangle {
+    in property <string> label;
+    in property <string> key;
+    in property <bool> selected: false;
+    callback activated(string);
+
+    height: 24px;
+    width: 82px;
+    background: selected ? Theme.bg-4 : option-touch.has-hover ? Theme.bg-3 : transparent;
+    border-width: 0;
+    border-radius: 4px;
+
+    Text {
+        x: 8px;
+        y: (parent.height - self.height) / 2;
+        width: parent.width - 16px;
+        text: root.label;
+        color: selected ? Theme.fg-0 : Theme.fg-1;
+        font-size: 12px;
+        font-weight: selected ? 600 : 500;
+        horizontal-alignment: center;
+        overflow: elide;
+    }
+
+    option-touch := TouchArea {
+        clicked => { root.activated(root.key); }
+    }
+}
+
+component SettingsSegment inherits Rectangle {
+    in property <string> a-label;
+    in property <string> a-key;
+    in property <string> b-label;
+    in property <string> b-key;
+    in property <string> c-label: "";
+    in property <string> c-key: "";
+    in property <string> d-label: "";
+    in property <string> d-key: "";
+    in property <string> selected-key;
+    in property <length> button-width: 82px;
+    callback activated(string);
+
+    height: 30px;
+    width: 6px + button-width * (d-label != "" ? 4 : c-label != "" ? 3 : 2);
+    background: Theme.bg-2;
+    border-color: Theme.line;
+    border-width: 1px;
+    border-radius: 6px;
+
+    HorizontalLayout {
+        x: 2px;
+        y: 2px;
+        width: parent.width - 4px;
+        height: parent.height - 4px;
+        spacing: 1px;
+
+        SettingsOptionButton { width: root.button-width; label: root.a-label; key: root.a-key; selected: root.selected-key == root.a-key; activated(key) => { root.activated(key); } }
+        SettingsOptionButton { width: root.button-width; label: root.b-label; key: root.b-key; selected: root.selected-key == root.b-key; activated(key) => { root.activated(key); } }
+        if root.c-label != "": SettingsOptionButton { width: root.button-width; label: root.c-label; key: root.c-key; selected: root.selected-key == root.c-key; activated(key) => { root.activated(key); } }
+        if root.d-label != "": SettingsOptionButton { width: root.button-width; label: root.d-label; key: root.d-key; selected: root.selected-key == root.d-key; activated(key) => { root.activated(key); } }
+    }
+}
+
+component SettingsToggle inherits Rectangle {
+    in property <bool> on: false;
+    in property <bool> interactive: true;
+    callback toggled(bool);
+
+    width: 36px;
+    height: 20px;
+    background: on ? Theme.accent : Theme.bg-3;
+    border-color: on ? Theme.accent : Theme.line;
+    border-width: 1px;
+    border-radius: 10px;
+
+    Rectangle {
+        x: root.on ? 18px : 2px;
+        y: 2px;
+        width: 14px;
+        height: 14px;
+        background: root.on ? #f4fbff : Theme.fg-1;
+        border-radius: 7px;
+    }
+
+    if interactive: TouchArea {
+        clicked => { root.toggled(!root.on); }
+    }
+}
+
+component SettingsSwatch inherits Rectangle {
+    in property <brush> fill;
+    in property <bool> selected: false;
+
+    width: 26px;
+    height: 26px;
+    background: fill;
+    border-radius: 13px;
+    border-color: selected ? Theme.fg-0 : transparent;
+    border-width: 2px;
+}
+
+component SettingsActionButton inherits Rectangle {
+    in property <string> label;
+    in property <image> icon;
+    in property <bool> danger: false;
+    in property <length> button-width: 128px;
+    callback activated();
+
+    width: button-width;
+    height: 28px;
+    background: action-touch.has-hover ? Theme.bg-4 : Theme.bg-3;
+    border-color: danger ? #c9504066 : Theme.line-2;
+    border-width: 1px;
+    border-radius: 5px;
+
+    SvgIcon {
+        x: 10px;
+        y: (parent.height - 12px) / 2;
+        width: 12px;
+        height: 12px;
+        icon: root.icon;
+        tint: danger ? Theme.error : Theme.fg-1;
+    }
+
+    button-label := Text {
+        x: 28px;
+        y: (parent.height - self.height) / 2;
+        text: root.label;
+        color: danger ? Theme.error : Theme.fg-0;
+        font-size: 12px;
+    }
+
+    action-touch := TouchArea {
+        clicked => { root.activated(); }
+    }
+}
+
+component SettingsKbd inherits Rectangle {
+    in property <string> label;
+
+    width: max(22px, key-label.width + 12px);
+    height: 22px;
+    background: Theme.bg-3;
+    border-color: Theme.line-2;
+    border-width: 1px;
+    border-radius: 4px;
+
+    key-label := Text {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        text: root.label;
+        color: Theme.fg-1;
+        font-family: "JetBrains Mono";
+        font-size: 11px;
+    }
+}
+
+component ModelListRow inherits Rectangle {
+    in property <BrowserCard> card;
+    in property <int> card-index;
+    in property <bool> selected: false;
+    callback clicked(int);
+
+    height: 58px;
+    background: selected ? Theme.bg-5 : list-touch.has-hover ? Theme.bg-3 : Theme.bg-1;
+    border-color: selected ? Theme.accent-line : Theme.line;
+    border-width: 1px;
+    border-radius: 6px;
+
+    CachedThumb {
+        x: 8px;
+        y: 6px;
+        width: 46px;
+        height: 46px;
+        thumb-key: card.thumb-key;
+        cached-image: card.thumb-image;
+        thumb-ready: card.thumb-ready;
+    }
+
+    Text {
+        x: 64px;
+        y: 10px;
+        width: parent.width - 360px;
+        text: card.title;
+        color: Theme.fg-0;
+        font-size: Theme.font-body;
+        font-weight: 600;
+        overflow: elide;
+    }
+
+    Text {
+        x: 64px;
+        y: 31px;
+        width: parent.width - 360px;
+        text: card.subtitle;
+        color: Theme.fg-2;
+        font-family: "JetBrains Mono";
+        font-size: Theme.font-overline;
+        overflow: elide;
+    }
+
+    Text {
+        x: parent.width - 230px;
+        y: 20px;
+        width: 110px;
+        text: card.author;
+        color: Theme.fg-2;
+        font-size: Theme.font-meta;
+        overflow: elide;
+    }
+
+    Text {
+        x: parent.width - 108px;
+        y: 20px;
+        width: 92px;
+        text: card.relative-modified;
+        color: Theme.fg-3;
+        font-family: "JetBrains Mono";
+        font-size: Theme.font-overline;
+        horizontal-alignment: right;
+        overflow: elide;
+    }
+
+    list-touch := TouchArea {
+        clicked => { root.clicked(card-index); }
     }
 }
 
@@ -793,6 +1301,10 @@ export component ModelRackWindow inherits Window {
     in property <string> detail-modified;
     in property <string> detail-added;
     in property <string> detail-author;
+    in property <bool> detail-has-plates: false;
+    in property <string> detail-plate-summary;
+    in property <string> detail-plate-selected-label;
+    in property <[PlateTab]> detail-plate-tabs;
     in property <string> detail-tags-label;
     in property <string> detail-tags-input;
     in property <[TagChip]> detail-tag-chips;
@@ -806,18 +1318,41 @@ export component ModelRackWindow inherits Window {
     in property <string> detail-estimate-time;
     in property <string> detail-estimate-grams;
     in property <string> detail-estimate-layers;
+    in property <string> detail-estimate-printer-label;
+    in property <string> detail-estimate-printer-detail;
+    in property <bool> detail-estimate-has-printer-choices: false;
+    in property <[PrinterProfileChoice]> detail-estimate-printers;
     in property <bool> detail-bed-fit;
     in property <bool> detail-fav;
 
     // Settings
     in property <bool> settings-open;
     in property <string> settings-tab: "general";
+    in property <string> settings-language-key: "en";
     in property <string> settings-language-label: "English";
+    in property <string> settings-theme-key: "dark";
     in property <string> settings-theme-label: "Dark";
+    in property <string> settings-sort-key: "name";
+    in property <bool> settings-sort-ascending: true;
+    in property <string> settings-thumbnail-style: "iso";
+    in property <string> settings-thumbnail-lighting: "studio";
+    in property <string> settings-thumbnail-aa: "msaa4x";
+    in property <string> settings-update-status: "ModelRack is up to date";
     in property <string> settings-folder-label;
     in property <string> settings-density-label;
     in property <string> settings-slicer-label;
+    in property <image> settings-slicer-icon-image;
+    in property <bool> settings-slicer-icon-ready: false;
     in property <[SlicerCandidate]> settings-slicer-candidates;
+    in property <string> settings-printer-summary;
+    in property <string> settings-default-printer-label;
+    in property <int> settings-printer-active-count;
+    in property <[PrinterProfileChoice]> settings-printer-profiles;
+    in property <[ChoiceRow]> settings-printer-makers;
+    in property <[ChoiceRow]> settings-printer-models;
+    in property <[ChoiceRow]> settings-printer-nozzles;
+    in property <string> settings-printer-maker-label;
+    in property <string> settings-printer-model-label;
     property <bool> sidebar-context-open: false;
     property <string> sidebar-context-key;
     property <string> sidebar-context-label;
@@ -825,6 +1360,29 @@ export component ModelRackWindow inherits Window {
     property <length> sidebar-context-x: 0px;
     property <length> sidebar-context-y: 0px;
     property <bool> slicer-menu-open: false;
+    property <bool> preview-dragging: false;
+    property <length> preview-last-x: 0px;
+    property <length> preview-last-y: 0px;
+    property <bool> preview-fullscreen-open: false;
+    property <bool> preview-plate-menu-open: false;
+    property <bool> estimate-printer-menu-open: false;
+    property <bool> sort-menu-open: false;
+    property <bool> left-sidebar-open: true;
+    property <bool> right-detail-open: true;
+    property <length> left-sidebar-min-width: 180px;
+    property <length> right-detail-min-width: 280px;
+    property <length> left-sidebar-max-width: 380px;
+    property <length> right-detail-max-width: 520px;
+    property <length> left-sidebar-width: Theme.sidebar-width;
+    property <length> right-detail-width: Theme.detail-width;
+    property <length> visible-left-sidebar-width: left-sidebar-open ? left-sidebar-width : 0px;
+    property <length> visible-right-detail-width: right-detail-open ? right-detail-width : 0px;
+    property <bool> left-sidebar-resizing: false;
+    property <bool> right-detail-resizing: false;
+    property <length> resize-origin-x: 0px;
+    property <length> resize-start-width: 0px;
+    property <bool> rename-editing: false;
+    property <string> rename-draft: "";
 
     // Callbacks
     callback open-folder();
@@ -832,11 +1390,24 @@ export component ModelRackWindow inherits Window {
     callback open-settings();
     callback close-settings();
     callback choose-settings-tab(string);
+    callback choose-settings-language(string);
+    callback choose-settings-theme(string);
+    callback choose-settings-sort(string);
+    callback choose-settings-thumbnail-style(string);
+    callback choose-settings-thumbnail-lighting(string);
+    callback choose-settings-thumbnail-aa(string);
+    callback choose-settings-printer-maker(string);
+    callback choose-settings-printer-model(string);
+    callback choose-settings-printer-nozzle(string);
+    callback check-updates();
     callback cycle-settings-language();
     callback toggle-settings-theme();
     callback cycle-settings-density();
     callback choose-slicer();
     callback choose-settings-slicer(string);
+    callback toggle-settings-printer(string);
+    callback choose-settings-default-printer(string);
+    callback choose-estimate-printer(string);
     callback apply-search(string);
     callback choose-view-mode(string);
     callback choose-density(string);
@@ -849,6 +1420,7 @@ export component ModelRackWindow inherits Window {
     callback undo-library-action();
     callback select-model(int);
     callback toggle-favorite();
+    callback rename-model(string) -> bool;
     callback save-metadata(string, string, string);
     callback add-tags(string);
     callback remove-tag(int);
@@ -856,6 +1428,9 @@ export component ModelRackWindow inherits Window {
     callback add-print-record(string, string, string, string, string, string, string);
     callback remove-print-record(int);
     callback open-in-slicer();
+    callback choose-preview-plate(int);
+    callback preview-orbit(float, float);
+    callback preview-orbit-reset();
     callback window-close();
     callback window-minimize();
     callback window-fullscreen();
@@ -866,6 +1441,10 @@ export component ModelRackWindow inherits Window {
     preferred-height: 920px;
     default-font-family: "Inter";
     background: Theme.bg-0;
+
+    init => {
+        shortcut-scope.focus();
+    }
 
     shortcut-scope := FocusScope {
         x: 0;
@@ -881,6 +1460,26 @@ export component ModelRackWindow inherits Window {
         KeyBinding {
             keys: @keys(Meta + Z);
             activated => { undo-library-action(); }
+        }
+
+        KeyBinding {
+            keys: @keys(F2);
+            activated => {
+                if has-selection && !settings-open {
+                    rename-draft = detail-name;
+                    rename-editing = true;
+                }
+            }
+        }
+
+        KeyBinding {
+            keys: @keys(Return);
+            activated => {
+                if has-selection && !settings-open {
+                    rename-draft = detail-name;
+                    rename-editing = true;
+                }
+            }
         }
     }
 
@@ -979,6 +1578,43 @@ export component ModelRackWindow inherits Window {
                 font-size: 11px;
             }
 
+            // VSCode-style layout controls
+            Rectangle {
+                x: parent.width - 104px;
+                y: (parent.height - 26px) / 2;
+                width: 26px;
+                height: 26px;
+                border-radius: Theme.radius-btn;
+                background: ta-toggle-left.has-hover ? Theme.bg-3 : left-sidebar-open ? Theme.accent-dim : transparent;
+                border-color: left-sidebar-open ? Theme.accent-line : transparent;
+                border-width: left-sidebar-open ? 1px : 0px;
+
+                Rectangle { x: 7px; y: 7px; width: 12px; height: 12px; border-color: Theme.fg-2; border-width: 1px; border-radius: 2px; background: transparent; }
+                Rectangle { x: 7px; y: 7px; width: 4px; height: 12px; border-radius: 2px; background: left-sidebar-open ? Theme.accent : Theme.fg-3; }
+
+                ta-toggle-left := TouchArea {
+                    clicked => { left-sidebar-open = !left-sidebar-open; }
+                }
+            }
+
+            Rectangle {
+                x: parent.width - 72px;
+                y: (parent.height - 26px) / 2;
+                width: 26px;
+                height: 26px;
+                border-radius: Theme.radius-btn;
+                background: ta-toggle-right.has-hover ? Theme.bg-3 : right-detail-open ? Theme.accent-dim : transparent;
+                border-color: right-detail-open ? Theme.accent-line : transparent;
+                border-width: right-detail-open ? 1px : 0px;
+
+                Rectangle { x: 7px; y: 7px; width: 12px; height: 12px; border-color: Theme.fg-2; border-width: 1px; border-radius: 2px; background: transparent; }
+                Rectangle { x: 15px; y: 7px; width: 4px; height: 12px; border-radius: 2px; background: right-detail-open ? Theme.accent : Theme.fg-3; }
+
+                ta-toggle-right := TouchArea {
+                    clicked => { right-detail-open = !right-detail-open; }
+                }
+            }
+
             Rectangle {
                 x: parent.width - 38px;
                 y: (parent.height - 26px) / 2;
@@ -1006,8 +1642,10 @@ export component ModelRackWindow inherits Window {
         HorizontalLayout {
             // ─── Sidebar ───
             Rectangle {
-                width: Theme.sidebar-width;
+                width: visible-left-sidebar-width;
                 background: Theme.bg-1;
+                clip: true;
+                animate width { duration: left-sidebar-resizing ? 0ms : 180ms; easing: ease-in-out; }
 
                 Rectangle {
                     x: parent.width - 1px;
@@ -1017,10 +1655,10 @@ export component ModelRackWindow inherits Window {
                     background: Theme.line;
                 }
 
-                sidebar-scroll := ScrollView {
+                if left-sidebar-open: sidebar-scroll := ScrollView {
                     x: 6px;
                     y: 0;
-                    width: parent.width - 12px;
+                    width: max(0px, parent.width - 12px);
                     height: parent.height;
 
                     VerticalLayout {
@@ -1086,6 +1724,36 @@ export component ModelRackWindow inherits Window {
                 }
             }
 
+            if left-sidebar-open: Rectangle {
+                width: 6px;
+                background: left-resize-touch.has-hover || left-sidebar-resizing ? Theme.accent-dim : Theme.bg-2;
+
+                Rectangle {
+                    x: 2px;
+                    y: 0;
+                    width: 1px;
+                    height: parent.height;
+                    background: left-resize-touch.has-hover || left-sidebar-resizing ? Theme.accent : Theme.line;
+                }
+
+                left-resize-touch := TouchArea {
+                    mouse-cursor: ew-resize;
+                    pointer-event(event) => {
+                        if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                            left-sidebar-resizing = true;
+                            resize-origin-x = left-resize-touch.absolute-position.x - root.absolute-position.x + left-resize-touch.mouse-x;
+                            resize-start-width = left-sidebar-width;
+                        } else if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up) {
+                            left-sidebar-resizing = false;
+                        } else if (event.kind == PointerEventKind.cancel) {
+                            left-sidebar-resizing = false;
+                        } else if (event.kind == PointerEventKind.move && left-sidebar-resizing) {
+                            left-sidebar-width = min(left-sidebar-max-width, max(left-sidebar-min-width, resize-start-width + ((left-resize-touch.absolute-position.x - root.absolute-position.x + left-resize-touch.mouse-x) - resize-origin-x)));
+                        }
+                    }
+                }
+            }
+
             // ─── Center content ───
             VerticalLayout {
                 // Toolbar
@@ -1136,7 +1804,7 @@ export component ModelRackWindow inherits Window {
 
                                 search-field := LineEdit {
                                     horizontal-stretch: 1;
-                                    placeholder-text: "Search filename, tag, notes…";
+                                    placeholder-text: settings-language-key == "ko" ? "파일명, 태그, 메모 검색…" : settings-language-key == "ja" ? "ファイル名、タグ、メモを検索…" : "Search filename, tag, notes…";
                                     text <=> search-text;
                                     accepted(text) => { apply-search(text); }
                                 }
@@ -1330,35 +1998,71 @@ export component ModelRackWindow inherits Window {
                             background: Theme.line-2;
                         }
 
-                        // Sort
+                        // Sort dropdown + direction
                         Rectangle {
-                            width: sort-btn-text.width + 40px;
-                            height: 28px;
-                            background: ta-sort.has-hover ? Theme.bg-3 : Theme.bg-1;
-                            border-color: Theme.line;
-                            border-width: 1px;
-                            border-radius: Theme.radius-btn;
-                            animate background { duration: 120ms; easing: ease-in-out; }
-                            animate width { duration: 180ms; easing: ease-in-out; }
+                            width: 146px;
+                            height: sort-menu-open ? 178px : 28px;
+                            z: 60;
 
-                            SvgIcon {
-                                x: 9px;
-                                y: (parent.height - 13px) / 2;
-                                width: 13px;
-                                height: 13px;
-                                icon: @image-url("../assets/icons/sort.svg");
-                                tint: Theme.fg-2;
+                            Rectangle {
+                                x: 0;
+                                y: 0;
+                                width: 108px;
+                                height: 28px;
+                                background: sort-button-touch.has-hover || sort-menu-open ? Theme.bg-3 : Theme.bg-1;
+                                border-color: sort-menu-open ? Theme.accent-line : Theme.line;
+                                border-width: 1px;
+                                border-radius: Theme.radius-btn;
+
+                                SvgIcon { x: 9px; y: 8px; width: 12px; height: 12px; icon: @image-url("../assets/icons/sort.svg"); tint: Theme.fg-2; }
+                                Text { x: 28px; y: 7px; width: 62px; text: settings-sort-key == "date" ? "Date" : settings-sort-key == "size" ? "Size" : settings-sort-key == "triangles" ? "Triangles" : "Name"; color: Theme.fg-1; font-size: 12px; overflow: elide; }
+                                SvgIcon { x: parent.width - 16px; y: 10px; width: 8px; height: 8px; icon: @image-url("../assets/icons/chevron-right.svg"); tint: Theme.fg-2; transform-rotation: sort-menu-open ? -90deg : 90deg; }
+                                sort-button-touch := TouchArea { clicked => { sort-menu-open = !sort-menu-open; } }
                             }
 
-                            sort-btn-text := Text {
-                                x: 28px;
-                                y: (parent.height - self.height) / 2;
-                                text: sort-label;
-                                color: Theme.fg-1;
-                                font-size: 12px;
+                            Rectangle {
+                                x: 109px;
+                                y: 5px;
+                                width: 1px;
+                                height: 18px;
+                                background: Theme.line-2;
                             }
 
-                            ta-sort := TouchArea { clicked => { toggle-sort(); } }
+                            Rectangle {
+                                x: 111px;
+                                y: 0;
+                                width: 35px;
+                                height: 28px;
+                                background: sort-dir-touch.has-hover ? Theme.bg-3 : Theme.bg-1;
+                                border-color: Theme.line;
+                                border-width: 1px;
+                                border-radius: Theme.radius-btn;
+
+                                Text { x: 0; y: 6px; width: parent.width; text: settings-sort-ascending ? "↑" : "↓"; color: Theme.fg-1; font-size: 15px; horizontal-alignment: center; }
+                                sort-dir-touch := TouchArea { clicked => { toggle-sort(); } }
+                            }
+
+                            if sort-menu-open: Rectangle {
+                                x: 0;
+                                y: 32px;
+                                width: 146px;
+                                height: 142px;
+                                background: Theme.bg-1;
+                                border-color: Theme.line-3;
+                                border-width: 1px;
+                                border-radius: 7px;
+                                clip: true;
+
+                                VerticalLayout {
+                                    padding: 4px;
+                                    spacing: 1px;
+
+                                    SettingsOptionButton { width: 136px; label: "Name"; key: "name"; selected: settings-sort-key == "name"; activated(key) => { choose-settings-sort(key); sort-menu-open = false; } }
+                                    SettingsOptionButton { width: 136px; label: "Date modified"; key: "date"; selected: settings-sort-key == "date"; activated(key) => { choose-settings-sort(key); sort-menu-open = false; } }
+                                    SettingsOptionButton { width: 136px; label: "File size"; key: "size"; selected: settings-sort-key == "size"; activated(key) => { choose-settings-sort(key); sort-menu-open = false; } }
+                                    SettingsOptionButton { width: 136px; label: "Triangles"; key: "triangles"; selected: settings-sort-key == "triangles"; activated(key) => { choose-settings-sort(key); sort-menu-open = false; } }
+                                }
+                            }
                         }
 
                         Rectangle { horizontal-stretch: 1; }
@@ -1404,7 +2108,7 @@ export component ModelRackWindow inherits Window {
                             add-text := Text {
                                 x: 29px;
                                 y: (parent.height - self.height) / 2;
-                                text: "Add Folder";
+                                text: settings-language-key == "ko" ? "폴더 추가" : settings-language-key == "ja" ? "フォルダ追加" : "Add Folder";
                                 color: #0e2a32;
                                 font-size: Theme.font-body;
                                 font-weight: 500;
@@ -1432,7 +2136,7 @@ export component ModelRackWindow inherits Window {
                         x: 12px;
                         y: 0;
                         height: parent.height;
-                        text: active-filter-key == "all" ? "All models" : "Filtering";
+                        text: active-filter-key == "all" ? (settings-language-key == "ko" ? "전체 모델" : settings-language-key == "ja" ? "すべてのモデル" : "All models") : (settings-language-key == "ko" ? "필터링 중" : settings-language-key == "ja" ? "フィルタ中" : "Filtering");
                         color: Theme.fg-2;
                         font-size: 11px;
                         font-weight: 500;
@@ -1494,20 +2198,22 @@ export component ModelRackWindow inherits Window {
                         }
                     }
 
-                    if model-cards.length > 0: grid-flick := Flickable {
+                    if model-cards.length > 0 && view-mode-label != "List": grid-flick := Flickable {
                         x: 14px;
                         y: 14px;
                         width: parent.width - 28px;
                         height: parent.height - 28px;
 
-                        property <length> target-card-w: density-label == "S" ? 144px : density-label == "L" ? 208px : 168px;
+                        property <length> target-card-w: view-mode-label == "Masonry"
+                            ? (density-label == "S" ? 132px : density-label == "L" ? 184px : 154px)
+                            : (density-label == "S" ? 144px : density-label == "L" ? 208px : 168px);
                         property <length> card-w: target-card-w;
                         property <length> gap: 12px;
                         property <bool> full-layout-motion: model-cards.length <= 96;
                         property <length> render-buffer: full-layout-motion ? 1400px : 520px;
                         property <int> cols: max(1, floor((self.width + gap) / (target-card-w + gap)));
                         property <int> rows: ceil(model-cards.length / max(1, cols));
-                        property <length> card-h: card-w + 62px;
+                        property <length> card-h: view-mode-label == "Masonry" ? card-w + 94px : card-w + 62px;
 
                         viewport-height: rows * card-h + max(0, rows - 1) * gap;
                         animate card-w { duration: full-layout-motion ? 260ms : 120ms; easing: ease-in-out; }
@@ -1526,7 +2232,30 @@ export component ModelRackWindow inherits Window {
                             card: card;
                             card-index: card.slot-index;
                             selected: card.slot-index == selected-card-index;
-                            clicked(idx) => { select-model(idx); }
+                            clicked(idx) => { rename-editing = false; select-model(idx); }
+                        }
+                    }
+
+                    if model-cards.length > 0 && view-mode-label == "List": list-flick := Flickable {
+                        x: 14px;
+                        y: 14px;
+                        width: parent.width - 28px;
+                        height: parent.height - 28px;
+
+                        property <length> row-h: density-label == "S" ? 48px : density-label == "L" ? 68px : 58px;
+                        property <length> gap: 8px;
+
+                        viewport-height: model-cards.length * (row-h + gap);
+
+                        for card[index] in model-cards: ModelListRow {
+                            x: 0;
+                            y: card.slot-index * (list-flick.row-h + list-flick.gap);
+                            width: list-flick.width;
+                            height: list-flick.row-h;
+                            card: card;
+                            card-index: card.slot-index;
+                            selected: card.slot-index == selected-card-index;
+                            clicked(idx) => { rename-editing = false; select-model(idx); }
                         }
                     }
                 }
@@ -1602,10 +2331,42 @@ export component ModelRackWindow inherits Window {
                 }
             }
 
+            if right-detail-open: Rectangle {
+                width: 6px;
+                background: right-resize-touch.has-hover || right-detail-resizing ? Theme.accent-dim : Theme.bg-2;
+
+                Rectangle {
+                    x: 3px;
+                    y: 0;
+                    width: 1px;
+                    height: parent.height;
+                    background: right-resize-touch.has-hover || right-detail-resizing ? Theme.accent : Theme.line;
+                }
+
+                right-resize-touch := TouchArea {
+                    mouse-cursor: ew-resize;
+                    pointer-event(event) => {
+                        if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                            right-detail-resizing = true;
+                            resize-origin-x = right-resize-touch.absolute-position.x - root.absolute-position.x + right-resize-touch.mouse-x;
+                            resize-start-width = right-detail-width;
+                        } else if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up) {
+                            right-detail-resizing = false;
+                        } else if (event.kind == PointerEventKind.cancel) {
+                            right-detail-resizing = false;
+                        } else if (event.kind == PointerEventKind.move && right-detail-resizing) {
+                            right-detail-width = min(right-detail-max-width, max(right-detail-min-width, resize-start-width - ((right-resize-touch.absolute-position.x - root.absolute-position.x + right-resize-touch.mouse-x) - resize-origin-x)));
+                        }
+                    }
+                }
+            }
+
             // ─── Detail panel ───
             Rectangle {
-                width: Theme.detail-width;
+                width: visible-right-detail-width;
                 background: Theme.bg-1;
+                clip: true;
+                animate width { duration: right-detail-resizing ? 0ms : 180ms; easing: ease-in-out; }
 
                 Rectangle {
                     x: 0;
@@ -1615,7 +2376,7 @@ export component ModelRackWindow inherits Window {
                     background: Theme.line;
                 }
 
-                if !has-selection: VerticalLayout {
+                if right-detail-open && !has-selection: VerticalLayout {
                     alignment: center;
                     spacing: 8px;
 
@@ -1639,21 +2400,21 @@ export component ModelRackWindow inherits Window {
                     }
 
                     Text {
-                        text: "Select a model";
+                        text: settings-language-key == "ko" ? "모델 선택" : settings-language-key == "ja" ? "モデルを選択" : "Select a model";
                         color: Theme.fg-1;
                         font-size: Theme.font-body;
                         horizontal-alignment: center;
                     }
 
                     Text {
-                        text: "Click a thumbnail to view details";
+                        text: settings-language-key == "ko" ? "썸네일을 클릭하면 상세 정보를 봅니다" : settings-language-key == "ja" ? "サムネイルをクリックして詳細を表示" : "Click a thumbnail to view details";
                         color: Theme.fg-2;
                         font-size: Theme.font-meta;
                         horizontal-alignment: center;
                     }
                 }
 
-                if has-selection: VerticalLayout {
+                if right-detail-open && has-selection: VerticalLayout {
                     // Preview area
                     Rectangle {
                         height: 280px;
@@ -1677,26 +2438,79 @@ export component ModelRackWindow inherits Window {
                             thumb-ready: selected-thumb-ready;
                         }
 
+                        preview-drag := TouchArea {
+                            width: parent.width;
+                            height: parent.height;
+                            pointer-event(event) => {
+                                if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                                    preview-dragging = true;
+                                    preview-last-x = preview-drag.mouse-x;
+                                    preview-last-y = preview-drag.mouse-y;
+                                } else if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up) {
+                                    preview-dragging = false;
+                                } else if (event.kind == PointerEventKind.cancel) {
+                                    preview-dragging = false;
+                                } else if (event.kind == PointerEventKind.move && preview-dragging) {
+                                    preview-orbit((preview-drag.mouse-x - preview-last-x) / 1px, (preview-drag.mouse-y - preview-last-y) / 1px);
+                                    preview-last-x = preview-drag.mouse-x;
+                                    preview-last-y = preview-drag.mouse-y;
+                                }
+                            }
+                            double-clicked => {
+                                preview-orbit-reset();
+                            }
+                        }
+
+                        if detail-has-plates: PlateDropdown {
+                            x: 8px;
+                            y: 8px;
+                            z: 20;
+                            current-label: detail-plate-selected-label;
+                            open: preview-plate-menu-open;
+                            tabs: detail-plate-tabs;
+                            toggled => {
+                                preview-plate-menu-open = !preview-plate-menu-open;
+                            }
+                            activated(idx) => {
+                                choose-preview-plate(idx);
+                                preview-plate-menu-open = false;
+                            }
+                            dismissed => {
+                                preview-plate-menu-open = false;
+                            }
+                        }
+
                         HorizontalLayout {
                             x: parent.width - 60px;
                             y: 8px;
+                            z: 20;
                             spacing: 4px;
 
                             Rectangle {
                                 width: 24px; height: 24px;
-                                background: #00000080;
+                                background: reset-preview.has-hover ? #000000cc : #00000080;
                                 border-color: Theme.line;
                                 border-width: 1px;
                                 border-radius: 4px;
                                 SvgIcon { x: (parent.width - 13px) / 2; y: (parent.height - 13px) / 2; width: 13px; height: 13px; icon: @image-url("../assets/icons/rotate.svg"); tint: Theme.fg-1; }
+                                reset-preview := TouchArea {
+                                    clicked => {
+                                        preview-orbit-reset();
+                                    }
+                                }
                             }
                             Rectangle {
                                 width: 24px; height: 24px;
-                                background: #00000080;
+                                background: fullscreen-preview.has-hover ? #000000cc : #00000080;
                                 border-color: Theme.line;
                                 border-width: 1px;
                                 border-radius: 4px;
                                 SvgIcon { x: (parent.width - 13px) / 2; y: (parent.height - 13px) / 2; width: 13px; height: 13px; icon: @image-url("../assets/icons/fullscreen.svg"); tint: Theme.fg-1; }
+                                fullscreen-preview := TouchArea {
+                                    clicked => {
+                                        preview-fullscreen-open = true;
+                                    }
+                                }
                             }
                         }
 
@@ -1745,12 +2559,28 @@ export component ModelRackWindow inherits Window {
                             spacing: 2px;
 
                             // Title + path
-                            Text {
+                            if !rename-editing: Text {
                                 text: detail-name;
                                 color: Theme.fg-0;
                                 font-size: Theme.font-heading;
                                 font-weight: 600;
                                 wrap: word-wrap;
+                            }
+
+                            if rename-editing: LineEdit {
+                                height: 32px;
+                                text: rename-draft;
+                                font-size: Theme.font-heading;
+                                accepted(text) => {
+                                    if rename-model(text) {
+                                        rename-editing = false;
+                                        shortcut-scope.focus();
+                                    }
+                                }
+                                init => {
+                                    self.focus();
+                                    self.select-all();
+                                }
                             }
 
                             Text {
@@ -1764,12 +2594,13 @@ export component ModelRackWindow inherits Window {
                             // Actions
                             HorizontalLayout {
                                 spacing: 6px;
-                                height: 48px;
+                                height: slicer-menu-open ? min(340px, 40px * settings-slicer-candidates.length + 108px) : 48px;
                                 alignment: start;
 
                                 Rectangle {
                                     width: 224px;
                                     height: 28px;
+                                    z: 100;
 
                                     Rectangle {
                                         x: 0;
@@ -1782,25 +2613,24 @@ export component ModelRackWindow inherits Window {
                                         slicer-text := Text {
                                             x: 26px;
                                             y: (parent.height - self.height) / 2;
-                                            width: parent.width - self.x - 68px;
-                                            text: "Open in Slicer";
+                                            width: parent.width - self.x - 10px;
+                                            text: settings-slicer-label == "System default STL opener" ? "Open in Slicer" : "Open in " + settings-slicer-label;
                                             color: #0e2a32;
                                             font-size: Theme.font-body;
                                             font-weight: 500;
                                             overflow: elide;
                                         }
 
-                                        Text {
-                                            x: parent.width - self.width - 8px;
-                                            y: (parent.height - self.height) / 2;
-                                            text: settings-slicer-label;
-                                            color: #0e2a32cc;
-                                            font-family: "JetBrains Mono";
-                                            font-size: 10px;
-                                            overflow: elide;
+                                        if settings-slicer-icon-ready: Image {
+                                            x: 8px;
+                                            y: (parent.height - 16px) / 2;
+                                            width: 16px;
+                                            height: 16px;
+                                            source: settings-slicer-icon-image;
+                                            image-fit: contain;
                                         }
 
-                                        SvgIcon {
+                                        if !settings-slicer-icon-ready: SvgIcon {
                                             x: 9px;
                                             y: (parent.height - 13px) / 2;
                                             width: 13px;
@@ -1844,13 +2674,23 @@ export component ModelRackWindow inherits Window {
                                         }
                                     }
 
+                                    if slicer-menu-open: TouchArea {
+                                        x: -3000px;
+                                        y: -3000px;
+                                        width: 7000px;
+                                        height: 7000px;
+                                        z: 150;
+                                        clicked => { slicer-menu-open = false; }
+                                    }
+
                                     if slicer-menu-open: Rectangle {
                                         x: 0;
                                         y: parent.height + 5px;
                                         width: 280px;
                                         height: 40px * settings-slicer-candidates.length + 64px;
-                                        background: Theme.bg-2;
-                                        border-color: Theme.line-2;
+                                        z: 200;
+                                        background: #202329;
+                                        border-color: Theme.line-3;
                                         border-width: 1px;
                                         border-radius: 8px;
 
@@ -1870,6 +2710,8 @@ export component ModelRackWindow inherits Window {
                                             for candidate in settings-slicer-candidates: SlicerMenuItem {
                                                 label: candidate.label;
                                                 detail: candidate.detail;
+                                                icon-image: candidate.icon-image;
+                                                icon-ready: candidate.icon-ready;
                                                 selected: candidate.selected;
                                                 activated => {
                                                     choose-settings-slicer(candidate.path);
@@ -2008,7 +2850,38 @@ export component ModelRackWindow inherits Window {
                             }
 
                             // Print estimate
-                            if detail-estimate-time != "": SectionHeader { label: "PRINT ESTIMATE"; }
+                            if detail-estimate-time != "": Rectangle {
+                                height: estimate-printer-menu-open && detail-estimate-has-printer-choices ? 34px + min(178px, detail-estimate-printers.length * 36px) : 30px;
+
+                                Text {
+                                    x: 0px;
+                                    y: 8px;
+                                    text: "PRINT ESTIMATE";
+                                    color: Theme.fg-2;
+                                    font-size: Theme.font-overline;
+                                    font-weight: 600;
+                                    letter-spacing: 0.8px;
+                                }
+
+                                if detail-estimate-has-printer-choices: EstimatePrinterDropdown {
+                                    x: parent.width - self.width;
+                                    y: 2px;
+                                    z: 30;
+                                    current-label: detail-estimate-printer-label;
+                                    open: estimate-printer-menu-open;
+                                    printers: detail-estimate-printers;
+                                    toggled => {
+                                        estimate-printer-menu-open = !estimate-printer-menu-open;
+                                    }
+                                    activated(key) => {
+                                        choose-estimate-printer(key);
+                                        estimate-printer-menu-open = false;
+                                    }
+                                    dismissed => {
+                                        estimate-printer-menu-open = false;
+                                    }
+                                }
+                            }
                             if detail-estimate-time != "": HorizontalLayout {
                                 spacing: 8px;
                                 height: 60px;
@@ -2072,7 +2945,7 @@ export component ModelRackWindow inherits Window {
                                 Text {
                                     x: parent.width - self.width - 10px;
                                     y: (parent.height - self.height) / 2;
-                                    text: "Bambu P1S · 256 × 256 × 256";
+                                    text: detail-estimate-printer-detail;
                                     color: Theme.fg-3;
                                     font-family: "JetBrains Mono";
                                     font-size: 9.5px;
@@ -2511,6 +3384,127 @@ export component ModelRackWindow inherits Window {
         }
     }
 
+    preview-stage := Rectangle {
+        z: 260;
+        x: preview-fullscreen-open ? visible-left-sidebar-width + 16px : parent.width - visible-right-detail-width;
+        y: preview-fullscreen-open ? Theme.titlebar-height + 16px : Theme.titlebar-height;
+        width: preview-fullscreen-open ? parent.width - visible-left-sidebar-width - visible-right-detail-width - 32px : visible-right-detail-width;
+        height: preview-fullscreen-open ? parent.height - Theme.titlebar-height - 32px : 280px;
+        opacity: preview-fullscreen-open ? 1 : 0;
+        background: #05080bf0;
+        border-color: Theme.line-3;
+        border-width: preview-fullscreen-open ? 1px : 0px;
+        border-radius: preview-fullscreen-open ? 14px : 0px;
+        animate x { duration: 220ms; easing: ease-in-out; }
+        animate y { duration: 220ms; easing: ease-in-out; }
+        animate width { duration: 220ms; easing: ease-in-out; }
+        animate height { duration: 220ms; easing: ease-in-out; }
+        animate opacity { duration: 160ms; easing: ease-in-out; }
+        animate border-radius { duration: 220ms; easing: ease-in-out; }
+
+        CachedThumb {
+            x: preview-fullscreen-open ? 28px : 0px;
+            y: preview-fullscreen-open ? 44px : 0px;
+            width: preview-fullscreen-open ? parent.width - 56px : parent.width;
+            height: preview-fullscreen-open ? parent.height - 88px : parent.height;
+            thumb-key: selected-thumb-key;
+            cached-image: selected-thumb-image;
+            thumb-ready: selected-thumb-ready;
+            animate x { duration: 220ms; easing: ease-in-out; }
+            animate y { duration: 220ms; easing: ease-in-out; }
+            animate width { duration: 220ms; easing: ease-in-out; }
+            animate height { duration: 220ms; easing: ease-in-out; }
+        }
+
+        if preview-fullscreen-open: fs-preview-drag := TouchArea {
+            x: 28px;
+            y: 44px;
+            width: parent.width - 56px;
+            height: parent.height - 88px;
+            pointer-event(event) => {
+                if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                    preview-dragging = true;
+                    preview-last-x = fs-preview-drag.mouse-x;
+                    preview-last-y = fs-preview-drag.mouse-y;
+                } else if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up) {
+                    preview-dragging = false;
+                } else if (event.kind == PointerEventKind.cancel) {
+                    preview-dragging = false;
+                } else if (event.kind == PointerEventKind.move && preview-dragging) {
+                    preview-orbit((fs-preview-drag.mouse-x - preview-last-x) / 1px, (fs-preview-drag.mouse-y - preview-last-y) / 1px);
+                    preview-last-x = fs-preview-drag.mouse-x;
+                    preview-last-y = fs-preview-drag.mouse-y;
+                }
+            }
+            double-clicked => {
+                preview-orbit-reset();
+            }
+        }
+
+        if preview-fullscreen-open && detail-has-plates: PlateDropdown {
+            x: 42px;
+            y: 58px;
+            z: 20;
+            current-label: detail-plate-selected-label;
+            open: preview-plate-menu-open;
+            tabs: detail-plate-tabs;
+            toggled => {
+                preview-plate-menu-open = !preview-plate-menu-open;
+            }
+            activated(idx) => {
+                choose-preview-plate(idx);
+                preview-plate-menu-open = false;
+            }
+            dismissed => {
+                preview-plate-menu-open = false;
+            }
+        }
+
+        if preview-fullscreen-open: Text {
+            x: 28px;
+            y: 18px;
+            text: detail-name;
+            color: Theme.fg-0;
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        if preview-fullscreen-open: Text {
+            x: parent.width - self.width - 68px;
+            y: parent.height - 30px;
+            text: "drag to orbit · double-click to reset";
+            color: Theme.fg-3;
+            font-family: "JetBrains Mono";
+            font-size: 11px;
+        }
+
+        if preview-fullscreen-open: Rectangle {
+            x: parent.width - 42px;
+            y: 14px;
+            width: 28px;
+            height: 28px;
+            background: close-fullscreen-preview.has-hover ? #ffffff24 : #00000080;
+            border-color: Theme.line;
+            border-width: 1px;
+            border-radius: 6px;
+
+            Text {
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2 - 1px;
+                text: "×";
+                color: Theme.fg-1;
+                font-size: 18px;
+            }
+
+            close-fullscreen-preview := TouchArea {
+                clicked => {
+                    preview-fullscreen-open = false;
+                    preview-dragging = false;
+                }
+            }
+        }
+    }
+
     if sidebar-context-open: TouchArea {
         x: 0;
         y: 0;
@@ -2520,9 +3514,9 @@ export component ModelRackWindow inherits Window {
     }
 
     if sidebar-context-open: TouchArea {
-        x: Theme.sidebar-width;
+        x: visible-left-sidebar-width;
         y: Theme.titlebar-height;
-        width: parent.width - Theme.sidebar-width;
+        width: parent.width - visible-left-sidebar-width;
         height: parent.height - Theme.titlebar-height;
         clicked => { sidebar-context-open = false; }
         pointer-event(event) => {
@@ -2544,12 +3538,36 @@ export component ModelRackWindow inherits Window {
         }
     }
 
+    if left-sidebar-resizing || right-detail-resizing: TouchArea {
+        z: 500;
+        x: 0;
+        y: Theme.titlebar-height;
+        width: parent.width;
+        height: parent.height - Theme.titlebar-height;
+        mouse-cursor: ew-resize;
+
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up) {
+                left-sidebar-resizing = false;
+                right-detail-resizing = false;
+            } else if (event.kind == PointerEventKind.cancel) {
+                left-sidebar-resizing = false;
+                right-detail-resizing = false;
+            } else if (event.kind == PointerEventKind.move && left-sidebar-resizing) {
+                left-sidebar-width = min(left-sidebar-max-width, max(left-sidebar-min-width, resize-start-width + (self.mouse-x - resize-origin-x)));
+            } else if (event.kind == PointerEventKind.move && right-detail-resizing) {
+                right-detail-width = min(right-detail-max-width, max(right-detail-min-width, resize-start-width - (self.mouse-x - resize-origin-x)));
+            }
+        }
+    }
+
     // ─── Settings dialog ───
     if settings-open: Rectangle {
-        x: 0; y: 0;
+        x: 0;
+        y: 0;
         width: parent.width;
         height: parent.height;
-        background: #000000aa;
+        background: #00000073;
 
         TouchArea {
             clicked => { close-settings(); }
@@ -2564,63 +3582,52 @@ export component ModelRackWindow inherits Window {
             border-color: Theme.line;
             border-width: 1px;
             border-radius: 12px;
+            clip: true;
 
             TouchArea {}
 
-            HorizontalLayout {
-                // Settings sidebar
-                Rectangle {
-                    width: 200px;
-                    background: Theme.bg-0;
-                    border-radius: 12px;
+            Rectangle {
+                x: 0;
+                y: 0;
+                width: 200px;
+                height: parent.height;
+                background: Theme.bg-0;
 
-                    VerticalLayout {
-                        padding: 14px;
-                        padding-left: 8px;
-                        padding-right: 8px;
-                        spacing: 1px;
+                VerticalLayout {
+                    padding-top: 14px;
+                    padding-left: 8px;
+                    padding-right: 8px;
+                    spacing: 1px;
+
+                    Rectangle {
+                        height: 64px;
+
+                        Image {
+                            x: 8px;
+                            y: 4px;
+                            width: 44px;
+                            height: 44px;
+                            source: @image-url("../assets/AppIcon.iconset/icon_128x128.png");
+                            image-fit: contain;
+                        }
 
                         Text {
+                            x: 62px;
+                            y: 13px;
                             text: "ModelRack";
                             color: Theme.fg-0;
                             font-size: Theme.font-title;
                             font-weight: 600;
-                            horizontal-alignment: center;
                         }
 
                         Text {
+                            x: 62px;
+                            y: 32px;
                             text: app-version;
                             color: Theme.fg-2;
                             font-family: "JetBrains Mono";
                             font-size: 11px;
-                            horizontal-alignment: center;
                         }
-
-                        Rectangle { height: 12px; }
-
-                        Rectangle {
-                            height: 1px;
-                            background: Theme.line;
-                        }
-
-                        Rectangle { height: 8px; }
-
-                        SettingsTabButton { icon: @image-url("../assets/icons/settings.svg"); label: "General"; key: "general"; selected: settings-tab == "general"; activated(tab) => { choose-settings-tab(tab); } }
-                        SettingsTabButton { icon: @image-url("../assets/icons/settings.svg"); label: "Appearance"; key: "appearance"; selected: settings-tab == "appearance"; activated(tab) => { choose-settings-tab(tab); } }
-                        SettingsTabButton { icon: @image-url("../assets/icons/folder.svg"); label: "Library"; key: "library"; selected: settings-tab == "library"; activated(tab) => { choose-settings-tab(tab); } }
-                        SettingsTabButton { icon: @image-url("../assets/icons/box.svg"); label: "Thumbnails"; key: "thumbnails"; selected: settings-tab == "thumbnails"; activated(tab) => { choose-settings-tab(tab); } }
-                        SettingsTabButton { icon: @image-url("../assets/icons/slicer.svg"); label: "Slicer"; key: "slicer"; selected: settings-tab == "slicer"; activated(tab) => { choose-settings-tab(tab); } }
-                        SettingsTabButton { icon: @image-url("../assets/icons/grid.svg"); label: "Hotkeys"; key: "hotkeys"; selected: settings-tab == "hotkeys"; activated(tab) => { choose-settings-tab(tab); } }
-                        SettingsTabButton { icon: @image-url("../assets/icons/settings.svg"); label: "Advanced"; key: "advanced"; selected: settings-tab == "advanced"; activated(tab) => { choose-settings-tab(tab); } }
-                        SettingsTabButton { icon: @image-url("../assets/icons/info.svg"); label: "About"; key: "about"; selected: settings-tab == "about"; activated(tab) => { choose-settings-tab(tab); } }
-                    }
-                }
-
-                // Settings body
-                VerticalLayout {
-                    // Header
-                    Rectangle {
-                        height: 44px;
 
                         Rectangle {
                             x: 0;
@@ -2629,234 +3636,340 @@ export component ModelRackWindow inherits Window {
                             height: 1px;
                             background: Theme.line;
                         }
-
-                        HorizontalLayout {
-                            padding-left: 18px;
-                            padding-right: 18px;
-                            alignment: center;
-
-                            Text {
-                                text: settings-tab == "general" ? "General" :
-                                      settings-tab == "appearance" ? "Appearance" :
-                                      settings-tab == "library" ? "Library" :
-                                      settings-tab == "thumbnails" ? "Thumbnails" :
-                                      settings-tab == "slicer" ? "Slicer" :
-                                      settings-tab == "hotkeys" ? "Hotkeys" :
-                                      settings-tab == "advanced" ? "Advanced" : "About";
-                                color: Theme.fg-0;
-                                font-size: Theme.font-heading;
-                                font-weight: 600;
-                            }
-
-                            Rectangle { horizontal-stretch: 1; }
-
-                            Rectangle {
-                                width: 24px;
-                                height: 24px;
-                                border-radius: Theme.radius-btn;
-                                background: ta-close.has-hover ? Theme.bg-3 : transparent;
-
-                                SvgIcon {
-                                    x: (parent.width - 12px) / 2;
-                                    y: (parent.height - 12px) / 2;
-                                    width: 12px;
-                                    height: 12px;
-                                    icon: @image-url("../assets/icons/close.svg");
-                                    tint: Theme.fg-2;
-                                }
-
-                                ta-close := TouchArea { clicked => { close-settings(); } }
-                            }
-                        }
                     }
 
-                    // Content
-                    ScrollView {
-                        VerticalLayout {
-                            padding: 18px;
-                            padding-left: 22px;
-                            padding-right: 22px;
-                            spacing: 0px;
+                    Rectangle { height: 6px; }
 
-                            if settings-tab == "general": SettingsRow { label: "Language"; value: settings-language-label; }
-                            if settings-tab == "general": SettingsRow { label: "On startup"; value: "Reopen last library"; }
-                            if settings-tab == "general": SettingsRow { label: "Default view"; value: view-mode-label; }
-                            if settings-tab == "general": SettingsRow { label: "Default sort"; value: sort-label; }
-                            if settings-tab == "general": Rectangle {
-                                height: 40px;
-                                Rectangle {
-                                    width: lang-text.width + 20px;
-                                    height: 28px;
-                                    background: ta-lang.has-hover ? Theme.bg-4 : Theme.bg-3;
-                                    border-color: Theme.line-2;
-                                    border-width: 1px;
-                                    border-radius: Theme.radius-btn;
+                    SettingsTabButton { icon: @image-url("../assets/icons/sparkle.svg"); label: settings-language-key == "ko" ? "일반" : settings-language-key == "ja" ? "一般" : "General"; key: "general"; selected: settings-tab == "general"; activated(tab) => { choose-settings-tab(tab); } }
+                    SettingsTabButton { icon: @image-url("../assets/icons/sun.svg"); label: settings-language-key == "ko" ? "모양" : settings-language-key == "ja" ? "外観" : "Appearance"; key: "appearance"; selected: settings-tab == "appearance"; activated(tab) => { choose-settings-tab(tab); } }
+                    SettingsTabButton { icon: @image-url("../assets/icons/folder.svg"); label: settings-language-key == "ko" ? "라이브러리" : settings-language-key == "ja" ? "ライブラリ" : "Library"; key: "library"; selected: settings-tab == "library"; activated(tab) => { choose-settings-tab(tab); } }
+                    SettingsTabButton { icon: @image-url("../assets/icons/box.svg"); label: settings-language-key == "ko" ? "썸네일" : settings-language-key == "ja" ? "サムネイル" : "Thumbnails"; key: "thumbnails"; selected: settings-tab == "thumbnails"; activated(tab) => { choose-settings-tab(tab); } }
+                    SettingsTabButton { icon: @image-url("../assets/icons/print.svg"); label: settings-language-key == "ko" ? "프린터" : settings-language-key == "ja" ? "プリンタ" : "Printers"; key: "printers"; selected: settings-tab == "printers"; activated(tab) => { choose-settings-tab(tab); } }
+                    SettingsTabButton { icon: @image-url("../assets/icons/slicer.svg"); label: settings-language-key == "ko" ? "슬라이서" : settings-language-key == "ja" ? "スライサー" : "Slicer"; key: "slicer"; selected: settings-tab == "slicer"; activated(tab) => { choose-settings-tab(tab); } }
+                    SettingsTabButton { icon: @image-url("../assets/icons/cmd.svg"); label: settings-language-key == "ko" ? "단축키" : settings-language-key == "ja" ? "ショートカット" : "Hotkeys"; key: "hotkeys"; selected: settings-tab == "hotkeys"; activated(tab) => { choose-settings-tab(tab); } }
+                    SettingsTabButton { icon: @image-url("../assets/icons/sparkle.svg"); label: settings-language-key == "ko" ? "고급" : settings-language-key == "ja" ? "詳細" : "Advanced"; key: "advanced"; selected: settings-tab == "advanced"; activated(tab) => { choose-settings-tab(tab); } }
+                    SettingsTabButton { icon: @image-url("../assets/icons/info.svg"); label: settings-language-key == "ko" ? "정보" : settings-language-key == "ja" ? "情報" : "About"; key: "about"; selected: settings-tab == "about"; activated(tab) => { choose-settings-tab(tab); } }
+                }
+            }
 
-                                    lang-text := Text {
-                                        x: (parent.width - self.width) / 2;
-                                        y: (parent.height - self.height) / 2;
-                                        text: "Cycle Language";
-                                        color: Theme.fg-0;
-                                        font-size: 12px;
-                                    }
-                                    ta-lang := TouchArea { clicked => { cycle-settings-language(); } }
-                                }
-                            }
+            Rectangle {
+                x: 199px;
+                y: 0;
+                width: 1px;
+                height: parent.height;
+                background: Theme.line;
+            }
 
-                            if settings-tab == "appearance": SettingsRow { label: "Theme"; value: settings-theme-label; }
-                            if settings-tab == "appearance": SettingsRow { label: "Accent color"; value: "Teal"; }
-                            if settings-tab == "appearance": SettingsRow { label: "Typography"; value: "Inter + JetBrains Mono"; }
-                            if settings-tab == "appearance": Rectangle {
-                                height: 40px;
-                                Rectangle {
-                                    width: theme-text.width + 20px;
-                                    height: 28px;
-                                    background: ta-theme.has-hover ? Theme.bg-4 : Theme.bg-3;
-                                    border-color: Theme.line-2;
-                                    border-width: 1px;
-                                    border-radius: Theme.radius-btn;
+            Rectangle {
+                x: 200px;
+                y: 0;
+                width: parent.width - 200px;
+                height: parent.height;
+                background: Theme.bg-1;
 
-                                    theme-text := Text {
-                                        x: (parent.width - self.width) / 2;
-                                        y: (parent.height - self.height) / 2;
-                                        text: "Toggle Theme";
-                                        color: Theme.fg-0;
-                                        font-size: 12px;
-                                    }
-                                    ta-theme := TouchArea { clicked => { toggle-settings-theme(); } }
-                                }
-                            }
+                Rectangle {
+                    x: 0;
+                    y: 0;
+                    width: parent.width;
+                    height: 44px;
 
-                            if settings-tab == "library": SettingsRow { label: "Library folder"; value: settings-folder-label; }
-                            if settings-tab == "library": SettingsRow { label: "Recursive scan"; value: "Enabled"; }
-                            if settings-tab == "library": SettingsRow { label: "Watch for changes"; value: "Enabled"; }
-                            if settings-tab == "library": SettingsRow { label: "Metadata storage"; value: ".modelrack.json"; }
+                    Text {
+                        x: 18px;
+                        y: (parent.height - self.height) / 2;
+                        text: settings-tab == "general" ? "General" :
+                              settings-tab == "appearance" ? "Appearance" :
+                              settings-tab == "library" ? "Library" :
+                              settings-tab == "thumbnails" ? "Thumbnails" :
+                              settings-tab == "printers" ? "Printers" :
+                              settings-tab == "slicer" ? "Slicer" :
+                              settings-tab == "hotkeys" ? "Hotkeys" :
+                              settings-tab == "advanced" ? "Advanced" : "About";
+                        color: Theme.fg-0;
+                        font-size: Theme.font-heading;
+                        font-weight: 600;
+                    }
 
-                            if settings-tab == "thumbnails": SettingsRow { label: "Density"; value: settings-density-label; }
-                            if settings-tab == "thumbnails": SettingsRow { label: "Style"; value: "Isometric shaded"; }
-                            if settings-tab == "thumbnails": SettingsRow { label: "Lighting"; value: "Studio"; }
-                            if settings-tab == "thumbnails": SettingsRow { label: "Anti-aliasing"; value: "MSAA 4×"; }
-                            if settings-tab == "thumbnails": Rectangle {
-                                height: 40px;
-                                Rectangle {
-                                    width: dens-text.width + 20px;
-                                    height: 28px;
-                                    background: ta-dens2.has-hover ? Theme.bg-4 : Theme.bg-3;
-                                    border-color: Theme.line-2;
-                                    border-width: 1px;
-                                    border-radius: Theme.radius-btn;
+                    Rectangle {
+                        x: parent.width - 42px;
+                        y: 10px;
+                        width: 24px;
+                        height: 24px;
+                        background: settings-close-touch.has-hover ? Theme.bg-3 : transparent;
+                        border-radius: 5px;
 
-                                    dens-text := Text {
-                                        x: (parent.width - self.width) / 2;
-                                        y: (parent.height - self.height) / 2;
-                                        text: "Cycle Density";
-                                        color: Theme.fg-0;
-                                        font-size: 12px;
-                                    }
-                                    ta-dens2 := TouchArea { clicked => { cycle-settings-density(); } }
-                                }
-                            }
+                        SvgIcon {
+                            x: 6px;
+                            y: 6px;
+                            width: 12px;
+                            height: 12px;
+                            icon: @image-url("../assets/icons/close.svg");
+                            tint: settings-close-touch.has-hover ? Theme.fg-0 : Theme.fg-2;
+                        }
 
-                            if settings-tab == "slicer": SettingsRow { label: "Default slicer"; value: settings-slicer-label; }
-                            if settings-tab == "slicer": SettingsRow { label: "Detected apps"; value: settings-slicer-candidates.length + " choices"; }
-                            if settings-tab == "slicer": VerticalLayout {
-                                spacing: 6px;
-                                padding-bottom: 10px;
+                        settings-close-touch := TouchArea { clicked => { close-settings(); } }
+                    }
 
-                                for candidate in settings-slicer-candidates: Rectangle {
-                                    height: 34px;
-                                    background: candidate.selected ? Theme.accent-dim : Theme.bg-2;
-                                    border-color: candidate.selected ? Theme.accent-line : Theme.line;
-                                    border-width: 1px;
-                                    border-radius: Theme.radius-btn;
+                    Rectangle {
+                        x: 0;
+                        y: parent.height - 1px;
+                        width: parent.width;
+                        height: 1px;
+                        background: Theme.line;
+                    }
+                }
 
-                                    Text {
-                                        x: 10px;
-                                        y: 5px;
-                                        width: parent.width - 44px;
-                                        text: candidate.label;
-                                        color: Theme.fg-0;
-                                        font-size: Theme.font-body;
-                                        overflow: elide;
-                                    }
+                ScrollView {
+                    x: 0;
+                    y: 44px;
+                    width: parent.width;
+                    height: parent.height - 44px;
 
-                                    Text {
-                                        x: 10px;
-                                        y: 20px;
-                                        width: parent.width - 44px;
-                                        text: candidate.detail;
-                                        color: Theme.fg-2;
-                                        font-family: "JetBrains Mono";
-                                        font-size: Theme.font-overline;
-                                        overflow: elide;
-                                    }
+                    VerticalLayout {
+                        padding-top: 18px;
+                        padding-left: 22px;
+                        padding-right: 22px;
+                        padding-bottom: 18px;
+                        spacing: 0px;
 
-                                    if candidate.selected: Text {
-                                        x: parent.width - 24px;
-                                        y: (parent.height - self.height) / 2;
-                                        text: "✓";
-                                        color: Theme.accent;
-                                        font-size: 14px;
-                                        font-weight: 600;
-                                    }
+                        if settings-tab == "general": Rectangle {
+                            height: 54px;
+                            Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
+                            Text { x: 0; y: 18px; width: 180px; text: "Language"; color: Theme.fg-1; font-size: Theme.font-body; }
+                            SettingsSegment { x: 196px; y: 12px; button-width: 74px; a-label: "English"; a-key: "en"; b-label: "한국어"; b-key: "ko"; c-label: "日本語"; c-key: "ja"; selected-key: settings-language-key; activated(key) => { choose-settings-language(key); } }
+                        }
+                        if settings-tab == "general": Rectangle {
+                            height: 58px;
+                            Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
+                            Text { x: 0; y: 13px; width: 180px; text: "On startup"; color: Theme.fg-1; font-size: Theme.font-body; }
+                            Text { x: 0; y: 31px; width: 180px; text: "What to show when ModelRack opens"; color: Theme.fg-3; font-size: Theme.font-meta; overflow: elide; }
+                            SettingsSegment { x: 196px; y: 14px; button-width: 104px; a-label: "Last library"; a-key: "last"; b-label: "Empty state"; b-key: "empty"; selected-key: "last"; activated(key) => { } }
+                        }
+                        if settings-tab == "general": Rectangle {
+                            height: 54px;
+                            Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
+                            Text { x: 0; y: 18px; width: 180px; text: "Default view"; color: Theme.fg-1; font-size: Theme.font-body; }
+                            SettingsSegment { x: 196px; y: 12px; button-width: 78px; a-label: "Grid"; a-key: "grid"; b-label: "Masonry"; b-key: "masonry"; c-label: "List"; c-key: "list"; selected-key: view-mode-label == "Grid" ? "grid" : view-mode-label == "Masonry" ? "masonry" : "list"; activated(key) => { choose-view-mode(key); } }
+                        }
+                        if settings-tab == "general": Rectangle {
+                            height: 54px;
+                            Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
+                            Text { x: 0; y: 18px; width: 180px; text: "Default sort"; color: Theme.fg-1; font-size: Theme.font-body; }
+                            SettingsSegment { x: 196px; y: 12px; button-width: 76px; a-label: "Name"; a-key: "name"; b-label: "Date"; b-key: "date"; c-label: "Size"; c-key: "size"; d-label: "Triangles"; d-key: "triangles"; selected-key: settings-sort-key; activated(key) => { choose-settings-sort(key); } }
+                        }
+                        if settings-tab == "general": Rectangle {
+                            height: 54px;
+                            Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
+                            Text { x: 0; y: 18px; width: 180px; text: "Date format"; color: Theme.fg-1; font-size: Theme.font-body; }
+                            SettingsSegment { x: 196px; y: 12px; button-width: 92px; a-label: "Auto"; a-key: "auto"; b-label: "2026-05-08"; b-key: "iso"; c-label: "May 8, 2026"; c-key: "us"; selected-key: "auto"; activated(key) => { } }
+                        }
+                        if settings-tab == "general": Rectangle {
+                            height: 54px;
+                            Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
+                            Text { x: 0; y: 18px; width: 180px; text: "Show file extensions"; color: Theme.fg-1; font-size: Theme.font-body; }
+                            SettingsToggle { x: 196px; y: 17px; on: true; interactive: false; }
+                        }
 
-                                    TouchArea { clicked => { choose-settings-slicer(candidate.path); } }
-                                }
-                            }
-                            if settings-tab == "slicer": SettingsRow { label: "After export"; value: "Open in slicer"; }
-                            if settings-tab == "slicer": Rectangle {
-                                height: 36px;
-                                background: Theme.bg-2;
-                                border-color: Theme.line;
-                                border-width: 1px;
-                                border-radius: Theme.radius-btn;
+                        if settings-tab == "appearance": Rectangle {
+                            height: 54px;
+                            Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
+                            Text { x: 0; y: 18px; width: 180px; text: "Theme"; color: Theme.fg-1; font-size: Theme.font-body; }
+                            SettingsSegment { x: 196px; y: 12px; button-width: 82px; a-label: "Dark"; a-key: "dark"; b-label: "Light"; b-key: "light"; selected-key: settings-theme-key; activated(key) => { choose-settings-theme(key); } }
+                        }
+                        if settings-tab == "appearance": Rectangle {
+                            height: 54px;
+                            Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
+                            Text { x: 0; y: 18px; width: 180px; text: "Accent color"; color: Theme.fg-1; font-size: Theme.font-body; }
+                            HorizontalLayout { x: 196px; y: 14px; width: 160px; height: 26px; spacing: 8px; SettingsSwatch { fill: Theme.accent; selected: true; } SettingsSwatch { fill: #a779d9; } SettingsSwatch { fill: #d99057; } SettingsSwatch { fill: #5fb87a; } }
+                        }
+                        if settings-tab == "appearance": Rectangle {
+                            height: 54px;
+                            Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
+                            Text { x: 0; y: 18px; width: 180px; text: "Density"; color: Theme.fg-1; font-size: Theme.font-body; }
+                            SettingsSegment { x: 196px; y: 12px; button-width: 92px; a-label: "Small"; a-key: "small"; b-label: "Medium"; b-key: "medium"; c-label: "Large"; c-key: "large"; selected-key: settings-density-label; activated(key) => { choose-density(key); } }
+                        }
+                        if settings-tab == "appearance": Rectangle {
+                            height: 58px;
+                            Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
+                            Text { x: 0; y: 13px; width: 180px; text: "Card label"; color: Theme.fg-1; font-size: Theme.font-body; }
+                            Text { x: 0; y: 31px; width: 180px; text: "How model names appear"; color: Theme.fg-3; font-size: Theme.font-meta; overflow: elide; }
+                            SettingsSegment { x: 196px; y: 14px; button-width: 92px; a-label: "Filename"; a-key: "filename"; b-label: "Title-cased"; b-key: "titled"; selected-key: "filename"; activated(key) => { } }
+                        }
 
-                                slicer-choose-text := Text {
-                                    x: (parent.width - self.width) / 2;
-                                    y: (parent.height - self.height) / 2;
-                                    text: "Choose Slicer";
-                                    color: Theme.fg-0;
-                                    font-size: 12px;
-                                }
-                                ta-slicer-choose := TouchArea { clicked => { choose-slicer(); } }
-                            }
+                        if settings-tab == "library": Rectangle {
+                            height: 78px;
+                            Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
+                            Text { x: 0; y: 14px; width: 180px; text: "Library folders"; color: Theme.fg-1; font-size: Theme.font-body; }
+                            Rectangle { x: 196px; y: 11px; width: parent.width - 196px; height: 28px; background: Theme.bg-2; border-color: Theme.line; border-width: 1px; border-radius: 5px; SvgIcon { x: 9px; y: 8px; width: 12px; height: 12px; icon: @image-url("../assets/icons/folder.svg"); tint: Theme.fg-2; } Text { x: 29px; y: 7px; width: parent.width - 86px; text: settings-folder-label; color: Theme.fg-0; font-family: "JetBrains Mono"; font-size: 12px; overflow: elide; } Text { x: parent.width - 48px; y: 7px; text: "active"; color: Theme.fg-2; font-size: Theme.font-overline; } }
+                            SettingsActionButton { x: 196px; y: 45px; button-width: 110px; label: "Add Folder"; icon: @image-url("../assets/icons/plus.svg"); activated => { open-folder(); } }
+                        }
+                        if settings-tab == "library": Rectangle {
+                            height: 54px;
+                            Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
+                            Text { x: 0; y: 18px; width: 180px; text: "File types"; color: Theme.fg-1; font-size: Theme.font-body; }
+                            HorizontalLayout { x: 196px; y: 16px; spacing: 14px; Text { text: "✓ STL"; color: Theme.fg-1; font-size: 12px; } Text { text: "✓ 3MF"; color: Theme.fg-1; font-size: 12px; } Text { text: "✓ STEP"; color: Theme.fg-1; font-size: 12px; } Text { text: "✓ OBJ"; color: Theme.fg-1; font-size: 12px; } }
+                        }
+                        if settings-tab == "library": Rectangle {
+                            height: 58px;
+                            Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
+                            Text { x: 0; y: 13px; width: 180px; text: "Watch for changes"; color: Theme.fg-1; font-size: Theme.font-body; }
+                            Text { x: 0; y: 31px; width: 180px; text: "Re-scan when files change"; color: Theme.fg-3; font-size: Theme.font-meta; }
+                            SettingsToggle { x: 196px; y: 19px; on: true; interactive: false; }
+                        }
+                        if settings-tab == "library": SettingsRow { label: "Metadata storage"; hint: "Where tags, notes and history are saved"; value: ".modelrack.json"; }
 
-                            if settings-tab == "hotkeys": SettingsRow { label: "⌘F"; value: "Focus search"; }
-                            if settings-tab == "hotkeys": SettingsRow { label: "⌘,"; value: "Open settings"; }
-                            if settings-tab == "hotkeys": SettingsRow { label: "⌘1"; value: "Grid view"; }
-                            if settings-tab == "hotkeys": SettingsRow { label: "⌘2"; value: "Masonry view"; }
-                            if settings-tab == "hotkeys": SettingsRow { label: "⌘3"; value: "List view"; }
-                            if settings-tab == "hotkeys": SettingsRow { label: "⌘I"; value: "Toggle detail panel"; }
+                        if settings-tab == "thumbnails": Rectangle {
+                            height: 54px;
+                            Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
+                            Text { x: 0; y: 18px; width: 180px; text: "Thumbnail style"; color: Theme.fg-1; font-size: Theme.font-body; }
+                            SettingsSegment { x: 196px; y: 12px; button-width: 94px; a-label: "Isometric"; a-key: "iso"; b-label: "Wireframe"; b-key: "wire"; c-label: "Normal map"; c-key: "normal"; selected-key: settings-thumbnail-style; activated(key) => { choose-settings-thumbnail-style(key); } }
+                        }
+                        if settings-tab == "thumbnails": Rectangle {
+                            height: 54px;
+                            Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
+                            Text { x: 0; y: 18px; width: 180px; text: "Lighting"; color: Theme.fg-1; font-size: Theme.font-body; }
+                            SettingsSegment { x: 196px; y: 12px; button-width: 74px; a-label: "Studio"; a-key: "studio"; b-label: "Even"; b-key: "even"; c-label: "Rim"; c-key: "rim"; selected-key: settings-thumbnail-lighting; activated(key) => { choose-settings-thumbnail-lighting(key); } }
+                        }
+                        if settings-tab == "thumbnails": Rectangle {
+                            height: 54px;
+                            Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
+                            Text { x: 0; y: 18px; width: 180px; text: "Render density"; color: Theme.fg-1; font-size: Theme.font-body; }
+                            SettingsSegment { x: 196px; y: 12px; button-width: 92px; a-label: "Small"; a-key: "small"; b-label: "Medium"; b-key: "medium"; c-label: "Large"; c-key: "large"; selected-key: settings-density-label; activated(key) => { choose-density(key); } }
+                        }
+                        if settings-tab == "thumbnails": Rectangle {
+                            height: 54px;
+                            Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
+                            Text { x: 0; y: 18px; width: 180px; text: "Anti-aliasing"; color: Theme.fg-1; font-size: Theme.font-body; }
+                            SettingsSegment { x: 196px; y: 12px; button-width: 72px; a-label: "Off"; a-key: "off"; b-label: "2×"; b-key: "msaa2x"; c-label: "4×"; c-key: "msaa4x"; d-label: "8×"; d-key: "msaa8x"; selected-key: settings-thumbnail-aa; activated(key) => { choose-settings-thumbnail-aa(key); } }
+                        }
+                        if settings-tab == "thumbnails": Rectangle {
+                            height: 64px;
+                            Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
+                            Text { x: 0; y: 16px; width: 180px; text: "Cache usage"; color: Theme.fg-1; font-size: Theme.font-body; }
+                            Rectangle { x: 196px; y: 18px; width: 320px; height: 8px; background: Theme.bg-3; border-color: Theme.line; border-width: 1px; border-radius: 4px; Rectangle { x: 0; y: 0; width: 185px; height: parent.height; background: Theme.accent; border-radius: 4px; } }
+                            Text { x: 196px; y: 34px; text: "thumbnail cache · renderer v9"; color: Theme.fg-2; font-size: 11px; }
+                        }
+                        if settings-tab == "thumbnails": Rectangle {
+                            height: 48px;
+                            HorizontalLayout { x: 196px; y: 10px; spacing: 8px; SettingsActionButton { button-width: 170px; label: "Regenerate thumbnails"; icon: @image-url("../assets/icons/refresh.svg"); activated => { } } SettingsActionButton { button-width: 108px; label: "Clear cache"; icon: @image-url("../assets/icons/close.svg"); activated => { } } }
+                        }
 
-                            if settings-tab == "advanced": SettingsRow { label: "Log level"; value: "info"; }
-                            if settings-tab == "advanced": SettingsRow { label: "Telemetry"; value: "Off"; }
-
-                            if settings-tab == "about": VerticalLayout {
-                                alignment: center;
+                        if settings-tab == "printers": SettingsRow { label: "Enabled profiles"; value: settings-printer-summary; }
+                        if settings-tab == "printers": SettingsRow { label: "Default estimate"; value: settings-default-printer-label; }
+                        if settings-tab == "printers": Rectangle {
+                            height: 136px;
+                            Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
+                            Text { x: 0; y: 14px; width: 180px; text: "Printer selector"; color: Theme.fg-1; font-size: Theme.font-body; }
+                            Text { x: 0; y: 32px; width: 180px; text: "Maker → model → nozzle"; color: Theme.fg-3; font-size: Theme.font-meta; }
+                            HorizontalLayout {
+                                x: 196px;
+                                y: 12px;
+                                width: parent.width - 196px;
+                                height: 112px;
                                 spacing: 8px;
-                                padding-top: 24px;
 
-                                Text {
-                                    text: "ModelRack";
-                                    color: Theme.fg-0;
-                                    font-size: 22px;
-                                    font-weight: 600;
-                                    horizontal-alignment: center;
+                                Rectangle {
+                                    width: 104px; height: parent.height; background: Theme.bg-2; border-color: Theme.line; border-width: 1px; border-radius: 7px; clip: true;
+                                    Text { x: 8px; y: 7px; text: "Maker"; color: Theme.fg-3; font-size: Theme.font-overline; font-weight: 600; }
+                                    VerticalLayout { x: 4px; y: 26px; width: parent.width - 8px; spacing: 1px;
+                                        for maker in settings-printer-makers: SettingsOptionButton { width: parent.width; label: maker.label; key: maker.key; selected: maker.selected; activated(key) => { choose-settings-printer-maker(key); } }
+                                    }
                                 }
-
-                                Text {
-                                    text: "A workshop tool for your 3D model library";
-                                    color: Theme.fg-2;
-                                    font-size: Theme.font-body;
-                                    horizontal-alignment: center;
+                                Rectangle {
+                                    width: 112px; height: parent.height; background: Theme.bg-2; border-color: Theme.line; border-width: 1px; border-radius: 7px; clip: true;
+                                    Text { x: 8px; y: 7px; text: "Model"; color: Theme.fg-3; font-size: Theme.font-overline; font-weight: 600; }
+                                    VerticalLayout { x: 4px; y: 26px; width: parent.width - 8px; spacing: 1px;
+                                        for model in settings-printer-models: SettingsOptionButton { width: parent.width; label: model.label; key: model.key; selected: model.selected; activated(key) => { choose-settings-printer-model(key); } }
+                                    }
                                 }
+                                Rectangle {
+                                    width: 118px; height: parent.height; background: Theme.bg-2; border-color: Theme.line; border-width: 1px; border-radius: 7px; clip: true;
+                                    Text { x: 8px; y: 7px; text: "Nozzle"; color: Theme.fg-3; font-size: Theme.font-overline; font-weight: 600; }
+                                    VerticalLayout { x: 4px; y: 26px; width: parent.width - 8px; spacing: 1px;
+                                        for nozzle in settings-printer-nozzles: SettingsOptionButton { width: parent.width; label: nozzle.label; key: nozzle.key; selected: nozzle.selected; activated(key) => { choose-settings-printer-nozzle(key); } }
+                                    }
+                                }
+                            }
+                        }
+                        if settings-tab == "printers": VerticalLayout {
+                            spacing: 6px;
+                            padding-top: 6px;
+                            padding-bottom: 10px;
 
-                                Rectangle { height: 16px; }
+                            for printer in settings-printer-profiles: Rectangle {
+                                height: 44px;
+                                background: printer.selected ? Theme.accent-dim : Theme.bg-2;
+                                border-color: printer.selected ? Theme.accent-line : Theme.line;
+                                border-width: 1px;
+                                border-radius: 6px;
 
-                                SettingsRow { label: "Version"; value: app-version; }
-                                SettingsRow { label: "Build"; value: "2026.05.08"; }
-                                SettingsRow { label: "Stack"; value: "Rust + Slint"; }
-                                SettingsRow { label: "License"; value: "MIT"; }
+                                Rectangle { x: 8px; y: 12px; width: 20px; height: 20px; background: printer.selected ? Theme.accent : Theme.bg-3; border-color: printer.selected ? Theme.accent : Theme.line; border-width: 1px; border-radius: 5px; Text { x: 0; y: 1px; width: parent.width; height: parent.height; text: printer.selected ? "✓" : ""; color: #0e2a32; font-size: 12px; font-weight: 700; horizontal-alignment: center; } }
+                                Text { x: 36px; y: 7px; width: parent.width - 150px; text: printer.label; color: Theme.fg-0; font-size: Theme.font-body; font-weight: 600; overflow: elide; }
+                                Text { x: 36px; y: 24px; width: parent.width - 150px; text: printer.detail; color: Theme.fg-2; font-family: "JetBrains Mono"; font-size: Theme.font-overline; overflow: elide; }
+                                if printer.selected: Rectangle { x: parent.width - 104px; y: 10px; width: 96px; height: 24px; background: printer.defaulted ? Theme.bg-4 : set-default-touch.has-hover ? Theme.bg-4 : Theme.bg-3; border-color: printer.defaulted ? Theme.accent-line : Theme.line; border-width: 1px; border-radius: 5px; Text { x: 0; y: 5px; width: parent.width; text: printer.defaulted ? "Default" : "Set default"; color: printer.defaulted ? Theme.fg-0 : Theme.fg-1; font-size: 11px; font-weight: 600; horizontal-alignment: center; } set-default-touch := TouchArea { clicked => { choose-settings-default-printer(printer.key); } } }
+                                TouchArea { width: parent.width - 112px; height: parent.height; clicked => { toggle-settings-printer(printer.key); } }
+                            }
+                        }
+
+                        if settings-tab == "slicer": SettingsRow { label: "Default slicer"; value: settings-slicer-label; }
+                        if settings-tab == "slicer": SettingsRow { label: "Detected apps"; value: settings-slicer-candidates.length + " choices"; }
+                        if settings-tab == "slicer": VerticalLayout {
+                            spacing: 6px;
+                            padding-top: 6px;
+                            padding-bottom: 10px;
+
+                            for candidate in settings-slicer-candidates: Rectangle {
+                                height: 34px;
+                                background: candidate.selected ? Theme.accent-dim : Theme.bg-2;
+                                border-color: candidate.selected ? Theme.accent-line : Theme.line;
+                                border-width: 1px;
+                                border-radius: 6px;
+
+                                Rectangle { x: 8px; y: 7px; width: 20px; height: 20px; background: candidate.selected ? Theme.accent : Theme.bg-3; border-color: candidate.selected ? Theme.accent : Theme.line; border-width: 1px; border-radius: 5px;
+                                    if candidate.icon-ready: Image { x: 3px; y: 3px; width: parent.width - 6px; height: parent.height - 6px; source: candidate.icon-image; image-fit: contain; }
+                                    if !candidate.icon-ready: Text { x: 0; y: 2px; width: parent.width; text: candidate.label == "System default STL opener" ? "D" : "S"; color: candidate.selected ? #0e2a32 : Theme.fg-1; font-size: 10px; font-weight: 700; horizontal-alignment: center; }
+                                }
+                                Text { x: 36px; y: 5px; width: parent.width - 70px; text: candidate.label; color: Theme.fg-0; font-size: Theme.font-body; overflow: elide; }
+                                Text { x: 36px; y: 20px; width: parent.width - 70px; text: candidate.detail; color: Theme.fg-2; font-family: "JetBrains Mono"; font-size: Theme.font-overline; overflow: elide; }
+                                if candidate.selected: Text { x: parent.width - 24px; y: 9px; text: "✓"; color: Theme.accent; font-size: 14px; font-weight: 600; }
+                                TouchArea { clicked => { choose-settings-slicer(candidate.path); } }
+                            }
+                        }
+                        if settings-tab == "slicer": Rectangle {
+                            height: 48px;
+                            Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
+                            Text { x: 0; y: 17px; width: 180px; text: "Custom path"; color: Theme.fg-1; font-size: Theme.font-body; }
+                            SettingsActionButton { x: 196px; y: 10px; button-width: 128px; label: "Browse…"; icon: @image-url("../assets/icons/folder.svg"); activated => { choose-slicer(); } }
+                        }
+                        if settings-tab == "slicer": SettingsRow { label: "After export"; value: "Open in slicer"; }
+
+                        if settings-tab == "hotkeys": VerticalLayout {
+                            spacing: 16px;
+                            Rectangle { height: 1px; }
+                            Rectangle { height: 146px; border-color: Theme.line; border-width: 1px; border-radius: 8px; Rectangle { x: 0; y: 0; width: parent.width; height: 32px; background: Theme.bg-3; border-radius: 8px; Text { x: 12px; y: 9px; text: "GLOBAL"; color: Theme.fg-2; font-size: 11px; font-weight: 600; letter-spacing: 0.4px; } } Text { x: 12px; y: 47px; text: "Focus search"; color: Theme.fg-1; font-size: Theme.font-body; } HorizontalLayout { x: parent.width - 70px; y: 42px; spacing: 4px; SettingsKbd { label: "⌘"; } SettingsKbd { label: "F"; } } Text { x: 12px; y: 81px; text: "Open settings"; color: Theme.fg-1; font-size: Theme.font-body; } HorizontalLayout { x: parent.width - 70px; y: 76px; spacing: 4px; SettingsKbd { label: "⌘"; } SettingsKbd { label: ","; } } Text { x: 12px; y: 115px; text: "Import folder"; color: Theme.fg-1; font-size: Theme.font-body; } HorizontalLayout { x: parent.width - 98px; y: 110px; spacing: 4px; SettingsKbd { label: "⌘"; } SettingsKbd { label: "O"; } } }
+                            Rectangle { height: 146px; border-color: Theme.line; border-width: 1px; border-radius: 8px; Rectangle { x: 0; y: 0; width: parent.width; height: 32px; background: Theme.bg-3; border-radius: 8px; Text { x: 12px; y: 9px; text: "VIEW"; color: Theme.fg-2; font-size: 11px; font-weight: 600; letter-spacing: 0.4px; } } Text { x: 12px; y: 47px; text: "Grid view"; color: Theme.fg-1; font-size: Theme.font-body; } HorizontalLayout { x: parent.width - 70px; y: 42px; spacing: 4px; SettingsKbd { label: "⌘"; } SettingsKbd { label: "1"; } } Text { x: 12px; y: 81px; text: "Masonry view"; color: Theme.fg-1; font-size: Theme.font-body; } HorizontalLayout { x: parent.width - 70px; y: 76px; spacing: 4px; SettingsKbd { label: "⌘"; } SettingsKbd { label: "2"; } } Text { x: 12px; y: 115px; text: "List view"; color: Theme.fg-1; font-size: Theme.font-body; } HorizontalLayout { x: parent.width - 70px; y: 110px; spacing: 4px; SettingsKbd { label: "⌘"; } SettingsKbd { label: "3"; } } }
+                        }
+
+                        if settings-tab == "advanced": Rectangle {
+                            height: 58px;
+                            Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
+                            Text { x: 0; y: 13px; width: 180px; text: "GPU rendering"; color: Theme.fg-1; font-size: Theme.font-body; }
+                            Text { x: 0; y: 31px; width: 180px; text: "Use GPU for thumbnails"; color: Theme.fg-3; font-size: Theme.font-meta; }
+                            SettingsToggle { x: 196px; y: 19px; on: true; interactive: false; }
+                        }
+                        if settings-tab == "advanced": SettingsRow { label: "Log level"; value: "info"; }
+                        if settings-tab == "advanced": SettingsRow { label: "Cache location"; value: "~/Library/Caches/modelrack"; }
+                        if settings-tab == "advanced": Rectangle { height: 48px; HorizontalLayout { x: 196px; y: 10px; spacing: 8px; SettingsActionButton { button-width: 122px; label: "Open logs"; icon: @image-url("../assets/icons/folder.svg"); activated => { } } SettingsActionButton { button-width: 132px; label: "Reset settings"; icon: @image-url("../assets/icons/trash.svg"); danger: true; activated => { } } } }
+
+                        if settings-tab == "about": Rectangle {
+                            height: 430px;
+                            Image { x: (parent.width - 96px) / 2; y: 22px; width: 96px; height: 96px; source: @image-url("../assets/AppIcon.iconset/icon_128x128.png"); image-fit: contain; }
+                            Text { x: 0; y: 132px; width: parent.width; text: "ModelRack"; color: Theme.fg-0; font-size: 22px; font-weight: 600; horizontal-alignment: center; }
+                            Text { x: 0; y: 163px; width: parent.width; text: "A workshop tool for your 3D model library"; color: Theme.fg-2; font-size: Theme.font-body; horizontal-alignment: center; }
+                            Rectangle { x: 120px; y: 205px; width: parent.width - 240px; height: 116px; background: Theme.bg-2; border-color: Theme.line; border-width: 1px; border-radius: 8px; Text { x: 18px; y: 17px; text: "Version"; color: Theme.fg-2; font-size: 12px; } Text { x: parent.width - self.width - 18px; y: 17px; text: app-version; color: Theme.fg-0; font-family: "JetBrains Mono"; font-size: 12px; } Text { x: 18px; y: 45px; text: "Build"; color: Theme.fg-2; font-size: 12px; } Text { x: parent.width - self.width - 18px; y: 45px; text: "2026.05.10"; color: Theme.fg-0; font-family: "JetBrains Mono"; font-size: 12px; } Text { x: 18px; y: 73px; text: "Stack"; color: Theme.fg-2; font-size: 12px; } Text { x: parent.width - self.width - 18px; y: 73px; text: "Rust + Slint"; color: Theme.fg-0; font-family: "JetBrains Mono"; font-size: 12px; } }
+                            Rectangle { x: 120px; y: 336px; width: parent.width - 240px; height: 70px; background: Theme.bg-2; border-color: Theme.line; border-width: 1px; border-radius: 8px;
+                                Text { x: 18px; y: 13px; text: "Updates"; color: Theme.fg-0; font-size: Theme.font-body; font-weight: 600; }
+                                Text { x: 18px; y: 34px; width: parent.width - 164px; text: settings-update-status; color: Theme.fg-2; font-family: "JetBrains Mono"; font-size: 10.5px; overflow: elide; }
+                                SettingsActionButton { x: parent.width - 134px; y: 21px; button-width: 116px; label: "Check"; icon: @image-url("../assets/icons/refresh.svg"); activated => { check-updates(); } }
                             }
                         }
                     }
@@ -2864,5 +3977,6 @@ export component ModelRackWindow inherits Window {
             }
         }
     }
+
 
 }
