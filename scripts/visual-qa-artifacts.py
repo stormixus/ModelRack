@@ -226,6 +226,7 @@ def report(
     diff_path: str | None = None,
     threshold: float = 0.01,
     result: str = "not_compared",
+    masks: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     if failure_reason not in FAILURE_REASONS:
         raise ValueError(f"unknown failure_reason: {failure_reason}")
@@ -263,19 +264,135 @@ def report(
             "reference_path": reference_path,
             "current_path": current_path,
             "diff_path": diff_path,
-            "mask_list": [],
+            "mask_list": masks or [],
             "threshold": {"allowed_mismatch_ratio": threshold},
             "result": result,
         },
     }
 
 
+def parse_mask_spec(spec: str) -> dict[str, Any]:
+    """Parse x,y,width,height[:name[:reason]] mask specs.
+
+    The compact CLI form keeps capture commands readable while the JSON form below
+    supports richer checked-in mask files.
+    """
+    coords, *meta = spec.split(":")
+    parts = [part.strip() for part in coords.split(",")]
+    if len(parts) != 4:
+        raise ValueError(f"mask must be x,y,width,height[:name[:reason]]: {spec}")
+    try:
+        x, y, width, height = (int(part) for part in parts)
+    except ValueError as exc:
+        raise ValueError(f"mask coordinates must be integers: {spec}") from exc
+    return {
+        "name": meta[0].strip() if meta and meta[0].strip() else f"rect-{x}-{y}-{width}-{height}",
+        "reason": meta[1].strip() if len(meta) > 1 and meta[1].strip() else "unspecified",
+        "x": x,
+        "y": y,
+        "width": width,
+        "height": height,
+    }
+
+
+def read_mask_file(path: Path) -> list[dict[str, Any]]:
+    data = json.loads(path.read_text())
+    entries = data.get("masks", data) if isinstance(data, dict) else data
+    if not isinstance(entries, list):
+        raise ValueError("mask file must be a list or an object with a masks list")
+    masks: list[dict[str, Any]] = []
+    for idx, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            raise ValueError(f"mask entry {idx} must be an object")
+        rect = entry.get("rect", entry)
+        try:
+            x = int(rect["x"])
+            y = int(rect["y"])
+            width = int(rect["width"])
+            height = int(rect["height"])
+        except Exception as exc:
+            raise ValueError(f"mask entry {idx} requires integer x/y/width/height") from exc
+        masks.append(
+            {
+                "name": str(entry.get("name") or entry.get("label") or f"mask-{idx + 1}"),
+                "reason": str(entry.get("reason") or "unspecified"),
+                "x": x,
+                "y": y,
+                "width": width,
+                "height": height,
+            }
+        )
+    return masks
+
+
+def load_masks(mask_specs: list[str], mask_files: list[str]) -> list[dict[str, Any]]:
+    masks: list[dict[str, Any]] = []
+    for mask_file in mask_files:
+        masks.extend(read_mask_file(Path(mask_file)))
+    for spec in mask_specs:
+        masks.append(parse_mask_spec(spec))
+    return masks
+
+
+def normalize_masks(masks: list[dict[str, Any]], width: int, height: int) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for mask in masks:
+        x = max(0, int(mask["x"]))
+        y = max(0, int(mask["y"]))
+        right = min(width, int(mask["x"]) + max(0, int(mask["width"])))
+        bottom = min(height, int(mask["y"]) + max(0, int(mask["height"])))
+        clipped_width = max(0, right - x)
+        clipped_height = max(0, bottom - y)
+        if clipped_width == 0 or clipped_height == 0:
+            continue
+        normalized.append(
+            {
+                "name": str(mask.get("name") or "unnamed-mask"),
+                "reason": str(mask.get("reason") or "unspecified"),
+                "shape": "rect",
+                "x": x,
+                "y": y,
+                "width": clipped_width,
+                "height": clipped_height,
+                "original": {
+                    "x": int(mask["x"]),
+                    "y": int(mask["y"]),
+                    "width": int(mask["width"]),
+                    "height": int(mask["height"]),
+                },
+            }
+        )
+    return normalized
+
+
+def masked_pixels(width: int, height: int, masks: list[dict[str, Any]]) -> set[int]:
+    masked: set[int] = set()
+    for mask in masks:
+        for y in range(mask["y"], mask["y"] + mask["height"]):
+            row = y * width
+            for x in range(mask["x"], mask["x"] + mask["width"]):
+                masked.add(row + x)
+    return masked
+
+
 def compare_pixels(
-    reference: list[tuple[int, int, int, int]], current: list[tuple[int, int, int, int]], threshold: float
-) -> tuple[float, str, list[tuple[int, int, int, int]]]:
+    reference: list[tuple[int, int, int, int]],
+    current: list[tuple[int, int, int, int]],
+    threshold: float,
+    *,
+    width: int,
+    height: int,
+    masks: list[dict[str, Any]],
+) -> tuple[float, str, list[tuple[int, int, int, int]], dict[str, int | float]]:
     mismatches = 0
     diff: list[tuple[int, int, int, int]] = []
-    for rp, cp in zip(reference, current):
+    masked = masked_pixels(width, height, masks)
+    compared = 0
+    for idx, (rp, cp) in enumerate(zip(reference, current)):
+        if idx in masked:
+            diff.append((56, 112, 255, 120))
+            continue
+        compared += 1
         delta = max(abs(rp[0] - cp[0]), abs(rp[1] - cp[1]), abs(rp[2] - cp[2]), abs(rp[3] - cp[3]))
         if delta > 12:
             mismatches += 1
@@ -283,8 +400,14 @@ def compare_pixels(
         else:
             grey = int((cp[0] + cp[1] + cp[2]) / 3)
             diff.append((grey, grey, grey, 80))
-    ratio = mismatches / len(reference) if reference else 1.0
-    return ratio, "pass" if ratio <= threshold else "fail", diff
+    ratio = mismatches / compared if compared else 0.0
+    stats = {
+        "mismatched_pixels": mismatches,
+        "compared_pixels": compared,
+        "masked_pixels": len(masked),
+        "masked_pixel_ratio": round(len(masked) / len(reference), 8) if reference else 0.0,
+    }
+    return ratio, "pass" if ratio <= threshold else "fail", diff, stats
 
 
 def run(args: argparse.Namespace) -> int:
@@ -297,6 +420,7 @@ def run(args: argparse.Namespace) -> int:
     reference_src = Path(args.reference).resolve() if args.reference else None
     current_src = Path(args.current).resolve() if args.current else None
     threshold = float(args.threshold)
+    raw_masks = load_masks(args.mask or [], args.mask_file or [])
 
     reference_img = copy_image(reference_src, reference_dir, "reference.png")
     current_img = copy_image(current_src, current_dir, "current.png")
@@ -313,6 +437,10 @@ def run(args: argparse.Namespace) -> int:
     diff_result = "not_compared"
     diff_img: Path | None = None
     mismatch_ratio: float | None = None
+    normalized_masks: list[dict[str, Any]] = []
+    diff_stats: dict[str, int | float] = {}
+    if raw_masks and cur_w is not None and cur_h is not None:
+        normalized_masks = normalize_masks(raw_masks, cur_w, cur_h)
     if ref_failure != "none":
         diff_failure = ref_failure
     elif cur_failure != "none":
@@ -320,7 +448,15 @@ def run(args: argparse.Namespace) -> int:
     elif ref_w != cur_w or ref_h != cur_h:
         diff_failure = "environment_mismatch"
     elif ref_pixels is not None and cur_pixels is not None and ref_w is not None and ref_h is not None:
-        mismatch_ratio, diff_result, diff_pixels = compare_pixels(ref_pixels, cur_pixels, threshold)
+        normalized_masks = normalize_masks(raw_masks, ref_w, ref_h)
+        mismatch_ratio, diff_result, diff_pixels, diff_stats = compare_pixels(
+            ref_pixels,
+            cur_pixels,
+            threshold,
+            width=ref_w,
+            height=ref_h,
+            masks=normalized_masks,
+        )
         diff_dir.mkdir(parents=True, exist_ok=True)
         diff_img = diff_dir / "diff.png"
         write_png_rgba(diff_img, ref_w, ref_h, diff_pixels)
@@ -344,6 +480,7 @@ def run(args: argparse.Namespace) -> int:
         diff_path=str(diff_img) if diff_img else None,
         threshold=threshold,
         result="not_compared",
+        masks=normalized_masks,
     )
     current_report = report(
         root=root,
@@ -360,6 +497,7 @@ def run(args: argparse.Namespace) -> int:
         diff_path=str(diff_img) if diff_img else None,
         threshold=threshold,
         result="not_compared",
+        masks=normalized_masks,
     )
     diff_report = report(
         root=root,
@@ -376,9 +514,11 @@ def run(args: argparse.Namespace) -> int:
         diff_path=str(diff_img) if diff_img else None,
         threshold=threshold,
         result=diff_result,
+        masks=normalized_masks,
     )
     if mismatch_ratio is not None:
         diff_report["comparison"]["mismatch_ratio"] = round(mismatch_ratio, 8)
+        diff_report["comparison"].update(diff_stats)
 
     reference_dir.mkdir(parents=True, exist_ok=True)
     current_dir.mkdir(parents=True, exist_ok=True)
@@ -402,9 +542,30 @@ def self_test() -> int:
         write_png_rgba(ref, 2, 2, [(0, 0, 0, 255), (255, 255, 255, 255), (10, 20, 30, 255), (40, 50, 60, 255)])
         write_png_rgba(cur, 2, 2, [(0, 0, 0, 255), (255, 255, 255, 255), (10, 20, 30, 255), (40, 50, 60, 255)])
         write_png_rgba(blank, 2, 2, [(255, 255, 255, 255)] * 4)
-        ok = run(argparse.Namespace(root=Path.cwd(), out_dir=root / "out", run_id="ok", reference=ref, current=cur, threshold=0.01, reference_command="self", current_command="self", allow_missing_reference=False))
-        bad = run(argparse.Namespace(root=Path.cwd(), out_dir=root / "out", run_id="blank", reference=blank, current=cur, threshold=0.01, reference_command="self", current_command="self", allow_missing_reference=False))
-        if ok != 0 or bad == 0:
+        masked_cur = root / "masked-cur.png"
+        write_png_rgba(masked_cur, 2, 2, [(255, 0, 0, 255), (255, 255, 255, 255), (10, 20, 30, 255), (40, 50, 60, 255)])
+        common = {
+            "root": Path.cwd(),
+            "out_dir": root / "out",
+            "reference_command": "self",
+            "current_command": "self",
+            "allow_missing_reference": False,
+            "mask_file": [],
+        }
+        ok = run(argparse.Namespace(**common, run_id="ok", reference=ref, current=cur, threshold=0.01, mask=[]))
+        bad = run(argparse.Namespace(**common, run_id="blank", reference=blank, current=cur, threshold=0.01, mask=[]))
+        masked = run(
+            argparse.Namespace(
+                **common,
+                run_id="masked",
+                reference=ref,
+                current=masked_cur,
+                threshold=0.0,
+                mask=["0,0,1,1:live-content:expected fixture variance"],
+            )
+        )
+        unmasked = run(argparse.Namespace(**common, run_id="unmasked", reference=ref, current=masked_cur, threshold=0.0, mask=[]))
+        if ok != 0 or bad == 0 or masked != 0 or unmasked == 0:
             raise SystemExit("self-test failed")
     print("visual-qa-artifacts self-test passed")
     return 0
@@ -420,6 +581,8 @@ def main() -> int:
     parser.add_argument("--threshold", default="0.01")
     parser.add_argument("--reference-command")
     parser.add_argument("--current-command")
+    parser.add_argument("--mask", action="append", help="rect mask as x,y,width,height[:name[:reason]]; repeatable")
+    parser.add_argument("--mask-file", action="append", help="JSON mask file containing a list or {masks:[...]}")
     parser.add_argument("--allow-missing-reference", action="store_true")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()

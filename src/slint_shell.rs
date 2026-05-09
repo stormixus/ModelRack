@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -568,10 +568,26 @@ pub fn run() -> Result<(), slint::PlatformError> {
         crate::macos::minimize_window();
     });
 
+    let green_zoom_state = Rc::new(Cell::new(false));
+    let weak = ui.as_weak();
     ui.on_window_fullscreen(move || {
         // The custom green traffic light should behave like macOS Zoom
-        // (maximize/restore), not force a separate full-screen Space.
-        crate::macos::zoom_window();
+        // (maximize/restore), not force a separate full-screen Space. Prefer
+        // winit's maximized state for frameless windows because native `zoom:`
+        // can animate without committing a new frame size on this backend.
+        if let Some(ui) = weak.upgrade() {
+            let zoom_state = green_zoom_state.clone();
+            let result = ui.window().with_winit_window(|window| {
+                let should_maximize = !window.is_maximized() && !zoom_state.get();
+                window.set_maximized(should_maximize);
+                zoom_state.set(should_maximize);
+            });
+            if result.is_none() {
+                crate::macos::zoom_window();
+            }
+        } else {
+            crate::macos::zoom_window();
+        }
     });
 
     let weak = ui.as_weak();

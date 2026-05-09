@@ -49,12 +49,21 @@ if [[ ! -s "$SHOT" ]]; then
   exit 1
 fi
 
+MASK_ARGS=()
+if [[ -n "${MODELRACK_VISUAL_MASK_FILE:-}" ]]; then
+  MASK_ARGS+=(--mask-file "$MODELRACK_VISUAL_MASK_FILE")
+fi
+if [[ -n "${MODELRACK_VISUAL_MASK:-}" ]]; then
+  MASK_ARGS+=(--mask "$MODELRACK_VISUAL_MASK")
+fi
+
 python3 "$ROOT/scripts/visual-qa-artifacts.py" \
   --root "$ROOT" \
   --out-dir "$VISUAL_QA_DIR" \
   --run-id "$RUN_ID" \
   --current "$SHOT" \
   --current-command "$CAPTURE_CMD" \
+  "${MASK_ARGS[@]}" \
   --allow-missing-reference >/dev/null
 
 echo "$SHOT"
