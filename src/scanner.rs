@@ -92,6 +92,7 @@ pub struct StlFileInfo {
     pub triangle_count: Option<usize>,
     pub dimensions: Option<[f32; 3]>,
     pub modified: Option<std::time::SystemTime>,
+    pub thumbnail_path: Option<PathBuf>,
     pub meta: Option<SidecarMeta>,
 }
 
@@ -271,6 +272,7 @@ fn parse_stl_file(path: &Path) -> Result<(StlFileInfo, Option<MeshData>)> {
             triangle_count,
             dimensions,
             modified,
+            thumbnail_path: None,
             meta,
         },
         mesh_data,
@@ -297,6 +299,7 @@ fn metadata_only_file(path: &Path, stl_type: StlType) -> Result<StlFileInfo> {
         triangle_count: None,
         dimensions: None,
         modified,
+        thumbnail_path: None,
         meta: read_sidecar(path),
     })
 }

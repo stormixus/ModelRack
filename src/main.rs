@@ -2,6 +2,7 @@ mod fonts;
 mod macos;
 mod scanner;
 mod strings;
+mod thumbnail_cache;
 mod utils;
 mod view_model;
 

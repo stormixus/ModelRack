@@ -11,6 +11,8 @@ export struct BrowserCard {
     author: string,
     relative-modified: string,
     thumb-key: string,
+    thumb-image: image,
+    thumb-ready: bool,
     badge: string,
     printed-count: int,
     favorite: bool,
@@ -99,6 +101,29 @@ component ThumbImage inherits Image {
             thumb-key == "grid" ? @image-url("../assets/thumbs/thumb-grid.svg") :
             thumb-key == "bin" ? @image-url("../assets/thumbs/thumb-bin.svg") :
             @image-url("../assets/thumbs/thumb-rack.svg");
+}
+
+component CachedThumb inherits Rectangle {
+    in property <string> thumb-key: "rack";
+    in property <image> cached-image;
+    in property <bool> thumb-ready: false;
+
+    if thumb-ready: Image {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        source: cached-image;
+        image-fit: contain;
+    }
+
+    if !thumb-ready: ThumbImage {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        thumb-key: root.thumb-key;
+    }
 }
 
 component SidebarLine inherits Rectangle {
@@ -271,12 +296,14 @@ component ModelCard inherits Rectangle {
             background: Theme.bg-0;
             border-radius: Theme.radius-card;
 
-            ThumbImage {
+            CachedThumb {
                 x: 0;
                 y: 0;
                 width: parent.width;
                 height: parent.height;
                 thumb-key: card.thumb-key;
+                cached-image: card.thumb-image;
+                thumb-ready: card.thumb-ready;
             }
 
             // Badge
@@ -527,6 +554,8 @@ export component ModelRackWindow inherits Window {
     in property <string> library-label: "Sample library";
     in property <int> selected-card-index: -1;
     in property <string> selected-thumb-key: "rack";
+    in property <image> selected-thumb-image;
+    in property <bool> selected-thumb-ready: false;
     in property <string> status-text: "Ready";
     in property <string> density-label: "M";
     in property <string> view-mode-label: "Grid";
@@ -1375,12 +1404,14 @@ export component ModelRackWindow inherits Window {
                             background: Theme.line;
                         }
 
-                        ThumbImage {
+                        CachedThumb {
                             x: 0;
                             y: 0;
                             width: parent.width;
                             height: parent.height;
                             thumb-key: selected-thumb-key;
+                            cached-image: selected-thumb-image;
+                            thumb-ready: selected-thumb-ready;
                         }
 
                         HorizontalLayout {

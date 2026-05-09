@@ -80,7 +80,7 @@
 **Target:** v0.2.0
 **What:** Persist generated thumbnails by hash under the platform cache directory and invalidate when file hash changes.
 **Why:** Large libraries should not regenerate every thumbnail on each app launch.
-**Status:** Not implemented yet. Current thumbnails are static Slint SVG assets selected by filename/`thumb-key` heuristics; there is no real rendered thumbnail generation, hash-addressed PNG cache, cache invalidation, or arbitrary cached-image binding in the active app. This remains core future work.
+**Status:** Implemented for the active Slint shell. Scan results now create deterministic generated PNG thumbnails under the platform cache directory (`thumbnails/v1`) using the scanned file hash as the cache key, so content changes invalidate by writing a new hash-addressed file while unchanged models reuse the existing PNG. Browser cards and the detail preview bind arbitrary cached `slint::Image` thumbnails when available and fall back to the existing SVG `thumb-key` assets if generation/loading fails. The current generator is a CPU wireframe/dimension renderer over scanner mesh/metadata; future wgpu thumbnail rendering can replace the generator without changing the cache contract.
 
 ### TODO-12: Cross-platform release QA
 **Added:** 2026-05-07 (via /autopilot)

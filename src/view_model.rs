@@ -202,6 +202,7 @@ pub struct BrowserCard {
     pub author: String,
     pub relative_modified: String,
     pub thumb_key: String,
+    pub thumb_path: Option<PathBuf>,
     pub badge: String,
     pub printed_count: u32,
     pub favorite: bool,
@@ -285,6 +286,7 @@ pub fn browser_cards(entries: &[scanner::StlFileInfo]) -> Vec<BrowserCard> {
                     .unwrap_or_else(|| "You".to_string()),
                 relative_modified: relative_modified_label(entry.modified),
                 thumb_key: thumbnail_key(&entry.filename).to_string(),
+                thumb_path: entry.thumbnail_path.clone(),
                 badge: stl_type_label(entry.stl_type).to_string(),
                 printed_count,
                 favorite,
@@ -754,6 +756,7 @@ mod tests {
             triangle_count: Some(1),
             dimensions: Some([1.0, 1.0, 1.0]),
             modified: None,
+            thumbnail_path: None,
             meta: None,
         }
     }
@@ -940,6 +943,7 @@ mod tests {
                 author: "You".to_string(),
                 relative_modified: "unknown".to_string(),
                 thumb_key: "rack".to_string(),
+                thumb_path: None,
                 badge: "STL".to_string(),
                 printed_count: 2,
                 favorite: true,

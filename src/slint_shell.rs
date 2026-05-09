@@ -1014,6 +1014,9 @@ fn apply_detail(ui: &ModelRackWindow, state: &ShellState) {
         if let Some(entry) = state.displayed.get(idx) {
             ui.set_has_selection(true);
             ui.set_selected_thumb_key(crate::view_model::thumbnail_key(&entry.filename).into());
+            let (thumb_image, thumb_ready) = load_thumbnail_image(entry.thumbnail_path.as_deref());
+            ui.set_selected_thumb_image(thumb_image);
+            ui.set_selected_thumb_ready(thumb_ready);
             ui.set_detail_name(entry.filename.clone().into());
             ui.set_detail_path(detail_parent_label(entry, state).into());
             ui.set_detail_format(
@@ -1192,12 +1195,16 @@ fn apply_detail(ui: &ModelRackWindow, state: &ShellState) {
         } else {
             ui.set_has_selection(false);
             ui.set_selected_thumb_key("rack".into());
+            ui.set_selected_thumb_image(slint::Image::default());
+            ui.set_selected_thumb_ready(false);
             clear_detail_tag_chips(ui);
             clear_detail_print_history(ui);
         }
     } else {
         ui.set_has_selection(false);
         ui.set_selected_thumb_key("rack".into());
+        ui.set_selected_thumb_image(slint::Image::default());
+        ui.set_selected_thumb_ready(false);
         clear_detail_tag_chips(ui);
         clear_detail_print_history(ui);
     }
@@ -1714,7 +1721,7 @@ fn demo_entries() -> Vec<scanner::StlFileInfo> {
 
 fn demo_entry(root: &Path, index: usize, model: DemoModel) -> scanner::StlFileInfo {
     let path = root.join(model.folder).join(model.name);
-    scanner::StlFileInfo {
+    let mut entry = scanner::StlFileInfo {
         path,
         filename: model.name.to_string(),
         size: model.size,
@@ -1736,7 +1743,10 @@ fn demo_entry(root: &Path, index: usize, model: DemoModel) -> scanner::StlFileIn
             },
             ..scanner::SidecarMeta::default()
         }),
-    }
+        thumbnail_path: None,
+    };
+    entry.thumbnail_path = crate::thumbnail_cache::ensure_thumbnail(&entry, None).ok();
+    entry
 }
 
 fn demo_print_history(count: u32) -> Vec<scanner::PrintRecord> {
@@ -2782,7 +2792,11 @@ fn scan_folder_entries(folder: &Path) -> (Vec<scanner::StlFileInfo>, usize) {
     for event in rx {
         match event {
             scanner::ScanEvent::Progress { .. } => {}
-            scanner::ScanEvent::Entry { info, .. } => entries.push(*info),
+            scanner::ScanEvent::Entry { mut info, mesh } => {
+                info.thumbnail_path =
+                    crate::thumbnail_cache::ensure_thumbnail(&info, mesh.as_ref()).ok();
+                entries.push(*info);
+            }
             scanner::ScanEvent::Done {
                 skipped: done_skipped,
             } => {
@@ -2797,6 +2811,7 @@ fn scan_folder_entries(folder: &Path) -> (Vec<scanner::StlFileInfo>, usize) {
 }
 
 fn browser_card(card: &BrowserCardVm) -> BrowserCard {
+    let (thumb_image, thumb_ready) = load_thumbnail_image(card.thumb_path.as_deref());
     BrowserCard {
         stable_key: card.stable_key.clone().into(),
         slot_index: card.slot_index as i32,
@@ -2805,11 +2820,30 @@ fn browser_card(card: &BrowserCardVm) -> BrowserCard {
         author: card.author.clone().into(),
         relative_modified: card.relative_modified.clone().into(),
         thumb_key: card.thumb_key.clone().into(),
+        thumb_image,
+        thumb_ready,
         badge: card.badge.clone().into(),
         printed_count: card.printed_count as i32,
         favorite: card.favorite,
         printed: card.printed,
         error: card.error,
+    }
+}
+
+fn load_thumbnail_image(path: Option<&Path>) -> (slint::Image, bool) {
+    let Some(path) = path else {
+        return (slint::Image::default(), false);
+    };
+    match slint::Image::load_from_path(path) {
+        Ok(image) => (image, true),
+        Err(err) => {
+            eprintln!(
+                "Warning: failed to load thumbnail {}: {:?}",
+                path.display(),
+                err
+            );
+            (slint::Image::default(), false)
+        }
     }
 }
 
@@ -2859,6 +2893,7 @@ mod tests {
             triangle_count: Some(1),
             dimensions: Some([1.0, 1.0, 1.0]),
             modified: None,
+            thumbnail_path: None,
             meta: None,
         }
     }
