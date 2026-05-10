@@ -4,6 +4,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+if ($PSVersionTable.PSVersion.Major -ge 7) {
+    $PSNativeCommandUseErrorActionPreference = $true
+}
 $Root = (Resolve-Path (Join-Path $PSScriptRoot ".."))
 $CargoToml = Join-Path $Root "Cargo.toml"
 $Dist = Join-Path $Root "dist"
@@ -35,8 +38,24 @@ Remove-Item -Force $ZipAsset -ErrorAction SilentlyContinue
 Compress-Archive -Path $Portable -DestinationPath $ZipAsset -Force
 
 function Write-Sha256($Path) {
+    if (-not (Test-Path $Path)) { throw "cannot hash missing file: $Path" }
     $Hash = (Get-FileHash -Algorithm SHA256 $Path).Hash.ToLowerInvariant()
     "$Hash  $(Split-Path -Leaf $Path)" | Set-Content -NoNewline -Encoding ASCII "$Path.sha256"
+}
+
+function Invoke-CheckedNative {
+    param(
+        [Parameter(Mandatory = $true)][string]$FilePath,
+        [Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments
+    )
+    & $FilePath @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "$FilePath exited with code $LASTEXITCODE"
+    }
+}
+
+function Escape-WixAttribute($Value) {
+    return [System.Security.SecurityElement]::Escape([string]$Value)
 }
 
 Write-Sha256 $ExeAsset
@@ -62,21 +81,28 @@ $UpgradeCode = "2D00A8D4-7C7B-48F9-BFA6-E35F467C62E8"
 $ExeComponentGuid = "D36B18E6-7E14-42E7-A7EA-E6F019BC642E"
 $ShortcutComponentGuid = "7284FB2E-A779-4633-B067-F2911F766B94"
 
+if ($Version -notmatch '^\d+\.\d+\.\d+(\.\d+)?$') {
+    throw "MSI version must be numeric x.x.x[.x], got: $Version"
+}
+
+$WixExeSource = Escape-WixAttribute $ExeSource
+$WixIcon = Escape-WixAttribute $Icon
+
 @"
 <?xml version="1.0" encoding="UTF-8"?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
-  <Product Id="*" Name="ModelRack" Language="1033" Version="`$(var.Version)" Manufacturer="ModelRack" UpgradeCode="$UpgradeCode">
+  <Product Id="*" Name="ModelRack" Language="1033" Version="$Version" Manufacturer="ModelRack" UpgradeCode="$UpgradeCode">
     <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="x64" />
     <MajorUpgrade DowngradeErrorMessage="A newer version of ModelRack is already installed." />
     <MediaTemplate EmbedCab="yes" />
-    <Icon Id="ModelRackIcon.ico" SourceFile="`$(var.IconPath)" />
+    <Icon Id="ModelRackIcon.ico" SourceFile="$WixIcon" />
     <Property Id="ARPPRODUCTICON" Value="ModelRackIcon.ico" />
 
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFiles64Folder">
         <Directory Id="INSTALLFOLDER" Name="ModelRack">
           <Component Id="ModelRackExe" Guid="$ExeComponentGuid" Win64="yes">
-            <File Id="ModelRackExeFile" Source="`$(var.ExePath)" KeyPath="yes" />
+            <File Id="ModelRackExeFile" Source="$WixExeSource" KeyPath="yes" />
           </Component>
         </Directory>
       </Directory>
@@ -99,8 +125,8 @@ $ShortcutComponentGuid = "7284FB2E-A779-4633-B067-F2911F766B94"
 </Wix>
 "@ | Set-Content -Encoding UTF8 $Wxs
 
-& $Candle.Source -nologo -arch x64 -dVersion=$Version -dExePath=$ExeSource -dIconPath=$Icon -out $WixObj $Wxs
-& $Light.Source -nologo -out $MsiAsset $WixObj
+Invoke-CheckedNative $Candle.Source -nologo -arch x64 -out $WixObj $Wxs
+Invoke-CheckedNative $Light.Source -nologo -out $MsiAsset $WixObj
 Write-Sha256 $MsiAsset
 
 Write-Host "Windows packages written to $Dist"
