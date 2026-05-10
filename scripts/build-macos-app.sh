@@ -7,6 +7,8 @@ CONTENTS="$APP/Contents"
 MACOS="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
 PROFILE="${MODELRACK_BUILD_PROFILE:-debug}"
+SIGN_IDENTITY="${MODELRACK_SIGN_IDENTITY:-}"
+SIGN_OPTIONS="${MODELRACK_SIGN_OPTIONS:-runtime}"
 
 case "${1:-}" in
   --release)
@@ -79,5 +81,11 @@ cat > "$CONTENTS/Info.plist" <<PLIST
 </plist>
 PLIST
 
-codesign --force --deep --sign - "$APP" >/dev/null
-printf 'Built %s (%s, v%s)\n' "$APP" "$PROFILE" "$VERSION"
+if [[ -n "$SIGN_IDENTITY" ]]; then
+  codesign --force --deep --options "$SIGN_OPTIONS" --timestamp --sign "$SIGN_IDENTITY" "$APP" >/dev/null
+  codesign --verify --deep --strict --verbose=2 "$APP"
+  printf 'Built %s (%s, v%s, signed: %s)\n' "$APP" "$PROFILE" "$VERSION" "$SIGN_IDENTITY"
+else
+  codesign --force --deep --sign - "$APP" >/dev/null
+  printf 'Built %s (%s, v%s, ad-hoc signed)\n' "$APP" "$PROFILE" "$VERSION"
+fi

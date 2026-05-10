@@ -2,6 +2,9 @@
 
 ## v0.0.3 — macOS maker-library alpha
 
+### Distribution
+- macOS release asset is Developer ID signed, notarized by Apple, stapled, and Gatekeeper-assessed.
+
 ### Added
 - Native macOS app bundle packaging with generated `.icns` app icon assets.
 - Localized Korean UI coverage for browser controls, sidebars, detail panels, settings content, status text, and relative times.
@@ -19,4 +22,3 @@
 ### Known gaps
 - Cross-platform Windows/Linux release evidence is still deferred.
 - Tag sidebar drag/drop remains marked for manual QA.
-- The macOS app bundle is ad-hoc signed, not notarized.
