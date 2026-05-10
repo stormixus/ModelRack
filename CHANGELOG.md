@@ -3,7 +3,8 @@
 ## v0.0.3 — macOS maker-library alpha
 
 ### Distribution
-- macOS release asset is Developer ID signed, notarized by Apple, stapled, and Gatekeeper-assessed.
+- macOS release assets are Developer ID signed, notarized by Apple, stapled, and Gatekeeper-assessed.
+- Added a polished drag-to-Applications DMG installer layout as the recommended download.
 
 ### Added
 - Native macOS app bundle packaging with generated `.icns` app icon assets.

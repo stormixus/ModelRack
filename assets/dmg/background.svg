@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="440" viewBox="0 0 920 440">
+  <defs>
+    <radialGradient id="bgGlow" cx="52%" cy="18%" r="82%">
+      <stop offset="0" stop-color="#365d6c"/>
+      <stop offset="0.34" stop-color="#142936"/>
+      <stop offset="0.76" stop-color="#08131b"/>
+      <stop offset="1" stop-color="#05090f"/>
+    </radialGradient>
+    <radialGradient id="cyanGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#66f2ff" stop-opacity="0.34"/>
+      <stop offset="0.48" stop-color="#37c9df" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#37c9df" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="violetGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#c7a6ff" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#c7a6ff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.105"/>
+      <stop offset="0.55" stop-color="#ffffff" stop-opacity="0.04"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.16"/>
+    </linearGradient>
+    <linearGradient id="stroke" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.22"/>
+      <stop offset="0.48" stop-color="#5ee7f5" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.18"/>
+    </linearGradient>
+    <linearGradient id="arrow" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#4be1ef" stop-opacity="0.20"/>
+      <stop offset="0.52" stop-color="#6af6ff" stop-opacity="0.92"/>
+      <stop offset="1" stop-color="#c5faff" stop-opacity="0.22"/>
+    </linearGradient>
+    <filter id="blur20" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="20"/>
+    </filter>
+    <filter id="softShadow" x="-28%" y="-28%" width="156%" height="156%">
+      <feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#000000" flood-opacity="0.34"/>
+      <feDropShadow dx="0" dy="1" stdDeviation="1" flood-color="#ffffff" flood-opacity="0.13"/>
+    </filter>
+    <pattern id="grid" width="42" height="42" patternUnits="userSpaceOnUse">
+      <path d="M42 0H0V42" fill="none" stroke="#8cebf5" stroke-opacity="0.035" stroke-width="1"/>
+    </pattern>
+  </defs>
+
+  <rect width="920" height="440" fill="url(#bgGlow)"/>
+  <rect width="920" height="440" fill="url(#grid)"/>
+  <circle cx="240" cy="220" r="168" fill="url(#cyanGlow)" filter="url(#blur20)"/>
+  <circle cx="680" cy="220" r="168" fill="url(#violetGlow)" filter="url(#blur20)"/>
+  <path d="M0 356C128 304 254 326 395 368C552 414 720 398 920 314V440H0Z" fill="#56dce8" opacity="0.035"/>
+
+  <g opacity="0.56" stroke="#8eeefa" stroke-width="1.2" fill="none">
+    <path d="M137 364L240 306L343 364L240 422Z" opacity="0.18"/>
+    <path d="M582 352L680 296L778 352L680 408Z" opacity="0.14"/>
+  </g>
+
+  <text x="460" y="62" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, SF Pro Display, Helvetica Neue, Arial" font-size="31" font-weight="700" fill="#f5fbff" letter-spacing="0.2">ModelRack</text>
+  <text x="460" y="92" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, SF Pro Text, Helvetica Neue, Arial" font-size="13" font-weight="500" fill="#a9bac4" letter-spacing="0.3">Drag the app into Applications</text>
+
+  <g filter="url(#softShadow)">
+    <rect x="130" y="137" width="220" height="170" rx="38" fill="url(#panel)" stroke="url(#stroke)" stroke-width="1"/>
+    <rect x="570" y="137" width="220" height="170" rx="38" fill="url(#panel)" stroke="url(#stroke)" stroke-width="1"/>
+  </g>
+
+  <g opacity="0.78">
+    <path d="M397 220H523" stroke="url(#arrow)" stroke-width="9" stroke-linecap="round"/>
+    <path d="M516 195L548 220L516 245" fill="none" stroke="#8bf7ff" stroke-opacity="0.88" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M397 220H523" stroke="#ffffff" stroke-opacity="0.10" stroke-width="2" stroke-linecap="round"/>
+  </g>
+
+  <text x="460" y="398" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, SF Pro Text, Helvetica Neue, Arial" font-size="11" fill="#71838c">Desktop-native 3D model library for makers</text>
+</svg>
