@@ -1,6 +1,6 @@
 # Slint Migration Plan
 
-This document is the current UI stack direction and reflects the repository state as of v0.0.3.
+This document is the current UI stack direction and reflects the repository state as of v0.1.0.
 
 ## Decision
 

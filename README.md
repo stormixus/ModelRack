@@ -9,9 +9,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/stormixus/ModelRack/releases/tag/v0.0.3-alpha.1"><strong>Download alpha</strong></a>
+  <a href="https://github.com/stormixus/ModelRack/releases/latest"><strong>Download latest release</strong></a>
   ·
-  <a href="https://github.com/stormixus/ModelRack/releases/tag/v0.0.3-alpha.1">v0.0.3-alpha.1 release</a>
+  <a href="https://github.com/stormixus/ModelRack/releases/tag/v0.1.0">v0.1.0 release</a>
 </p>
 
 <p align="center">
@@ -141,6 +141,6 @@ ModelRack includes scripts for repeatable desktop distribution:
 
 ## Status
 
-ModelRack is early alpha software, actively shaped around real maker-library workflows. Expect sharp edges, especially around unusual CAD/model files and cross-platform packaging.
+ModelRack is early desktop software, actively shaped around real maker-library workflows. Expect sharp edges, especially around unusual CAD/model files and cross-platform packaging.
 
 The goal is simple: make your 3D model folder feel like a proper workshop wall, not a junk drawer.

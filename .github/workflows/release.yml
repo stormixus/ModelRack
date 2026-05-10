@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag to create/update, for example v0.0.3-alpha.1'
+        description: 'Release tag to create/update, for example v0.1.0'
         required: false
         type: string
 
@@ -156,6 +156,17 @@ jobs:
           if [[ -z "$TAG" ]]; then
             TAG="${GITHUB_REF_NAME}"
           fi
+          if [[ "$TAG" == *-* ]]; then
+            RELEASE_TITLE="ModelRack ${TAG} desktop alpha"
+            RELEASE_HEADING="desktop maker-library alpha"
+            RELEASE_CREATE_FLAGS=(--prerelease --latest=false)
+            RELEASE_EDIT_FLAGS=(--prerelease --latest=false)
+          else
+            RELEASE_TITLE="ModelRack ${TAG} desktop release"
+            RELEASE_HEADING="desktop maker-library release"
+            RELEASE_CREATE_FLAGS=(--latest)
+            RELEASE_EDIT_FLAGS=(--latest)
+          fi
           ASSET_PREFIX="ModelRack-v${VERSION}"
           if [[ "$TAG" != "v${VERSION}" ]]; then
             ASSET_PREFIX="ModelRack-${TAG}"
@@ -170,7 +181,7 @@ jobs:
             SIGNING_STATUS="Developer ID signed, notarized, and stapled"
           fi
           cat > "$NOTES" <<NOTES
-          ## ModelRack ${TAG} — desktop maker-library alpha
+          ## ModelRack ${TAG} — ${RELEASE_HEADING}
 
           This release packages ModelRack for macOS, Windows, and Linux. The macOS DMG is Developer ID signed and notarized when Apple secrets are configured. Windows/Linux assets are attached by sibling release jobs.
 
@@ -197,9 +208,9 @@ jobs:
           NOTES
 
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release edit "$TAG" --title "ModelRack ${TAG} desktop alpha" --notes-file "$NOTES" --prerelease --latest=false
+            gh release edit "$TAG" --title "$RELEASE_TITLE" --notes-file "$NOTES" "${RELEASE_EDIT_FLAGS[@]}"
           else
-            gh release create "$TAG" --title "ModelRack ${TAG} desktop alpha" --notes-file "$NOTES" --prerelease --latest=false
+            gh release create "$TAG" --title "$RELEASE_TITLE" --notes-file "$NOTES" "${RELEASE_CREATE_FLAGS[@]}"
           fi
           gh release upload "$TAG" "$DMG" "$DMG.sha256" "$ZIP" "$ZIP.sha256" --clobber
 
@@ -290,10 +301,21 @@ jobs:
         run: |
           $Tag = "${{ inputs.tag }}"
           if ([string]::IsNullOrWhiteSpace($Tag)) { $Tag = "${env:GITHUB_REF_NAME}" }
+          $IsPrerelease = $Tag.Contains("-")
+          $Title = if ($IsPrerelease) { "ModelRack $Tag desktop alpha" } else { "ModelRack $Tag desktop release" }
+          $Notes = if ($IsPrerelease) { "Cross-platform ModelRack desktop alpha." } else { "Cross-platform ModelRack desktop release." }
           if (-not (gh release view $Tag 2>$null)) {
-            gh release create $Tag --title "ModelRack $Tag desktop alpha" --notes "Cross-platform ModelRack desktop alpha." --prerelease --latest=false
+            if ($IsPrerelease) {
+              gh release create $Tag --title $Title --notes $Notes --prerelease --latest=false
+            } else {
+              gh release create $Tag --title $Title --notes $Notes --latest
+            }
           } else {
-            gh release edit $Tag --title "ModelRack $Tag desktop alpha" --prerelease --latest=false
+            if ($IsPrerelease) {
+              gh release edit $Tag --title $Title --prerelease --latest=false
+            } else {
+              gh release edit $Tag --title $Title --latest
+            }
           }
           gh release upload $Tag dist/ModelRack-v*-windows-*.exe dist/ModelRack-v*-windows-*.exe.sha256 dist/ModelRack-v*-windows-*-portable.zip dist/ModelRack-v*-windows-*-portable.zip.sha256 dist/ModelRack-v*-windows-*.msi dist/ModelRack-v*-windows-*.msi.sha256 --clobber
 
@@ -383,9 +405,20 @@ jobs:
           if [[ -z "$TAG" ]]; then
             TAG="${GITHUB_REF_NAME}"
           fi
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --title "ModelRack ${TAG} desktop alpha" --notes "Cross-platform ModelRack desktop alpha." --prerelease --latest=false
+          if [[ "$TAG" == *-* ]]; then
+            RELEASE_TITLE="ModelRack ${TAG} desktop alpha"
+            RELEASE_NOTES="Cross-platform ModelRack desktop alpha."
+            RELEASE_CREATE_FLAGS=(--prerelease --latest=false)
+            RELEASE_EDIT_FLAGS=(--prerelease --latest=false)
           else
-            gh release edit "$TAG" --title "ModelRack ${TAG} desktop alpha" --prerelease --latest=false
+            RELEASE_TITLE="ModelRack ${TAG} desktop release"
+            RELEASE_NOTES="Cross-platform ModelRack desktop release."
+            RELEASE_CREATE_FLAGS=(--latest)
+            RELEASE_EDIT_FLAGS=(--latest)
+          fi
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "$RELEASE_TITLE" --notes "$RELEASE_NOTES" "${RELEASE_CREATE_FLAGS[@]}"
+          else
+            gh release edit "$TAG" --title "$RELEASE_TITLE" "${RELEASE_EDIT_FLAGS[@]}"
           fi
           gh release upload "$TAG" dist/ModelRack-v*-linux-*.tar.gz dist/ModelRack-v*-linux-*.tar.gz.sha256 dist/modelrack_*_*.deb dist/modelrack_*_*.deb.sha256 --clobber
