@@ -125,8 +125,8 @@ $WixIcon = Escape-WixAttribute $Icon
 </Wix>
 "@ | Set-Content -Encoding UTF8 $Wxs
 
-Invoke-CheckedNative $Candle.Source -nologo -arch x64 -out $WixObj $Wxs
-Invoke-CheckedNative $Light.Source -nologo -out $MsiAsset $WixObj
+Invoke-CheckedNative $Candle.Source @("-nologo", "-arch", "x64", "-out", $WixObj, $Wxs)
+Invoke-CheckedNative $Light.Source @("-nologo", "-out", $MsiAsset, $WixObj)
 Write-Sha256 $MsiAsset
 
 Write-Host "Windows packages written to $Dist"
