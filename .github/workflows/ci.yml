@@ -11,8 +11,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  rust:
-    name: Rust checks
+  macos:
+    name: macOS checks and app bundle
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -61,4 +61,102 @@ jobs:
           path: |
             dist/*-ci.zip
             dist/*-ci.zip.sha256
+          if-no-files-found: error
+
+  windows:
+    name: Windows checks and packages
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Cache cargo registry and build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Test
+        run: cargo test
+
+      - name: Build portable EXE artifacts
+        shell: pwsh
+        run: ./scripts/build-windows-packages.ps1 -SkipMsi
+
+      - name: Upload Windows CI artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: modelrack-windows-ci
+          path: |
+            dist/ModelRack-v*-windows-*.exe
+            dist/ModelRack-v*-windows-*.exe.sha256
+            dist/ModelRack-v*-windows-*-portable.zip
+            dist/ModelRack-v*-windows-*-portable.zip.sha256
+          if-no-files-found: error
+
+  linux:
+    name: Linux checks and packages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config \
+            libfontconfig1-dev \
+            libxkbcommon-dev \
+            libxcb1-dev \
+            libwayland-dev \
+            libudev-dev
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Cache cargo registry and build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Test
+        run: cargo test
+
+      - name: Build Linux packages
+        run: ./scripts/build-linux-packages.sh
+
+      - name: Upload Linux CI artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: modelrack-linux-ci
+          path: |
+            dist/ModelRack-v*-linux-*.tar.gz
+            dist/ModelRack-v*-linux-*.tar.gz.sha256
+            dist/modelrack_*_*.deb
+            dist/modelrack_*_*.deb.sha256
           if-no-files-found: error

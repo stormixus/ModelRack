@@ -72,14 +72,14 @@ ModelRack works on your folders. Metadata stays local. No account, no cloud sync
 
 ## Download
 
-The recommended macOS build is the notarized DMG:
+The recommended macOS build is the notarized DMG. Tagged releases also attach Windows and Linux packages built by GitHub Actions:
 
-- [ModelRack-v0.0.3-macos-arm64.dmg](https://github.com/stormixus/ModelRack/releases/download/v0.0.3/ModelRack-v0.0.3-macos-arm64.dmg)
-- SHA-256: `807ccca8259f513af5586eeb9bb9d77d5dc54eccf14c14138f1dc5bcc3903b5b`
+- macOS: `ModelRack-v<version>-macos-arm64.dmg` plus `.zip` fallback
+- Windows: `ModelRack-v<version>-windows-x64.exe`, portable `.zip`, and `.msi` installer
+- Linux: `ModelRack-v<version>-linux-x86_64.tar.gz` and Debian `.deb`
+- SHA-256 files ship beside every release asset.
 
-Alternative zip builds are also attached to the release page.
-
-> Current release target: Apple Silicon macOS. Windows/Linux support is planned but not release-verified yet.
+Current stable smoke target is still macOS; Windows/Linux packages are build-verified in CI and need device QA before we call them polished.
 
 ## Build from source
 
@@ -87,6 +87,8 @@ Requirements:
 
 - Rust stable
 - Xcode command line tools on macOS
+- WiX Toolset v3 on Windows if you want MSI output
+- `pkg-config`, `libfontconfig1-dev`, `libxkbcommon-dev`, `libxcb1-dev`, `libwayland-dev`, and `libudev-dev` on Debian/Ubuntu Linux
 
 ```bash
 git clone https://github.com/stormixus/ModelRack.git
@@ -107,14 +109,28 @@ MODELRACK_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
   ./scripts/create-macos-dmg.sh --keychain-profile modelrack
 ```
 
+Build Windows packages from PowerShell:
+
+```powershell
+./scripts/build-windows-packages.ps1 -RequireMsi
+```
+
+Build Linux packages:
+
+```bash
+./scripts/build-linux-packages.sh
+```
+
 ## Release tooling
 
-ModelRack includes scripts for repeatable macOS distribution:
+ModelRack includes scripts for repeatable desktop distribution:
 
 - `scripts/generate-app-icon.sh` — regenerate `.icns` and iconset assets
 - `scripts/build-macos-app.sh` — build the `.app` bundle with ad-hoc or Developer ID signing
 - `scripts/notarize-macos-app.sh` — submit, staple, and validate the app bundle
 - `scripts/create-macos-dmg.sh` — create the drag-to-Applications DMG and optionally notarize it
+- `scripts/build-windows-packages.ps1` — build Windows `.exe`, portable `.zip`, and WiX `.msi` packages
+- `scripts/build-linux-packages.sh` — build Linux portable `.tar.gz` and Debian `.deb` packages
 
 ## Tech stack
 

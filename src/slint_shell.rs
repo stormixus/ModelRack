@@ -5275,6 +5275,7 @@ fn compact_ascii_key(text: &str) -> String {
         .collect()
 }
 
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn platform_cache_root() -> PathBuf {
     if let Ok(path) = std::env::var("MODELRACK_CACHE_DIR") {
         if !path.is_empty() {

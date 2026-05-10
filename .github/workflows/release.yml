@@ -1,4 +1,4 @@
-name: Release macOS
+name: Release Desktop
 
 on:
   push:
@@ -15,7 +15,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: release-macos-${{ github.ref }}-${{ inputs.tag }}
+  group: release-desktop-${{ github.ref }}-${{ inputs.tag }}
   cancel-in-progress: false
 
 jobs:
@@ -146,29 +146,178 @@ jobs:
             SIGNING_STATUS="Developer ID signed, notarized, and stapled"
           fi
           cat > "$NOTES" <<NOTES
-          ## ModelRack ${TAG} — macOS maker-library alpha
+          ## ModelRack ${TAG} — desktop maker-library alpha
 
-          This release packages ModelRack as a macOS DMG.
+          This release packages ModelRack for macOS, Windows, and Linux. The macOS DMG is Developer ID signed and notarized when Apple secrets are configured. Windows/Linux assets are attached by sibling release jobs.
 
           ### Recommended download
           - \`$(basename "$DMG")\`
           - SHA-256: \`${DMG_SHA}\`
           - Signing: ${SIGNING_STATUS}
 
-          ### Alternative asset
+          ### Alternative macOS asset
           - \`$(basename "$ZIP")\`
           - SHA-256: \`${ZIP_SHA}\`
+
+          ### Windows and Linux
+          - Windows: `.exe`, portable `.zip`, and `.msi` are built on `windows-latest` and attached to this release.
+          - Linux: portable `.tar.gz` and Debian `.deb` are built on `ubuntu-latest` and attached to this release.
 
           ### Verification
           - \`cargo fmt --check\`
           - \`python3 scripts/check-warning-baseline.py\`
           - \`cargo test\`
           - \`scripts/create-macos-dmg.sh\`
+          - \`scripts/build-windows-packages.ps1\`
+          - \`scripts/build-linux-packages.sh\`
           NOTES
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release edit "$TAG" --notes-file "$NOTES"
           else
-            gh release create "$TAG" --title "ModelRack ${TAG} macOS alpha" --notes-file "$NOTES" --prerelease
+            gh release create "$TAG" --title "ModelRack ${TAG} desktop alpha" --notes-file "$NOTES" --prerelease
           fi
           gh release upload "$TAG" "$DMG" "$DMG.sha256" "$ZIP" "$ZIP.sha256" --clobber
+
+
+  windows:
+    name: Build Windows EXE and MSI
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Cache cargo registry and build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-release-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-release-cargo-
+            ${{ runner.os }}-cargo-
+
+      - name: Verify source
+        run: |
+          cargo fmt --check
+          cargo test
+
+      - name: Install WiX Toolset for MSI packaging
+        shell: pwsh
+        run: |
+          choco install wixtoolset --no-progress -y
+          $machine = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+          $user = [Environment]::GetEnvironmentVariable('Path', 'User')
+          $env:Path = "$machine;$user;$env:Path"
+          Get-Command candle.exe
+          Get-Command light.exe
+
+      - name: Build Windows packages
+        shell: pwsh
+        run: |
+          $machine = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+          $user = [Environment]::GetEnvironmentVariable('Path', 'User')
+          $env:Path = "$machine;$user;$env:Path"
+          ./scripts/build-windows-packages.ps1 -RequireMsi
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: modelrack-windows-release
+          path: |
+            dist/ModelRack-v*-windows-*.exe
+            dist/ModelRack-v*-windows-*.exe.sha256
+            dist/ModelRack-v*-windows-*-portable.zip
+            dist/ModelRack-v*-windows-*-portable.zip.sha256
+            dist/ModelRack-v*-windows-*.msi
+            dist/ModelRack-v*-windows-*.msi.sha256
+          if-no-files-found: error
+
+      - name: Publish GitHub Release assets
+        if: startsWith(github.ref, 'refs/tags/') || inputs.tag != ''
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $Tag = "${{ inputs.tag }}"
+          if ([string]::IsNullOrWhiteSpace($Tag)) { $Tag = "${env:GITHUB_REF_NAME}" }
+          if (-not (gh release view $Tag 2>$null)) {
+            gh release create $Tag --title "ModelRack $Tag desktop alpha" --notes "Cross-platform ModelRack desktop alpha." --prerelease
+          }
+          gh release upload $Tag dist/ModelRack-v*-windows-*.exe dist/ModelRack-v*-windows-*.exe.sha256 dist/ModelRack-v*-windows-*-portable.zip dist/ModelRack-v*-windows-*-portable.zip.sha256 dist/ModelRack-v*-windows-*.msi dist/ModelRack-v*-windows-*.msi.sha256 --clobber
+
+  linux:
+    name: Build Linux tar.gz and deb
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config \
+            libfontconfig1-dev \
+            libxkbcommon-dev \
+            libxcb1-dev \
+            libwayland-dev \
+            libudev-dev
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Cache cargo registry and build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-release-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-release-cargo-
+            ${{ runner.os }}-cargo-
+
+      - name: Verify source
+        run: |
+          cargo fmt --check
+          cargo test
+
+      - name: Build Linux packages
+        run: ./scripts/build-linux-packages.sh
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: modelrack-linux-release
+          path: |
+            dist/ModelRack-v*-linux-*.tar.gz
+            dist/ModelRack-v*-linux-*.tar.gz.sha256
+            dist/modelrack_*_*.deb
+            dist/modelrack_*_*.deb.sha256
+          if-no-files-found: error
+
+      - name: Publish GitHub Release assets
+        if: startsWith(github.ref, 'refs/tags/') || inputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag }}"
+          if [[ -z "$TAG" ]]; then
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "ModelRack ${TAG} desktop alpha" --notes "Cross-platform ModelRack desktop alpha." --prerelease
+          fi
+          gh release upload "$TAG" dist/ModelRack-v*-linux-*.tar.gz dist/ModelRack-v*-linux-*.tar.gz.sha256 dist/modelrack_*_*.deb dist/modelrack_*_*.deb.sha256 --clobber
