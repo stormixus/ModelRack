@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag to create/update, for example v0.0.3'
+        description: 'Release tag to create/update, for example v0.0.3-alpha.1'
         required: false
         type: string
 
@@ -114,6 +114,26 @@ jobs:
           ditto -c -k --keepParent build/ModelRack.app "$ZIP"
           shasum -a 256 "$ZIP" > "$ZIP.sha256"
 
+      - name: Normalize release asset filenames
+        if: startsWith(github.ref, 'refs/tags/') || inputs.tag != ''
+        run: |
+          set -euo pipefail
+          VERSION="$(awk -F '"' '/^version =/ { print $2; exit }' Cargo.toml)"
+          TAG="${{ inputs.tag }}"
+          if [[ -z "$TAG" ]]; then
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          if [[ "$TAG" == "v${VERSION}" ]]; then
+            exit 0
+          fi
+          for asset in dist/ModelRack-v${VERSION}-macos-*; do
+            [[ "$asset" == *.sha256 ]] && continue
+            target="${asset/ModelRack-v${VERSION}-/ModelRack-${TAG}-}"
+            mv "$asset" "$target"
+            rm -f "$asset.sha256" "$target.sha256"
+            shasum -a 256 "$target" > "$target.sha256"
+          done
+
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -136,9 +156,13 @@ jobs:
           if [[ -z "$TAG" ]]; then
             TAG="${GITHUB_REF_NAME}"
           fi
-          DMG="$(ls dist/ModelRack-v${VERSION}-macos-*.dmg | head -1)"
+          ASSET_PREFIX="ModelRack-v${VERSION}"
+          if [[ "$TAG" != "v${VERSION}" ]]; then
+            ASSET_PREFIX="ModelRack-${TAG}"
+          fi
+          DMG="$(ls dist/${ASSET_PREFIX}-macos-*.dmg | head -1)"
           DMG_SHA="$(awk '{print $1}' "$DMG.sha256")"
-          ZIP="$(ls dist/ModelRack-v${VERSION}-macos-*.zip | grep -v notary-submit | head -1)"
+          ZIP="$(ls dist/${ASSET_PREFIX}-macos-*.zip | grep -v notary-submit | head -1)"
           ZIP_SHA="$(awk '{print $1}' "$ZIP.sha256")"
           NOTES="$RUNNER_TEMP/release-notes.md"
           SIGNING_STATUS="Unsigned CI build"
@@ -160,8 +184,8 @@ jobs:
           - SHA-256: \`${ZIP_SHA}\`
 
           ### Windows and Linux
-          - Windows: `.exe`, portable `.zip`, and `.msi` are built on `windows-latest` and attached to this release.
-          - Linux: portable `.tar.gz` and Debian `.deb` are built on `ubuntu-latest` and attached to this release.
+          - Windows: \`.exe\`, portable \`.zip\`, and \`.msi\` are built on \`windows-latest\` and attached to this release.
+          - Linux: portable \`.tar.gz\` and Debian \`.deb\` are built on \`ubuntu-latest\` and attached to this release.
 
           ### Verification
           - \`cargo fmt --check\`
@@ -173,9 +197,9 @@ jobs:
           NOTES
 
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release edit "$TAG" --notes-file "$NOTES"
+            gh release edit "$TAG" --title "ModelRack ${TAG} desktop alpha" --notes-file "$NOTES" --prerelease --latest=false
           else
-            gh release create "$TAG" --title "ModelRack ${TAG} desktop alpha" --notes-file "$NOTES" --prerelease
+            gh release create "$TAG" --title "ModelRack ${TAG} desktop alpha" --notes-file "$NOTES" --prerelease --latest=false
           fi
           gh release upload "$TAG" "$DMG" "$DMG.sha256" "$ZIP" "$ZIP.sha256" --clobber
 
@@ -227,6 +251,24 @@ jobs:
           $env:Path = "$machine;$user;$env:Path"
           ./scripts/build-windows-packages.ps1 -RequireMsi
 
+      - name: Normalize release asset filenames
+        if: startsWith(github.ref, 'refs/tags/') || inputs.tag != ''
+        shell: pwsh
+        run: |
+          $Version = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"').Matches[0].Groups[1].Value
+          $Tag = "${{ inputs.tag }}"
+          if ([string]::IsNullOrWhiteSpace($Tag)) { $Tag = "${env:GITHUB_REF_NAME}" }
+          if ($Tag -eq "v$Version") { exit 0 }
+          Get-ChildItem dist -File -Filter "ModelRack-v$Version-windows-*" | Where-Object { $_.Name -notlike '*.sha256' } | ForEach-Object {
+            $TargetName = $_.Name.Replace("ModelRack-v$Version-", "ModelRack-$Tag-")
+            $TargetPath = Join-Path $_.DirectoryName $TargetName
+            Move-Item $_.FullName $TargetPath -Force
+            Remove-Item "$($_.FullName).sha256" -Force -ErrorAction SilentlyContinue
+            Remove-Item "$TargetPath.sha256" -Force -ErrorAction SilentlyContinue
+            $Hash = (Get-FileHash -Algorithm SHA256 $TargetPath).Hash.ToLowerInvariant()
+            "$Hash  $TargetName" | Set-Content -Encoding ASCII "$TargetPath.sha256"
+          }
+
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -249,7 +291,9 @@ jobs:
           $Tag = "${{ inputs.tag }}"
           if ([string]::IsNullOrWhiteSpace($Tag)) { $Tag = "${env:GITHUB_REF_NAME}" }
           if (-not (gh release view $Tag 2>$null)) {
-            gh release create $Tag --title "ModelRack $Tag desktop alpha" --notes "Cross-platform ModelRack desktop alpha." --prerelease
+            gh release create $Tag --title "ModelRack $Tag desktop alpha" --notes "Cross-platform ModelRack desktop alpha." --prerelease --latest=false
+          } else {
+            gh release edit $Tag --title "ModelRack $Tag desktop alpha" --prerelease --latest=false
           }
           gh release upload $Tag dist/ModelRack-v*-windows-*.exe dist/ModelRack-v*-windows-*.exe.sha256 dist/ModelRack-v*-windows-*-portable.zip dist/ModelRack-v*-windows-*-portable.zip.sha256 dist/ModelRack-v*-windows-*.msi dist/ModelRack-v*-windows-*.msi.sha256 --clobber
 
@@ -296,6 +340,28 @@ jobs:
       - name: Build Linux packages
         run: ./scripts/build-linux-packages.sh
 
+      - name: Normalize release asset filenames
+        if: startsWith(github.ref, 'refs/tags/') || inputs.tag != ''
+        run: |
+          set -euo pipefail
+          VERSION="$(awk -F '"' '/^version =/ { print $2; exit }' Cargo.toml)"
+          TAG="${{ inputs.tag }}"
+          if [[ -z "$TAG" ]]; then
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          if [[ "$TAG" == "v${VERSION}" ]]; then
+            exit 0
+          fi
+          for asset in dist/ModelRack-v${VERSION}-linux-* dist/modelrack_${VERSION}_*.deb; do
+            [[ -e "$asset" ]] || continue
+            [[ "$asset" == *.sha256 ]] && continue
+            target="${asset/ModelRack-v${VERSION}-/ModelRack-${TAG}-}"
+            target="${target/modelrack_${VERSION}_/modelrack_${TAG#v}_}"
+            mv "$asset" "$target"
+            rm -f "$asset.sha256" "$target.sha256"
+            shasum -a 256 "$target" > "$target.sha256"
+          done
+
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -318,6 +384,8 @@ jobs:
             TAG="${GITHUB_REF_NAME}"
           fi
           if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --title "ModelRack ${TAG} desktop alpha" --notes "Cross-platform ModelRack desktop alpha." --prerelease
+            gh release create "$TAG" --title "ModelRack ${TAG} desktop alpha" --notes "Cross-platform ModelRack desktop alpha." --prerelease --latest=false
+          else
+            gh release edit "$TAG" --title "ModelRack ${TAG} desktop alpha" --prerelease --latest=false
           fi
           gh release upload "$TAG" dist/ModelRack-v*-linux-*.tar.gz dist/ModelRack-v*-linux-*.tar.gz.sha256 dist/modelrack_*_*.deb dist/modelrack_*_*.deb.sha256 --clobber

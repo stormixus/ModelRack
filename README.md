@@ -9,9 +9,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/stormixus/ModelRack/releases/latest"><strong>Download for macOS</strong></a>
+  <a href="https://github.com/stormixus/ModelRack/releases/tag/v0.0.3-alpha.1"><strong>Download alpha</strong></a>
   ·
-  <a href="https://github.com/stormixus/ModelRack/releases/tag/v0.0.3">v0.0.3 release</a>
+  <a href="https://github.com/stormixus/ModelRack/releases/tag/v0.0.3-alpha.1">v0.0.3-alpha.1 release</a>
 </p>
 
 <p align="center">
