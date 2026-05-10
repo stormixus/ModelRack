@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: Rust checks
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Cache cargo registry and build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Warning baseline
+        run: python3 scripts/check-warning-baseline.py
+
+      - name: Test
+        run: cargo test
+
+      - name: Build app bundle
+        run: ./scripts/build-macos-app.sh --release
+
+      - name: Package CI app zip
+        run: |
+          VERSION="$(awk -F '"' '/^version =/ { print $2; exit }' Cargo.toml)"
+          ARCH="$(uname -m)"
+          mkdir -p dist
+          ditto -c -k --keepParent build/ModelRack.app "dist/ModelRack-v${VERSION}-macos-${ARCH}-ci.zip"
+          shasum -a 256 "dist/ModelRack-v${VERSION}-macos-${ARCH}-ci.zip" > "dist/ModelRack-v${VERSION}-macos-${ARCH}-ci.zip.sha256"
+
+      - name: Upload CI app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: modelrack-macos-ci
+          path: |
+            dist/*-ci.zip
+            dist/*-ci.zip.sha256
+          if-no-files-found: error

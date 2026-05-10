@@ -1,0 +1,174 @@
+name: Release macOS
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to create/update, for example v0.0.3'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-macos-${{ github.ref }}-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  macos:
+    name: Build macOS DMG
+    runs-on: macos-latest
+    env:
+      APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_NOTARY_APPLE_ID: ${{ secrets.APPLE_NOTARY_APPLE_ID }}
+      APPLE_NOTARY_TEAM_ID: ${{ secrets.APPLE_NOTARY_TEAM_ID }}
+      APPLE_NOTARY_PASSWORD: ${{ secrets.APPLE_NOTARY_PASSWORD }}
+      NOTARY_PROFILE: modelrack-ci
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Cache cargo registry and build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-release-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-release-cargo-
+            ${{ runner.os }}-cargo-
+
+      - name: Verify source
+        run: |
+          cargo fmt --check
+          python3 scripts/check-warning-baseline.py
+          cargo test
+
+      - name: Import Developer ID certificate when configured
+        id: signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${APPLE_CERTIFICATE_P12_BASE64}" ]]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "No Developer ID certificate secret configured; building unsigned/ad-hoc CI artifacts."
+            exit 0
+          fi
+
+          KEYCHAIN_PATH="$RUNNER_TEMP/modelrack-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          CERT_PATH="$RUNNER_TEMP/developer-id.p12"
+
+          echo -n "${APPLE_CERTIFICATE_P12_BASE64}" | base64 --decode > "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "${APPLE_CERTIFICATE_PASSWORD}" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' | head -1)"
+          if [[ -z "$IDENTITY" ]]; then
+            echo "Developer ID Application identity not found after import" >&2
+            exit 1
+          fi
+          echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+
+      - name: Store notary credentials when configured
+        if: steps.signing.outputs.configured == 'true'
+        run: |
+          xcrun notarytool store-credentials "$NOTARY_PROFILE" \
+            --apple-id "$APPLE_NOTARY_APPLE_ID" \
+            --team-id "$APPLE_NOTARY_TEAM_ID" \
+            --password "$APPLE_NOTARY_PASSWORD"
+
+      - name: Build notarized DMG when signing is configured
+        if: steps.signing.outputs.configured == 'true'
+        run: |
+          MODELRACK_SIGN_IDENTITY="${{ steps.signing.outputs.identity }}" \
+            ./scripts/create-macos-dmg.sh --keychain-profile "$NOTARY_PROFILE"
+
+      - name: Build unsigned DMG fallback
+        if: steps.signing.outputs.configured != 'true'
+        run: ./scripts/create-macos-dmg.sh
+
+      - name: Build app zip fallback asset
+        run: |
+          VERSION="$(awk -F '"' '/^version =/ { print $2; exit }' Cargo.toml)"
+          ARCH="$(uname -m)"
+          ZIP="dist/ModelRack-v${VERSION}-macos-${ARCH}.zip"
+          rm -f "$ZIP" "$ZIP.sha256"
+          ditto -c -k --keepParent build/ModelRack.app "$ZIP"
+          shasum -a 256 "$ZIP" > "$ZIP.sha256"
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: modelrack-macos-release
+          path: |
+            dist/ModelRack-v*-macos-*.dmg
+            dist/ModelRack-v*-macos-*.dmg.sha256
+            dist/ModelRack-v*-macos-*.zip
+            dist/ModelRack-v*-macos-*.zip.sha256
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/') || inputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="$(awk -F '"' '/^version =/ { print $2; exit }' Cargo.toml)"
+          TAG="${{ inputs.tag }}"
+          if [[ -z "$TAG" ]]; then
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          DMG="$(ls dist/ModelRack-v${VERSION}-macos-*.dmg | head -1)"
+          DMG_SHA="$(awk '{print $1}' "$DMG.sha256")"
+          ZIP="$(ls dist/ModelRack-v${VERSION}-macos-*.zip | grep -v notary-submit | head -1)"
+          ZIP_SHA="$(awk '{print $1}' "$ZIP.sha256")"
+          NOTES="$RUNNER_TEMP/release-notes.md"
+          SIGNING_STATUS="Unsigned CI build"
+          if [[ "${{ steps.signing.outputs.configured }}" == "true" ]]; then
+            SIGNING_STATUS="Developer ID signed, notarized, and stapled"
+          fi
+          cat > "$NOTES" <<NOTES
+          ## ModelRack ${TAG} — macOS maker-library alpha
+
+          This release packages ModelRack as a macOS DMG.
+
+          ### Recommended download
+          - \`$(basename "$DMG")\`
+          - SHA-256: \`${DMG_SHA}\`
+          - Signing: ${SIGNING_STATUS}
+
+          ### Alternative asset
+          - \`$(basename "$ZIP")\`
+          - SHA-256: \`${ZIP_SHA}\`
+
+          ### Verification
+          - \`cargo fmt --check\`
+          - \`python3 scripts/check-warning-baseline.py\`
+          - \`cargo test\`
+          - \`scripts/create-macos-dmg.sh\`
+          NOTES
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --notes-file "$NOTES"
+          else
+            gh release create "$TAG" --title "ModelRack ${TAG} macOS alpha" --notes-file "$NOTES" --prerelease
+          fi
+          gh release upload "$TAG" "$DMG" "$DMG.sha256" "$ZIP" "$ZIP.sha256" --clobber

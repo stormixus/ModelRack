@@ -5,3 +5,12 @@
 .claude/settings.local.json
 
 /dist
+
+# Local agent/workflow surfaces and mockups are intentionally kept out of release repo hygiene.
+/.agents/
+/.claude/
+/Mockups/
+
+# Keep the repository root clean; README is the public entry point.
+/*.md
+!/README.md
