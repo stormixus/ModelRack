@@ -1157,6 +1157,12 @@ component SettingsOptionButton inherits Rectangle {
     in property <string> label;
     in property <string> key;
     in property <bool> selected: false;
+    /// When true (Settings → Printer maker/model/nozzle lists), row is left-aligned
+    /// with optional monogram; sort/segment buttons keep the default centered layout.
+    in property <bool> printer-row-mode: false;
+    in property <bool> show-row-icon: false;
+    in property <string> icon-letter: "";
+    in property <int> icon-palette: 0;
     callback activated(string);
 
     height: 24px;
@@ -1165,7 +1171,21 @@ component SettingsOptionButton inherits Rectangle {
     border-width: 0;
     border-radius: 4px;
 
-    Text {
+    property <brush> monogram-fill:
+        root.icon-palette == 0 ? #3d5a9e :
+        root.icon-palette == 1 ? #a53838 :
+        root.icon-palette == 2 ? #2d7a4e :
+        root.icon-palette == 3 ? #8a4b12 :
+        root.icon-palette == 4 ? #5c3d8f :
+        root.icon-palette == 5 ? #0d6e7a :
+        root.icon-palette == 6 ? #6b4f2d :
+        root.icon-palette == 7 ? #37474f :
+        root.icon-palette == 8 ? #b0527c :
+        root.icon-palette == 9 ? #455a64 :
+        root.icon-palette == 10 ? #6a1b9a :
+        #00695c;
+
+    if !root.printer-row-mode: Text {
         x: 8px;
         y: (parent.height - self.height) / 2;
         width: parent.width - 16px;
@@ -1177,7 +1197,119 @@ component SettingsOptionButton inherits Rectangle {
         overflow: elide;
     }
 
+    if root.printer-row-mode: HorizontalLayout {
+        x: 4px;
+        y: 0;
+        width: parent.width - 8px;
+        height: parent.height;
+        spacing: 6px;
+        // Cross-axis = vertical: center label + monogram in the 24px row (start looked top-heavy).
+        alignment: center;
+
+        if root.show-row-icon: Rectangle {
+            width: 18px;
+            height: 18px;
+            background: monogram-fill;
+            border-radius: 9px;
+
+            Text {
+                width: parent.width;
+                height: parent.height;
+                text: root.icon-letter;
+                color: #f8fafc;
+                font-size: 10px;
+                font-weight: 700;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
+        Text {
+            horizontal-stretch: 1;
+            min-width: 0;
+            vertical-alignment: center;
+            text: root.label;
+            color: selected ? Theme.fg-0 : Theme.fg-1;
+            font-size: 12px;
+            font-weight: selected ? 600 : 500;
+            horizontal-alignment: left;
+            overflow: elide;
+        }
+    }
+
     option-touch := TouchArea {
+        width: parent.width;
+        height: parent.height;
+        clicked => { root.activated(root.key); }
+    }
+}
+
+// Printer Settings → maker column: simple letter-in-circle marks (bundled SVGs are
+// original geometric artwork in brand-associated colors — not OEM logos, which
+// we avoid here for trademark safety).
+component PrinterMakerMark inherits Rectangle {
+    in property <string> maker-key;
+    width: 22px;
+    height: 22px;
+    clip: true;
+
+    Image {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        image-fit: contain;
+        source:
+            maker-key == "Bambu" ? @image-url("../assets/makers/badge-bambu.svg") :
+            maker-key == "Prusa" ? @image-url("../assets/makers/badge-prusa.svg") :
+            maker-key == "Creality" ? @image-url("../assets/makers/badge-creality.svg") :
+            maker-key == "Anycubic" ? @image-url("../assets/makers/badge-anycubic.svg") :
+            maker-key == "Elegoo" ? @image-url("../assets/makers/badge-elegoo.svg") :
+            maker-key == "FlashForge" ? @image-url("../assets/makers/badge-flashforge.svg") :
+            maker-key == "Snapmaker" ? @image-url("../assets/makers/badge-snapmaker.svg") :
+            maker-key == "Sovol" ? @image-url("../assets/makers/badge-sovol.svg") :
+            maker-key == "Voron" ? @image-url("../assets/makers/badge-voron.svg") :
+            @image-url("../assets/makers/badge-default.svg");
+    }
+}
+
+component SettingsMakerOptionRow inherits Rectangle {
+    in property <string> label;
+    in property <string> key;
+    in property <bool> selected: false;
+    callback activated(string);
+
+    height: 24px;
+    background: root.selected ? Theme.bg-4 : row-touch.has-hover ? Theme.bg-3 : transparent;
+    border-width: 0;
+    border-radius: 4px;
+
+    HorizontalLayout {
+        width: parent.width;
+        height: parent.height;
+        spacing: 8px;
+        padding-left: 4px;
+        padding-right: 4px;
+        // Cross-axis = vertical: center badge + label as one row in 24px.
+        alignment: center;
+
+        PrinterMakerMark { maker-key: root.key; }
+
+        Text {
+            horizontal-stretch: 1;
+            horizontal-alignment: left;
+            vertical-alignment: center;
+            text: root.label;
+            color: root.selected ? Theme.fg-0 : Theme.fg-1;
+            font-size: 12px;
+            font-weight: root.selected ? 600 : 500;
+            overflow: elide;
+        }
+    }
+
+    row-touch := TouchArea {
+        width: parent.width;
+        height: parent.height;
         clicked => { root.activated(root.key); }
     }
 }
@@ -1596,7 +1728,7 @@ export component ModelRackWindow inherits Window {
 
     // Core properties
     in property <string> app-title: "ModelRack";
-    in property <string> app-version: "v0.1.0";
+    in property <string> app-version: "v0.1.1";
     in property <string> library-label: "Sample library";
     in property <int> selected-card-index: -1;
     in property <string> selected-thumb-key: "rack";
@@ -1750,11 +1882,14 @@ export component ModelRackWindow inherits Window {
     property <string> tr-settings-library: settings-language-key == "ko" ? "라이브러리" : settings-language-key == "ja" ? "ライブラリ" : "Library";
     property <string> tr-settings-thumbnails: settings-language-key == "ko" ? "썸네일" : settings-language-key == "ja" ? "サムネイル" : "Thumbnails";
     property <string> tr-settings-printers: settings-language-key == "ko" ? "프린터" : settings-language-key == "ja" ? "プリンタ" : "Printers";
+    property <string> tr-settings-material: settings-language-key == "ko" ? "소재" : settings-language-key == "ja" ? "材料" : "Material";
+    property <string> tr-material-settings-intro: settings-language-key == "ko" ? "슬라이서·프로파일과 연동되는 소재 프리셋은 추후 제공 예정입니다. 아래는 자주 쓰는 참고 소재입니다." : settings-language-key == "ja" ? "スライサー連携の材料プリセットは今後対応予定です。よく使う参考材料です。" : "Slicer-linked material presets will come later. Below are common reference types.";
+    property <string> tr-material-settings-chips-heading: settings-language-key == "ko" ? "참고 소재" : settings-language-key == "ja" ? "参考材料" : "Reference types";
     property <string> tr-settings-slicer: settings-language-key == "ko" ? "슬라이서" : settings-language-key == "ja" ? "スライサー" : "Slicer";
     property <string> tr-settings-hotkeys: settings-language-key == "ko" ? "단축키" : settings-language-key == "ja" ? "ショートカット" : "Hotkeys";
     property <string> tr-settings-advanced: settings-language-key == "ko" ? "고급" : settings-language-key == "ja" ? "詳細" : "Advanced";
     property <string> tr-settings-about: settings-language-key == "ko" ? "정보" : settings-language-key == "ja" ? "情報" : "About";
-    property <string> tr-settings-title: settings-tab == "general" ? tr-settings-general : settings-tab == "appearance" ? tr-settings-appearance : settings-tab == "library" ? tr-settings-library : settings-tab == "thumbnails" ? tr-settings-thumbnails : settings-tab == "printers" ? tr-settings-printers : settings-tab == "slicer" ? tr-settings-slicer : settings-tab == "hotkeys" ? tr-settings-hotkeys : settings-tab == "advanced" ? tr-settings-advanced : tr-settings-about;
+    property <string> tr-settings-title: settings-tab == "general" ? tr-settings-general : settings-tab == "appearance" ? tr-settings-appearance : settings-tab == "library" ? tr-settings-library : settings-tab == "thumbnails" ? tr-settings-thumbnails : settings-tab == "printers" ? tr-settings-printers : settings-tab == "material" ? tr-settings-material : settings-tab == "slicer" ? tr-settings-slicer : settings-tab == "hotkeys" ? tr-settings-hotkeys : settings-tab == "advanced" ? tr-settings-advanced : tr-settings-about;
     property <string> tr-language: settings-language-key == "ko" ? "언어" : settings-language-key == "ja" ? "言語" : "Language";
     property <string> tr-english: settings-language-key == "ko" ? "영어" : settings-language-key == "ja" ? "英語" : "English";
     property <string> tr-on-startup: settings-language-key == "ko" ? "시작 시" : settings-language-key == "ja" ? "起動時" : "On startup";
@@ -4314,6 +4449,7 @@ export component ModelRackWindow inherits Window {
                     SettingsTabButton { icon: @image-url("../assets/icons/folder.svg"); label: tr-settings-library; key: "library"; selected: settings-tab == "library"; activated(tab) => { choose-settings-tab(tab); } }
                     SettingsTabButton { icon: @image-url("../assets/icons/box.svg"); label: tr-settings-thumbnails; key: "thumbnails"; selected: settings-tab == "thumbnails"; activated(tab) => { choose-settings-tab(tab); } }
                     SettingsTabButton { icon: @image-url("../assets/icons/print.svg"); label: tr-settings-printers; key: "printers"; selected: settings-tab == "printers"; activated(tab) => { choose-settings-tab(tab); } }
+                    SettingsTabButton { icon: @image-url("../assets/icons/layers.svg"); label: tr-settings-material; key: "material"; selected: settings-tab == "material"; activated(tab) => { choose-settings-tab(tab); } }
                     SettingsTabButton { icon: @image-url("../assets/icons/slicer.svg"); label: tr-settings-slicer; key: "slicer"; selected: settings-tab == "slicer"; activated(tab) => { choose-settings-tab(tab); } }
                     SettingsTabButton { icon: @image-url("../assets/icons/cmd.svg"); label: tr-settings-hotkeys; key: "hotkeys"; selected: settings-tab == "hotkeys"; activated(tab) => { choose-settings-tab(tab); } }
                     SettingsTabButton { icon: @image-url("../assets/icons/sparkle.svg"); label: tr-settings-advanced; key: "advanced"; selected: settings-tab == "advanced"; activated(tab) => { choose-settings-tab(tab); } }
@@ -4530,24 +4666,71 @@ export component ModelRackWindow inherits Window {
                                 spacing: 8px;
 
                                 Rectangle {
-                                    width: 104px; height: parent.height; background: Theme.bg-2; border-color: Theme.line; border-width: 1px; border-radius: 7px; clip: true;
-                                    Text { x: 8px; y: 7px; text: tr-maker; color: Theme.fg-3; font-size: Theme.font-overline; font-weight: 600; }
-                                    VerticalLayout { x: 4px; y: 26px; width: parent.width - 8px; spacing: 1px;
-                                        for maker in settings-printer-makers: SettingsOptionButton { width: parent.width; label: maker.label; key: maker.key; selected: maker.selected; activated(key) => { choose-settings-printer-maker(key); } }
+                                    property <length> printer-picker-flick-bottom-pad: 12px;
+                                    width: 124px; height: parent.height; background: Theme.bg-2; border-color: Theme.line; border-width: 1px; border-radius: 7px; clip: true;
+                                    Text { x: 8px; y: 7px; width: parent.width - 16px; text: tr-maker; color: Theme.fg-3; font-size: Theme.font-overline; font-weight: 600; horizontal-alignment: left; }
+                                    Flickable {
+                                        x: 4px;
+                                        y: 26px;
+                                        width: parent.width - 8px;
+                                        height: parent.height - 26px;
+                                        viewport-height: settings-printer-makers.length * 24px + max(0, settings-printer-makers.length - 1) * 1px + parent.printer-picker-flick-bottom-pad;
+                                        for maker[index] in settings-printer-makers: SettingsMakerOptionRow {
+                                            y: index * 25px;
+                                            width: parent.width;
+                                            label: maker.label;
+                                            key: maker.key;
+                                            selected: maker.selected;
+                                            activated(key) => { choose-settings-printer-maker(key); }
+                                        }
                                     }
                                 }
                                 Rectangle {
+                                    property <length> printer-picker-flick-bottom-pad: 12px;
                                     width: 112px; height: parent.height; background: Theme.bg-2; border-color: Theme.line; border-width: 1px; border-radius: 7px; clip: true;
-                                    Text { x: 8px; y: 7px; text: tr-model; color: Theme.fg-3; font-size: Theme.font-overline; font-weight: 600; }
-                                    VerticalLayout { x: 4px; y: 26px; width: parent.width - 8px; spacing: 1px;
-                                        for model in settings-printer-models: SettingsOptionButton { width: parent.width; label: model.label; key: model.key; selected: model.selected; activated(key) => { choose-settings-printer-model(key); } }
+                                    Text { x: 8px; y: 7px; width: parent.width - 16px; text: tr-model; color: Theme.fg-3; font-size: Theme.font-overline; font-weight: 600; horizontal-alignment: left; }
+                                    Flickable {
+                                        x: 4px;
+                                        y: 26px;
+                                        width: parent.width - 8px;
+                                        height: parent.height - 26px;
+                                        viewport-height: settings-printer-models.length * 24px + max(0, settings-printer-models.length - 1) * 1px + parent.printer-picker-flick-bottom-pad;
+                                        for model[index] in settings-printer-models: SettingsOptionButton {
+                                            y: index * 25px;
+                                            width: parent.width;
+                                            label: model.label;
+                                            key: model.key;
+                                            selected: model.selected;
+                                            printer-row-mode: true;
+                                            show-row-icon: false;
+                                            icon-letter: "";
+                                            icon-palette: 0;
+                                            activated(key) => { choose-settings-printer-model(key); }
+                                        }
                                     }
                                 }
                                 Rectangle {
+                                    property <length> printer-picker-flick-bottom-pad: 12px;
                                     width: 118px; height: parent.height; background: Theme.bg-2; border-color: Theme.line; border-width: 1px; border-radius: 7px; clip: true;
-                                    Text { x: 8px; y: 7px; text: tr-nozzle; color: Theme.fg-3; font-size: Theme.font-overline; font-weight: 600; }
-                                    VerticalLayout { x: 4px; y: 26px; width: parent.width - 8px; spacing: 1px;
-                                        for nozzle in settings-printer-nozzles: SettingsOptionButton { width: parent.width; label: nozzle.label; key: nozzle.key; selected: nozzle.selected; activated(key) => { choose-settings-printer-nozzle(key); } }
+                                    Text { x: 8px; y: 7px; width: parent.width - 16px; text: tr-nozzle; color: Theme.fg-3; font-size: Theme.font-overline; font-weight: 600; horizontal-alignment: left; }
+                                    Flickable {
+                                        x: 4px;
+                                        y: 26px;
+                                        width: parent.width - 8px;
+                                        height: parent.height - 26px;
+                                        viewport-height: settings-printer-nozzles.length * 24px + max(0, settings-printer-nozzles.length - 1) * 1px + parent.printer-picker-flick-bottom-pad;
+                                        for nozzle[index] in settings-printer-nozzles: SettingsOptionButton {
+                                            y: index * 25px;
+                                            width: parent.width;
+                                            label: nozzle.label;
+                                            key: nozzle.key;
+                                            selected: nozzle.selected;
+                                            printer-row-mode: true;
+                                            show-row-icon: false;
+                                            icon-letter: "";
+                                            icon-palette: 0;
+                                            activated(key) => { choose-settings-printer-nozzle(key); }
+                                        }
                                     }
                                 }
                             }
@@ -4617,6 +4800,60 @@ export component ModelRackWindow inherits Window {
                                 Text { x: 36px; y: 24px; width: parent.width - 220px; text: printer.detail; color: Theme.fg-2; font-family: "JetBrains Mono"; font-size: Theme.font-overline; overflow: elide; }
                                 Rectangle { x: parent.width - 208px; y: 10px; width: 96px; height: 24px; background: printer.defaulted ? Theme.bg-4 : set-default-touch.has-hover ? Theme.bg-4 : Theme.bg-3; border-color: printer.defaulted ? Theme.accent-line : Theme.line; border-width: 1px; border-radius: 5px; Text { x: 0; y: 5px; width: parent.width; text: printer.defaulted ? tr-default : tr-set-default; color: printer.defaulted ? Theme.fg-0 : Theme.fg-1; font-size: 11px; font-weight: 600; horizontal-alignment: center; } set-default-touch := TouchArea { clicked => { choose-settings-default-printer(printer.key); } } }
                                 Rectangle { x: parent.width - 104px; y: 10px; width: 96px; height: 24px; background: remove-printer-touch.has-hover ? Theme.bg-4 : Theme.bg-3; border-color: Theme.line; border-width: 1px; border-radius: 5px; Text { x: 0; y: 5px; width: parent.width; text: tr-remove; color: Theme.fg-1; font-size: 11px; font-weight: 600; horizontal-alignment: center; } remove-printer-touch := TouchArea { clicked => { toggle-settings-printer(printer.key); } } }
+                            }
+                        }
+
+                        if settings-tab == "material": Rectangle {
+                            height: 100px;
+                            Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
+                            Text {
+                                x: 0;
+                                y: 12px;
+                                width: parent.width;
+                                text: tr-material-settings-intro;
+                                color: Theme.fg-2;
+                                font-size: Theme.font-body;
+                                wrap: word-wrap;
+                            }
+                        }
+                        if settings-tab == "material": Rectangle {
+                            height: 26px;
+                            Text { x: 0; y: 6px; text: tr-material-settings-chips-heading; color: Theme.fg-2; font-size: 11px; font-weight: 600; letter-spacing: 0.4px; }
+                        }
+                        if settings-tab == "material": Rectangle {
+                            height: 40px;
+                            HorizontalLayout {
+                                y: 0;
+                                width: parent.width;
+                                height: 30px;
+                                spacing: 8px;
+                                Rectangle {
+                                    width: 76px;
+                                    height: parent.height;
+                                    background: Theme.bg-2;
+                                    border-color: Theme.line;
+                                    border-width: 1px;
+                                    border-radius: 6px;
+                                    Text { x: 0; y: 0; width: parent.width; height: parent.height; text: "PLA"; color: Theme.fg-1; font-size: Theme.font-body; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+                                }
+                                Rectangle {
+                                    width: 76px;
+                                    height: parent.height;
+                                    background: Theme.bg-2;
+                                    border-color: Theme.line;
+                                    border-width: 1px;
+                                    border-radius: 6px;
+                                    Text { x: 0; y: 0; width: parent.width; height: parent.height; text: "PETG"; color: Theme.fg-1; font-size: Theme.font-body; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+                                }
+                                Rectangle {
+                                    width: 76px;
+                                    height: parent.height;
+                                    background: Theme.bg-2;
+                                    border-color: Theme.line;
+                                    border-width: 1px;
+                                    border-radius: 6px;
+                                    Text { x: 0; y: 0; width: parent.width; height: parent.height; text: "ABS"; color: Theme.fg-1; font-size: Theme.font-body; font-weight: 600; horizontal-alignment: center; vertical-alignment: center; }
+                                }
                             }
                         }
 

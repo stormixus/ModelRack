@@ -3,7 +3,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Cursor, Read, Seek};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 use walkdir::WalkDir;
 
 const MAX_STL_PARSE_BYTES: u64 = 100 * 1024 * 1024;
@@ -555,6 +557,40 @@ fn openscad_program() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("openscad"))
 }
 
+/// Max wall-clock time for a single OpenSCAD export (`openscad -o … file.scad`).
+/// Override with `MODELRACK_OPENSCAD_TIMEOUT_SECS` (0 = use default).
+fn openscad_export_timeout() -> Duration {
+    std::env::var("MODELRACK_OPENSCAD_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .filter(|&secs| secs > 0)
+        .map(Duration::from_secs)
+        .unwrap_or(Duration::from_secs(90))
+}
+
+fn wait_child_with_timeout(
+    child: &mut std::process::Child,
+    timeout: Duration,
+) -> std::io::Result<std::process::ExitStatus> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        match child.try_wait()? {
+            Some(status) => return Ok(status),
+            None => {
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "child process timed out",
+                    ));
+                }
+                thread::sleep(Duration::from_millis(100));
+            }
+        }
+    }
+}
+
 /// Renders the given `.scad` to a temporary STL via OpenSCAD and parses that mesh.
 fn try_scad_mesh_via_openscad(scad_path: &Path) -> Option<MeshData> {
     let program = openscad_program();
@@ -567,16 +603,46 @@ fn try_scad_mesh_via_openscad(scad_path: &Path) -> Option<MeshData> {
             .unwrap_or(0)
     ));
 
-    let status = Command::new(&program)
+    let mut child = Command::new(&program)
         .arg("-o")
         .arg(&out_path)
         .arg(scad_path)
-        .output()
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
         .ok()?;
 
-    if !status.status.success() {
-        let _ = std::fs::remove_file(&out_path);
-        return None;
+    let timeout = openscad_export_timeout();
+    match wait_child_with_timeout(&mut child, timeout) {
+        Ok(status) if status.success() => {}
+        Ok(status) => {
+            eprintln!(
+                "OpenSCAD failed (status {}) for {}",
+                status,
+                scad_path.display()
+            );
+            let _ = std::fs::remove_file(&out_path);
+            return None;
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::TimedOut => {
+            eprintln!(
+                "OpenSCAD timed out after {:?} for {} (set MODELRACK_OPENSCAD_TIMEOUT_SECS to adjust)",
+                timeout,
+                scad_path.display()
+            );
+            let _ = std::fs::remove_file(&out_path);
+            return None;
+        }
+        Err(err) => {
+            eprintln!(
+                "OpenSCAD wait error for {}: {}",
+                scad_path.display(),
+                err
+            );
+            let _ = std::fs::remove_file(&out_path);
+            return None;
+        }
     }
 
     let data = std::fs::read(&out_path).ok()?;
@@ -1889,7 +1955,38 @@ fn detect_stl_type(data: &[u8]) -> StlType {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io;
     use std::process::Command;
+    use std::time::Duration;
+
+    #[test]
+    fn openscad_export_timeout_reads_env() {
+        let key = "MODELRACK_OPENSCAD_TIMEOUT_SECS";
+        std::env::remove_var(key);
+        assert_eq!(openscad_export_timeout(), Duration::from_secs(90));
+        std::env::set_var(key, "3");
+        assert_eq!(openscad_export_timeout(), Duration::from_secs(3));
+        std::env::remove_var(key);
+    }
+
+    #[test]
+    fn wait_child_with_timeout_accepts_quick_exit() {
+        let mut child = if cfg!(unix) {
+            Command::new("true").spawn().unwrap()
+        } else {
+            Command::new("cmd").args(["/C", "exit", "0"]).spawn().unwrap()
+        };
+        let status = wait_child_with_timeout(&mut child, Duration::from_secs(5)).unwrap();
+        assert!(status.success());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn wait_child_with_timeout_kills_slow_command() {
+        let mut child = Command::new("sleep").arg("30").spawn().unwrap();
+        let err = wait_child_with_timeout(&mut child, Duration::from_millis(200)).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::TimedOut);
+    }
 
     fn make_binary_stl(triangles: &[[[f32; 3]; 3]]) -> Vec<u8> {
         let mut buf = Vec::new();

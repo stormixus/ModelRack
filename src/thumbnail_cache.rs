@@ -14,6 +14,15 @@ pub fn ensure_thumbnail(entry: &StlFileInfo, mesh: Option<&MeshData>) -> io::Res
     ensure_thumbnail_in(entry, mesh, &root)
 }
 
+/// Returns the on-disk thumbnail path when it already exists, without rendering.
+/// Used to keep large folder scans responsive; callers can still invoke
+/// [`ensure_thumbnail`] when opening a model or warming the cache.
+pub fn thumbnail_path_if_cached(entry: &StlFileInfo) -> Option<PathBuf> {
+    let root = platform_cache_root().join("thumbnails").join(CACHE_VERSION);
+    let path = thumbnail_path_in(entry, &root);
+    path.is_file().then_some(path)
+}
+
 /// Invalidate the on-disk thumbnail cache for the current renderer version.
 /// Deletes the entire versioned directory; the next `ensure_thumbnail` call
 /// will recreate the directory and regenerate any thumbnails it needs.

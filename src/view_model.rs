@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -287,6 +287,7 @@ impl DateFormatMode {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct DisplayQuery<'a> {
     pub search_query: &'a str,
     pub library_filter: &'a LibraryFilter,
@@ -389,6 +390,43 @@ impl AppViewSnapshot {
                 total: entries.len(),
                 filter_label: filter,
                 empty_message: empty_message(entries, &displayed, language),
+            },
+            status_text: scan_status_text_for_language(scan_status, language),
+            density_label: density_short_label(Density::from_str(&prefs.density)).to_string(),
+            view_mode_label: view_mode_title(ViewMode::from_str(&prefs.view_mode)).to_string(),
+            sort_label: sort_label_for_language(sort_by, sort_ascending, language),
+            active_filter_key,
+            language: language.to_string(),
+        }
+    }
+
+    /// Like [`AppViewSnapshot::from_parts`], but uses a precomputed `displayed` slice so callers
+    /// can avoid repeating an expensive `filtered_sorted_entries` pass (for example during
+    /// streaming library scans).
+    pub fn from_parts_with_displayed_slice(
+        entries: &[scanner::StlFileInfo],
+        displayed: &[scanner::StlFileInfo],
+        library_roots: &[PathBuf],
+        scan_status: &ScanStatus,
+        prefs: &AppPrefs,
+        query: DisplayQuery<'_>,
+    ) -> Self {
+        let language = prefs.language.as_str();
+        let filter = filter_label_for_language(query.library_filter, language);
+        let active_filter_key = filter_key(query.library_filter);
+        let sort_by = query.sort_by;
+        let sort_ascending = query.sort_ascending;
+        Self {
+            library_label: titlebar_for_library_roots(library_roots, language),
+            sidebar: sidebar_summary(entries),
+            folders: sidebar_folders(entries, library_roots, &prefs.collapsed_folders),
+            tags: sidebar_tags(entries),
+            cards: browser_cards_for_prefs(displayed, prefs),
+            browser: BrowserSummary {
+                displayed: displayed.len(),
+                total: entries.len(),
+                filter_label: filter,
+                empty_message: empty_message(entries, displayed, language),
             },
             status_text: scan_status_text_for_language(scan_status, language),
             density_label: density_short_label(Density::from_str(&prefs.density)).to_string(),
@@ -606,92 +644,54 @@ pub fn sidebar_summary(entries: &[scanner::StlFileInfo]) -> SidebarSummary {
     }
 }
 
+/// Deduplicate library roots by canonical path (when resolvable), preserving first occurrence
+/// order, then sort lexically by path components for stable UI.
+pub fn dedupe_library_roots(roots: &[PathBuf]) -> Vec<PathBuf> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for r in roots {
+        let key = std::fs::canonicalize(r).unwrap_or_else(|_| r.clone());
+        if seen.insert(key) {
+            out.push(r.clone());
+        }
+    }
+    out.sort_by(|a, b| a.components().cmp(b.components()));
+    out
+}
+
+/// One sidebar row per configured library root: counts only entries under that root
+/// (`strip_prefix`), never mixing in paths from sibling roots.
 pub fn sidebar_folders(
     entries: &[scanner::StlFileInfo],
     roots: &[PathBuf],
     collapsed_folders: &[PathBuf],
 ) -> Vec<SidebarFolder> {
+    let roots = dedupe_library_roots(roots);
     if roots.is_empty() {
         return Vec::new();
     }
-    let mut out = Vec::new();
-    for root in roots {
-        out.extend(sidebar_folders_for_one_root(
-            entries,
-            root,
-            collapsed_folders,
-        ));
-    }
-    out
-}
-
-fn sidebar_folders_for_one_root(
-    entries: &[scanner::StlFileInfo],
-    root: &Path,
-    collapsed_folders: &[PathBuf],
-) -> Vec<SidebarFolder> {
-    let mut counts: BTreeMap<PathBuf, usize> = BTreeMap::new();
-    counts.insert(root.to_path_buf(), 0);
-    for entry in entries {
-        let Some(parent) = entry.path.parent() else {
-            continue;
-        };
-        *counts.entry(root.to_path_buf()).or_insert(0) += 1;
-        if let Ok(relative_parent) = parent.strip_prefix(root) {
-            let mut ancestor = root.to_path_buf();
-            for component in relative_parent.components() {
-                ancestor.push(component.as_os_str());
-                *counts.entry(ancestor.clone()).or_insert(0) += 1;
-            }
-        } else {
-            *counts.entry(parent.to_path_buf()).or_insert(0) += 1;
-        }
-    }
-
-    let collapsed_folders = collapsed_folders
-        .iter()
-        .filter(|folder| counts.contains_key(*folder))
-        .cloned()
-        .collect::<Vec<_>>();
-
-    let paths = counts
-        .iter()
-        .map(|(path, count)| (path.clone(), *count))
-        .collect::<Vec<_>>();
-
-    paths
+    roots
         .into_iter()
-        .map(|(path, count)| {
-            let relative = path.strip_prefix(root).unwrap_or(&path);
-            let depth = if path == root {
-                0
-            } else {
-                relative.components().count().min(4)
-            };
-            let label = if path == root {
-                root.file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or("Library")
-                    .to_string()
-            } else {
-                path.file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or("Folder")
-                    .to_string()
-            };
-            let expandable = counts
-                .keys()
-                .any(|candidate| candidate.parent() == Some(path.as_path()));
-            let expanded = !collapsed_folders.iter().any(|collapsed| collapsed == &path);
-            let visible = !collapsed_folders
+        .map(|path| {
+            let count = entries
                 .iter()
-                .any(|collapsed| path != *collapsed && path.starts_with(collapsed));
+                .filter(|e| e.path.strip_prefix(&path).is_ok())
+                .count();
+            let label = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("Library")
+                .to_string();
+            let expanded = !collapsed_folders.iter().any(|collapsed| collapsed == &path);
+            let visible = !collapsed_folders.iter().any(|collapsed| {
+                path != *collapsed && path.starts_with(collapsed)
+            });
             SidebarFolder {
                 path,
                 label,
                 count,
-                depth,
-                expandable,
+                depth: 0,
+                expandable: false,
                 expanded,
                 visible,
             }
@@ -988,7 +988,7 @@ pub fn entry_matches_filter(
         }
         LibraryFilter::Ready => entry_is_ready_to_print(entries, entry),
         LibraryFilter::Errors => entry.stl_type == scanner::StlType::Unknown,
-        LibraryFilter::Folder(folder) => entry.path.starts_with(folder),
+        LibraryFilter::Folder(folder) => entry.path.strip_prefix(folder).is_ok(),
         LibraryFilter::Tag(tag) => entry
             .meta
             .as_ref()
@@ -1158,58 +1158,97 @@ pub fn filtered_sorted_entries(
     query: DisplayQuery<'_>,
 ) -> Vec<scanner::StlFileInfo> {
     let filter_lower = query.search_query.to_lowercase();
+
+    let duplicate_members: Option<HashSet<[u8; 32]>> =
+        if matches!(query.library_filter, LibraryFilter::Duplicates) {
+            let mut counts: HashMap<[u8; 32], usize> = HashMap::new();
+            for entry in entries {
+                *counts.entry(entry.hash).or_insert(0) += 1;
+            }
+            Some(
+                counts
+                    .into_iter()
+                    .filter_map(|(h, c)| (c > 1).then_some(h))
+                    .collect(),
+            )
+        } else {
+            None
+        };
+
     let mut sorted: Vec<&scanner::StlFileInfo> = entries
         .iter()
         .filter(|entry| {
-            entry_matches_filter(entries, query.library_filter, entry)
+            let passes_filter = match query.library_filter {
+                LibraryFilter::Duplicates => duplicate_members
+                    .as_ref()
+                    .is_some_and(|set| set.contains(&entry.hash)),
+                _ => entry_matches_filter(entries, query.library_filter, entry),
+            };
+            passes_filter
                 && (filter_lower.is_empty()
                     || entry.filename.to_lowercase().contains(&filter_lower)
                     || entry.meta.as_ref().is_some_and(|meta| {
-                        meta.tags
-                            .iter()
-                            .any(|tag| tag.to_lowercase().contains(&filter_lower))
-                            || meta.notes.to_lowercase().contains(&filter_lower)
+                        meta.tags.iter().any(|tag| {
+                            tag.to_lowercase().contains(&filter_lower)
+                        }) || meta.notes.to_lowercase().contains(&filter_lower)
                     }))
         })
         .collect();
 
     if !query.preserve_order {
-        sorted.sort_by(|a, b| {
-            let ordering = match query.sort_by {
-                SortBy::Name => cmp_values(
-                    a.filename.to_lowercase(),
-                    b.filename.to_lowercase(),
-                    query.sort_ascending,
-                ),
-                SortBy::Modified => cmp_options(a.modified, b.modified, query.sort_ascending),
-                SortBy::Added => cmp_options(
-                    a.meta.as_ref().and_then(|meta| meta.added.as_deref()),
-                    b.meta.as_ref().and_then(|meta| meta.added.as_deref()),
-                    query.sort_ascending,
-                ),
-                SortBy::Format => cmp_values(
-                    file_format_rank(a.stl_type),
-                    file_format_rank(b.stl_type),
-                    query.sort_ascending,
-                ),
-                SortBy::Size => cmp_values(a.size, b.size, query.sort_ascending),
-                SortBy::Triangles => {
-                    cmp_options(a.triangle_count, b.triangle_count, query.sort_ascending)
-                }
-                SortBy::Dimensions => cmp_options(
-                    dimension_sort_value(a.dimensions),
-                    dimension_sort_value(b.dimensions),
-                    query.sort_ascending,
-                ),
-                SortBy::Volume => cmp_options(
-                    volume_sort_value(a.dimensions),
-                    volume_sort_value(b.dimensions),
-                    query.sort_ascending,
-                ),
-            };
+        match query.sort_by {
+            SortBy::Name => {
+                let mut keyed: Vec<(String, &scanner::StlFileInfo)> = sorted
+                    .into_iter()
+                    .map(|e| (e.filename.to_lowercase(), e))
+                    .collect();
+                keyed.sort_by(|(la, _), (lb, _)| {
+                    if query.sort_ascending {
+                        la.cmp(lb)
+                    } else {
+                        lb.cmp(la)
+                    }
+                });
+                sorted = keyed.into_iter().map(|(_, e)| e).collect();
+            }
+            _ => {
+                let sort_by = query.sort_by;
+                sorted.sort_by(|a, b| {
+                    let ordering = match sort_by {
+                        SortBy::Modified => {
+                            cmp_options(a.modified, b.modified, query.sort_ascending)
+                        }
+                        SortBy::Added => cmp_options(
+                            a.meta.as_ref().and_then(|meta| meta.added.as_deref()),
+                            b.meta.as_ref().and_then(|meta| meta.added.as_deref()),
+                            query.sort_ascending,
+                        ),
+                        SortBy::Format => cmp_values(
+                            file_format_rank(a.stl_type),
+                            file_format_rank(b.stl_type),
+                            query.sort_ascending,
+                        ),
+                        SortBy::Size => cmp_values(a.size, b.size, query.sort_ascending),
+                        SortBy::Triangles => {
+                            cmp_options(a.triangle_count, b.triangle_count, query.sort_ascending)
+                        }
+                        SortBy::Dimensions => cmp_options(
+                            dimension_sort_value(a.dimensions),
+                            dimension_sort_value(b.dimensions),
+                            query.sort_ascending,
+                        ),
+                        SortBy::Volume => cmp_options(
+                            volume_sort_value(a.dimensions),
+                            volume_sort_value(b.dimensions),
+                            query.sort_ascending,
+                        ),
+                        SortBy::Name => std::cmp::Ordering::Equal,
+                    };
 
-            ordering.then_with(|| a.filename.to_lowercase().cmp(&b.filename.to_lowercase()))
-        });
+                    ordering.then_with(|| a.filename.to_lowercase().cmp(&b.filename.to_lowercase()))
+                });
+            }
+        }
     }
 
     sorted.into_iter().cloned().collect()
@@ -1469,31 +1508,24 @@ mod tests {
         assert_eq!(summary.errors, 1);
 
         let folders = sidebar_folders(&entries, &[PathBuf::from("/tmp/models")], &[]);
-        assert_eq!(folders.len(), 2);
+        assert_eq!(folders.len(), 1);
         assert_eq!(folders[0].label, "models");
         assert_eq!(folders[0].count, 3);
         assert_eq!(folders[0].depth, 0);
-        assert!(folders[0].expandable);
+        assert!(!folders[0].expandable);
         assert!(folders[0].expanded);
         assert!(folders[0].visible);
-        assert_eq!(folders[1].label, "nested");
-        assert_eq!(folders[1].count, 1);
-        assert_eq!(folders[1].depth, 1);
-        assert!(!folders[1].expandable);
-        assert!(folders[1].visible);
 
         let collapsed = sidebar_folders(
             &entries,
             &[PathBuf::from("/tmp/models")],
             &[PathBuf::from("/tmp/models")],
         );
-        assert_eq!(collapsed.len(), 2);
+        assert_eq!(collapsed.len(), 1);
         assert_eq!(collapsed[0].label, "models");
-        assert!(collapsed[0].expandable);
+        assert!(!collapsed[0].expandable);
         assert!(!collapsed[0].expanded);
         assert!(collapsed[0].visible);
-        assert_eq!(collapsed[1].label, "nested");
-        assert!(!collapsed[1].visible);
 
         let tags = sidebar_tags(&entries);
         assert_eq!(
@@ -1509,6 +1541,52 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn sidebar_folders_two_roots_counts_are_isolated() {
+        let a = PathBuf::from("/tmp/mr-lib-a");
+        let b = PathBuf::from("/tmp/mr-lib-b");
+        let entries = vec![
+            entry(a.join("x.stl").to_str().unwrap(), 1),
+            entry(a.join("sub/y.stl").to_str().unwrap(), 2),
+            entry(b.join("only.stl").to_str().unwrap(), 3),
+        ];
+        let roots = vec![a, b];
+        let folders = sidebar_folders(&entries, &roots, &[]);
+        assert_eq!(folders.len(), 2, "{folders:?}");
+        let mut counts: Vec<(String, usize)> = folders
+            .iter()
+            .map(|f| (f.label.clone(), f.count))
+            .collect();
+        counts.sort_by(|x, y| x.0.cmp(&y.0));
+        assert_eq!(counts[0], ("mr-lib-a".to_string(), 2));
+        assert_eq!(counts[1], ("mr-lib-b".to_string(), 1));
+        assert!(folders.iter().all(|f| f.depth == 0 && !f.expandable));
+    }
+
+    #[test]
+    fn sidebar_folders_dedupes_identical_root_paths() {
+        let root = PathBuf::from("/tmp/mr-dedupe-root");
+        let entries = vec![entry(root.join("a.stl").to_str().unwrap(), 1)];
+        let folders = sidebar_folders(&entries, &[root.clone(), root], &[]);
+        assert_eq!(folders.len(), 1);
+        assert_eq!(folders[0].count, 1);
+    }
+
+    #[test]
+    fn sidebar_folders_prefix_boundary_does_not_absorb_sibling_path() {
+        let models = PathBuf::from("/tmp/mr-models");
+        let models_extra = PathBuf::from("/tmp/mr-models-extra");
+        let entries = vec![entry(models_extra.join("z.stl").to_str().unwrap(), 1)];
+        let folders = sidebar_folders(&entries, &[models.clone(), models_extra.clone()], &[]);
+        let short_root = folders.iter().find(|f| f.label == "mr-models").unwrap();
+        let longer_root = folders
+            .iter()
+            .find(|f| f.label == "mr-models-extra")
+            .unwrap();
+        assert_eq!(short_root.count, 0);
+        assert_eq!(longer_root.count, 1);
     }
 
     #[test]
@@ -1588,6 +1666,114 @@ mod tests {
             "1.0 KB · 3개 플레이트 · 2.0K 삼각형"
         );
         assert_eq!(snapshot.cards[0].badge, "3MF · 3개 플레이트");
+    }
+
+    #[test]
+    fn app_snapshot_from_parts_matches_from_parts_with_displayed_slice() {
+        let a = entry("/tmp/models/a.stl", 1);
+        let b = entry("/tmp/models/b.stl", 2);
+        let entries = vec![a, b];
+        let roots = vec![PathBuf::from("/tmp/models")];
+        let prefs = AppPrefs::default();
+        let query = DisplayQuery {
+            search_query: "",
+            library_filter: &LibraryFilter::All,
+            sort_by: SortBy::Name,
+            sort_ascending: true,
+            preserve_order: true,
+        };
+        let displayed = filtered_sorted_entries(&entries, query);
+        let status = ScanStatus::Done {
+            found: 2,
+            skipped: 0,
+        };
+        let query_a = DisplayQuery {
+            search_query: "",
+            library_filter: &LibraryFilter::All,
+            sort_by: SortBy::Name,
+            sort_ascending: true,
+            preserve_order: true,
+        };
+        let s1 = AppViewSnapshot::from_parts(&entries, &roots, &status, &prefs, query_a);
+        let query_b = DisplayQuery {
+            search_query: "",
+            library_filter: &LibraryFilter::All,
+            sort_by: SortBy::Name,
+            sort_ascending: true,
+            preserve_order: true,
+        };
+        let s2 = AppViewSnapshot::from_parts_with_displayed_slice(
+            &entries,
+            &displayed,
+            &roots,
+            &status,
+            &prefs,
+            query_b,
+        );
+        assert_eq!(s1.cards.len(), s2.cards.len());
+        assert_eq!(s1.browser.displayed, s2.browser.displayed);
+        assert_eq!(s1.browser.total, s2.browser.total);
+        assert_eq!(s1.status_text, s2.status_text);
+    }
+
+    #[test]
+    fn large_library_snapshot_matches_with_precomputed_displayed() {
+        let mut entries = Vec::new();
+        for i in 0..600 {
+            let path = format!("/tmp/models/m_{i:04}.stl");
+            entries.push(entry(&path, (i % 255) as u8));
+        }
+        let roots = vec![PathBuf::from("/tmp/models")];
+        let prefs = AppPrefs::default();
+        let query = DisplayQuery {
+            search_query: "",
+            library_filter: &LibraryFilter::All,
+            sort_by: SortBy::Name,
+            sort_ascending: true,
+            preserve_order: false,
+        };
+        let displayed = filtered_sorted_entries(&entries, query);
+        let status = ScanStatus::Done {
+            found: entries.len(),
+            skipped: 0,
+        };
+        let full = AppViewSnapshot::from_parts(&entries, &roots, &status, &prefs, query);
+        let cheap = AppViewSnapshot::from_parts_with_displayed_slice(
+            &entries,
+            &displayed,
+            &roots,
+            &status,
+            &prefs,
+            query,
+        );
+        assert_eq!(full.cards.len(), cheap.cards.len());
+        assert_eq!(full.browser.displayed, cheap.browser.displayed);
+        assert_eq!(full.browser.total, cheap.browser.total);
+        assert_eq!(full.active_filter_key, cheap.active_filter_key);
+    }
+
+    #[test]
+    fn duplicates_filter_counts_hashes_once() {
+        let mut entries = vec![
+            entry("/lib/a.stl", 7),
+            entry("/lib/b.stl", 7),
+            entry("/lib/c.stl", 8),
+        ];
+        for i in 0..120 {
+            entries.push(entry(
+                &format!("/lib/u{i}.stl"),
+                (i as u8).wrapping_add(50),
+            ));
+        }
+        let query = DisplayQuery {
+            search_query: "",
+            library_filter: &LibraryFilter::Duplicates,
+            sort_by: SortBy::Name,
+            sort_ascending: true,
+            preserve_order: false,
+        };
+        let out = filtered_sorted_entries(&entries, query);
+        assert_eq!(out.len(), 2);
     }
 
     #[test]

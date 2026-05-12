@@ -33,6 +33,12 @@ const LIBRARY_WATCH_DEBOUNCE: Duration = Duration::from_millis(750);
 const LIBRARY_WATCH_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const SCAN_ENTRY_BATCH_SIZE: usize = 8;
 const SCAN_ENTRY_BATCH_INTERVAL: Duration = Duration::from_millis(120);
+/// After this many models are queued during a single folder scan, new models
+/// skip inline PNG generation and rely on disk cache hits only until the count
+/// drops (never during the same scan) or the user opens a file (detail path
+/// still calls `ensure_thumbnail`). Keeps huge libraries from rendering hundreds
+/// of meshes on the scan thread.
+const SCAN_INLINE_THUMBNAIL_MAX_LIBRARY_ENTRIES: usize = 512;
 const PREVIEW_ORBIT_FRAME_INTERVAL: Duration = Duration::from_millis(16);
 const PREVIEW_ORBIT_SETTLE_DELAY: Duration = Duration::from_millis(120);
 
@@ -3941,15 +3947,9 @@ impl ShellState {
             preserve_order: false,
         };
         self.displayed = crate::view_model::filtered_sorted_entries(&self.entries, query);
-        let query = DisplayQuery {
-            search_query: &self.search_query,
-            library_filter: &self.filter,
-            sort_by: self.sort_by,
-            sort_ascending: self.sort_ascending,
-            preserve_order: false,
-        };
-        AppViewSnapshot::from_parts(
+        AppViewSnapshot::from_parts_with_displayed_slice(
             &self.entries,
+            &self.displayed,
             self.library_roots_for_snapshot(),
             &status,
             &self.prefs,
@@ -3966,18 +3966,13 @@ impl ShellState {
             preserve_order: false,
         };
         self.displayed = crate::view_model::filtered_sorted_entries(&self.entries, query);
-        AppViewSnapshot::from_parts(
+        AppViewSnapshot::from_parts_with_displayed_slice(
             &self.entries,
+            &self.displayed,
             self.library_roots_for_snapshot(),
             &ScanStatus::Idle,
             &self.prefs,
-            DisplayQuery {
-                search_query: &self.search_query,
-                library_filter: &self.filter,
-                sort_by: self.sort_by,
-                sort_ascending: self.sort_ascending,
-                preserve_order: false,
-            },
+            query,
         )
     }
 
@@ -4023,6 +4018,7 @@ impl ShellState {
         batches: Vec<ScanEntryBatch>,
         progress: Option<&ScanProgress>,
     ) -> Option<AppViewSnapshot> {
+        let entries_len_before = self.entries.len();
         let mut updated = false;
         for batch in batches {
             if self.current_folder.as_deref() != Some(batch.folder.as_path()) {
@@ -4047,8 +4043,12 @@ impl ShellState {
             return None;
         }
 
+        let len_after_append = self.entries.len();
         dedupe_entries_by_path(&mut self.entries);
+        let dedupe_changed = self.entries.len() != len_after_append;
+        let len_before_roots = self.entries.len();
         self.retain_entries_under_library_roots();
+        let roots_changed = self.entries.len() != len_before_roots;
 
         if self.selected_index.is_none() && !self.entries.is_empty() {
             self.selected_index = Some(0);
@@ -4076,27 +4076,48 @@ impl ShellState {
         );
         // During streaming, keep discovery order so the UI can append rows incrementally
         // (sorted order is applied again when the scan completes).
-        let query = DisplayQuery {
+        let query_for_list = DisplayQuery {
             search_query: &self.search_query,
             library_filter: &self.filter,
             sort_by: self.sort_by,
             sort_ascending: self.sort_ascending,
             preserve_order: true,
         };
-        self.displayed = crate::view_model::filtered_sorted_entries(&self.entries, query);
-        let query = DisplayQuery {
+
+        let folder_matches_active_filter = matches!(
+            (&self.filter, self.current_folder.as_deref()),
+            (LibraryFilter::Folder(f), Some(p)) if f.as_path() == p
+        );
+
+        let incremental_ok = self.search_query.trim().is_empty()
+            && (matches!(self.filter, LibraryFilter::All) || folder_matches_active_filter)
+            && !dedupe_changed
+            && !roots_changed
+            && self.entries.len() > entries_len_before;
+
+        if incremental_ok {
+            self.displayed
+                .extend(self.entries[entries_len_before..].iter().cloned());
+        } else {
+            self.displayed =
+                crate::view_model::filtered_sorted_entries(&self.entries, query_for_list);
+        }
+
+        let query_for_snapshot = DisplayQuery {
             search_query: &self.search_query,
             library_filter: &self.filter,
             sort_by: self.sort_by,
             sort_ascending: self.sort_ascending,
             preserve_order: true,
         };
-        Some(AppViewSnapshot::from_parts(
+
+        Some(AppViewSnapshot::from_parts_with_displayed_slice(
             &self.entries,
+            &self.displayed,
             self.library_roots_for_snapshot(),
             &status,
             &self.prefs,
-            query,
+            query_for_snapshot,
         ))
     }
 
@@ -5015,16 +5036,13 @@ fn apply_settings(ui: &ModelRackWindow, state: &ShellState) {
             .map(printer_model_label)
             .collect::<Vec<_>>(),
     );
-    let nozzle_values = unique_sorted(
-        printer_catalog
-            .iter()
-            .filter(|profile| {
-                printer_maker_label(profile) == state.settings_printer_maker
-                    && printer_model_label(profile) == state.settings_printer_model
-            })
-            .map(|profile| format!("{:.1}mm", profile.nozzle_diameter_mm))
-            .collect::<Vec<_>>(),
-    );
+    // Fixed quartet in Settings → Printer; catalog must define matching profiles per maker/model.
+    const SETTINGS_PRINTER_NOZZLE_PICKER_LABELS: [&str; 4] =
+        ["0.2mm", "0.4mm", "0.6mm", "0.8mm"];
+    let nozzle_values: Vec<String> = SETTINGS_PRINTER_NOZZLE_PICKER_LABELS
+        .iter()
+        .map(|label| (*label).to_string())
+        .collect();
     ui.set_settings_printer_maker_label(state.settings_printer_maker.clone().into());
     ui.set_settings_printer_model_label(state.settings_printer_model.clone().into());
     ui.set_settings_printer_makers(slint::ModelRc::new(slint::VecModel::from(choice_rows(
@@ -6084,6 +6102,8 @@ fn scan_folder_entries(
     let mut batch = Vec::new();
     let mut skipped = 0usize;
     let mut last_flush = Instant::now();
+    let mut last_walk_scanned = 0usize;
+    let mut last_walk_skipped = 0usize;
     for event in rx {
         match event {
             scanner::ScanEvent::Progress {
@@ -6091,6 +6111,8 @@ fn scan_folder_entries(
                 skipped,
                 current,
             } => {
+                last_walk_scanned = scanned;
+                last_walk_skipped = skipped;
                 let _ = tx.send(ScanMessage::Progress(ScanProgress {
                     generation,
                     folder: folder.to_path_buf(),
@@ -6102,8 +6124,14 @@ fn scan_folder_entries(
                 }));
             }
             scanner::ScanEvent::Entry { mut info, mesh } => {
-                info.thumbnail_path =
-                    crate::thumbnail_cache::ensure_thumbnail(&info, mesh.as_ref()).ok();
+                let filename_for_status = info.filename.clone();
+                info.thumbnail_path = crate::thumbnail_cache::thumbnail_path_if_cached(&info);
+                if info.thumbnail_path.is_none()
+                    && entries.len() < SCAN_INLINE_THUMBNAIL_MAX_LIBRARY_ENTRIES
+                {
+                    info.thumbnail_path =
+                        crate::thumbnail_cache::ensure_thumbnail(&info, mesh.as_ref()).ok();
+                }
                 entries.push((*info).clone());
                 batch.push(*info);
                 if batch.len() >= SCAN_ENTRY_BATCH_SIZE
@@ -6113,6 +6141,15 @@ fn scan_folder_entries(
                     flush_scan_entry_batch(tx, generation, folder, &mut batch);
                     last_flush = Instant::now();
                 }
+                let _ = tx.send(ScanMessage::Progress(ScanProgress {
+                    generation,
+                    folder: folder.to_path_buf(),
+                    found: entries.len(),
+                    scanned: last_walk_scanned,
+                    total,
+                    skipped: last_walk_skipped,
+                    current: format!("{} · thumbnails · 썸네일", filename_for_status),
+                }));
             }
             scanner::ScanEvent::Done {
                 skipped: done_skipped,
@@ -6894,6 +6931,28 @@ mod tests {
         // Trying to add the same printer again is a no-op (Err returned).
         state.choose_settings_printer_nozzle("0.4mm").unwrap();
         assert!(state.add_pending_printer().is_err());
+    }
+
+    #[test]
+    fn settings_printer_nozzle_picker_resolves_catalog_nozzle_diameters() {
+        let mut state = ShellState::with_prefs(AppPrefs::default());
+        state.choose_settings_printer_maker("Prusa");
+        state.choose_settings_printer_model("MK4");
+        state.choose_settings_printer_nozzle("0.2mm").unwrap();
+        assert_eq!(
+            state.pending_printer_profile().unwrap().key,
+            "prusa-mk4-0.2"
+        );
+        state.choose_settings_printer_nozzle("0.6mm").unwrap();
+        assert_eq!(
+            state.pending_printer_profile().unwrap().key,
+            "prusa-mk4-0.6"
+        );
+        state.choose_settings_printer_nozzle("0.8mm").unwrap();
+        assert_eq!(
+            state.pending_printer_profile().unwrap().key,
+            "prusa-mk4-0.8"
+        );
     }
 
     #[test]
