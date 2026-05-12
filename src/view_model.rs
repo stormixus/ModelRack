@@ -767,9 +767,9 @@ pub fn sidebar_folders(
                 .unwrap_or("Library")
                 .to_string();
             let expanded = !collapsed_folders.iter().any(|collapsed| collapsed == &path);
-            let visible = !collapsed_folders.iter().any(|collapsed| {
-                path != *collapsed && path.starts_with(collapsed)
-            });
+            let visible = !collapsed_folders
+                .iter()
+                .any(|collapsed| path != *collapsed && path.starts_with(collapsed));
             SidebarFolder {
                 path,
                 label,
@@ -1272,9 +1272,10 @@ pub fn filtered_sorted_entries(
                 && (filter_lower.is_empty()
                     || entry.filename.to_lowercase().contains(&filter_lower)
                     || entry.meta.as_ref().is_some_and(|meta| {
-                        meta.tags.iter().any(|tag| {
-                            tag.to_lowercase().contains(&filter_lower)
-                        }) || meta.notes.to_lowercase().contains(&filter_lower)
+                        meta.tags
+                            .iter()
+                            .any(|tag| tag.to_lowercase().contains(&filter_lower))
+                            || meta.notes.to_lowercase().contains(&filter_lower)
                     }))
         })
         .collect();
@@ -1639,10 +1640,8 @@ mod tests {
         let roots = vec![a, b];
         let folders = sidebar_folders(&entries, &roots, &[]);
         assert_eq!(folders.len(), 2, "{folders:?}");
-        let mut counts: Vec<(String, usize)> = folders
-            .iter()
-            .map(|f| (f.label.clone(), f.count))
-            .collect();
+        let mut counts: Vec<(String, usize)> =
+            folders.iter().map(|f| (f.label.clone(), f.count)).collect();
         counts.sort_by(|x, y| x.0.cmp(&y.0));
         assert_eq!(counts[0], ("mr-lib-a".to_string(), 2));
         assert_eq!(counts[1], ("mr-lib-b".to_string(), 1));
@@ -1684,10 +1683,8 @@ mod tests {
     fn entry_under_library_root_follows_symlink_root() {
         use std::os::unix::fs::symlink;
 
-        let tmp = std::env::temp_dir().join(format!(
-            "modelrack-symlink-root-{}",
-            std::process::id()
-        ));
+        let tmp =
+            std::env::temp_dir().join(format!("modelrack-symlink-root-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         let real = tmp.join("real_lib");
         std::fs::create_dir_all(real.join("sub")).unwrap();
@@ -1727,10 +1724,7 @@ mod tests {
         let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
             return;
         };
-        let root = home.join(format!(
-            ".modelrack-test-two-libs-{}",
-            std::process::id()
-        ));
+        let root = home.join(format!(".modelrack-test-two-libs-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let dl = root.join("Downloads");
         let three = root.join("3d");
@@ -1881,12 +1875,7 @@ mod tests {
             preserve_order: true,
         };
         let s2 = AppViewSnapshot::from_parts_with_displayed_slice(
-            &entries,
-            &displayed,
-            &roots,
-            &status,
-            &prefs,
-            query_b,
+            &entries, &displayed, &roots, &status, &prefs, query_b,
         );
         assert_eq!(s1.cards.len(), s2.cards.len());
         assert_eq!(s1.browser.displayed, s2.browser.displayed);
@@ -1917,12 +1906,7 @@ mod tests {
         };
         let full = AppViewSnapshot::from_parts(&entries, &roots, &status, &prefs, query);
         let cheap = AppViewSnapshot::from_parts_with_displayed_slice(
-            &entries,
-            &displayed,
-            &roots,
-            &status,
-            &prefs,
-            query,
+            &entries, &displayed, &roots, &status, &prefs, query,
         );
         assert_eq!(full.cards.len(), cheap.cards.len());
         assert_eq!(full.browser.displayed, cheap.browser.displayed);
@@ -1938,10 +1922,7 @@ mod tests {
             entry("/lib/c.stl", 8),
         ];
         for i in 0..120 {
-            entries.push(entry(
-                &format!("/lib/u{i}.stl"),
-                (i as u8).wrapping_add(50),
-            ));
+            entries.push(entry(&format!("/lib/u{i}.stl"), (i as u8).wrapping_add(50)));
         }
         let query = DisplayQuery {
             search_query: "",
@@ -2179,11 +2160,7 @@ mod tests {
                 c.slot_index,
                 cards.len()
             );
-            assert!(
-                !seen[c.slot_index],
-                "duplicate slot_index {}",
-                c.slot_index
-            );
+            assert!(!seen[c.slot_index], "duplicate slot_index {}", c.slot_index);
             seen[c.slot_index] = true;
         }
         assert!(
@@ -2223,8 +2200,7 @@ mod tests {
     #[test]
     fn format_modified_label_iso_and_us_modes_render_civil_date() {
         // 2024-03-15 00:00:00 UTC.
-        let epoch = std::time::UNIX_EPOCH
-            + std::time::Duration::from_secs(1710460800);
+        let epoch = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1710460800);
 
         assert_eq!(
             format_modified_label(Some(epoch), DateFormatMode::Iso, "en"),

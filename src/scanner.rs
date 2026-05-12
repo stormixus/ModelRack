@@ -13,8 +13,23 @@ const MAX_STL_PREVIEW_BYTES: u64 = 32 * 1024 * 1024;
 /// When a binary STL exceeds [`MAX_STL_PREVIEW_BYTES`], we still parse geometry if the header
 /// reports a modest triangle count. Many on-disk files are padded, sparse exports, or carry
 /// non-mesh payload while the facet section stays small enough to load safely.
-const MAX_STL_TRIANGLES_PARSE_OVER_PREVIEW_BYTES_CAP: usize = 550_000;
+const MAX_STL_TRIANGLES_PARSE_OVER_PREVIEW_BYTES_CAP: usize = 180_000;
+const MAX_STL_IO_FALLBACK_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_TEXT_PREVIEW_BYTES: u64 = 16 * 1024 * 1024;
+#[cfg(not(test))]
+const MAX_3MF_MODEL_XML_BYTES: u64 = 8 * 1024 * 1024;
+#[cfg(test)]
+const MAX_3MF_MODEL_XML_BYTES: u64 = 16 * 1024;
+#[cfg(not(test))]
+const MAX_3MF_PREVIEW_VERTICES: usize = 80_000;
+#[cfg(test)]
+const MAX_3MF_PREVIEW_VERTICES: usize = 64;
+#[cfg(not(test))]
+const MAX_3MF_PREVIEW_FACES: usize = 80_000;
+#[cfg(test)]
+const MAX_3MF_PREVIEW_FACES: usize = 64;
+const MAX_3MF_BUILD_ITEMS: usize = 128;
+const MAX_3MF_COMPONENT_REFS: usize = 512;
 type ParsedStl = (StlType, Option<usize>, Option<[f32; 3]>, Option<MeshData>);
 
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -218,7 +233,7 @@ pub fn scan_folder_stream(path: &Path, tx: crossbeam_channel::Sender<ScanEvent>)
         .for_each_with(tx.clone(), |tx, (file_path, ext)| {
             let current_scanned = scanned.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
             let current_errors = parse_errors.load(std::sync::atomic::Ordering::Relaxed);
-            
+
             let _ = tx.send(ScanEvent::Progress {
                 scanned: current_scanned,
                 skipped: walk_errors + current_errors,
@@ -241,7 +256,8 @@ pub fn scan_folder_stream(path: &Path, tx: crossbeam_channel::Sender<ScanEvent>)
                     parse_errors.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     let _ = tx.send(ScanEvent::Progress {
                         scanned: current_scanned,
-                        skipped: walk_errors + parse_errors.load(std::sync::atomic::Ordering::Relaxed),
+                        skipped: walk_errors
+                            + parse_errors.load(std::sync::atomic::Ordering::Relaxed),
                         current: file_path
                             .file_name()
                             .and_then(|name| name.to_str())
@@ -380,6 +396,14 @@ fn parse_three_mf_plates_from_archive<R: Read + Seek>(
         let name = file.name().to_string();
         let lower = name.to_ascii_lowercase();
         if !lower.ends_with(".model") && lower != "metadata/model_settings.config" {
+            continue;
+        }
+        if file.size() > MAX_3MF_MODEL_XML_BYTES {
+            eprintln!(
+                "Skipping oversized 3MF XML preview data: {} ({} bytes)",
+                name,
+                file.size()
+            );
             continue;
         }
 
@@ -648,11 +672,7 @@ fn try_scad_mesh_via_openscad(scad_path: &Path) -> Option<MeshData> {
             return None;
         }
         Err(err) => {
-            eprintln!(
-                "OpenSCAD wait error for {}: {}",
-                scad_path.display(),
-                err
-            );
+            eprintln!("OpenSCAD wait error for {}: {}", scad_path.display(), err);
             let _ = std::fs::remove_file(&out_path);
             return None;
         }
@@ -734,9 +754,31 @@ fn parse_three_mf_mesh_xml(xml: &str) -> Option<MeshData> {
         transform: Option<[f32; 12]>,
     }
 
+    fn insert_object_mesh(
+        objects: &mut HashMap<u32, MeshData>,
+        object: ObjectBuilder,
+        parsed_vertices: &mut usize,
+        parsed_faces: &mut usize,
+    ) -> Option<()> {
+        let mesh = compact_mesh(&object.vertices, &object.faces)?;
+        *parsed_vertices = parsed_vertices.checked_add(mesh.vertices.len())?;
+        *parsed_faces = parsed_faces.checked_add(mesh.faces.len())?;
+        if *parsed_vertices > MAX_3MF_PREVIEW_VERTICES || *parsed_faces > MAX_3MF_PREVIEW_FACES {
+            return None;
+        }
+        objects.insert(object.id, mesh);
+        Some(())
+    }
+
+    if xml.len() as u64 > MAX_3MF_MODEL_XML_BYTES {
+        return None;
+    }
+
     let mut objects = HashMap::<u32, MeshData>::new();
     let mut current = None::<ObjectBuilder>;
     let mut build_items = Vec::<BuildItem>::new();
+    let mut parsed_vertices = 0usize;
+    let mut parsed_faces = 0usize;
 
     for tag in xml.split('<').filter_map(|part| part.split('>').next()) {
         let tag = tag.trim();
@@ -764,15 +806,21 @@ fn parse_three_mf_mesh_xml(xml: &str) -> Option<MeshData> {
 
         if closing && name.ends_with("object") {
             if let Some(object) = current.take() {
-                if let Some(mesh) = compact_mesh(&object.vertices, &object.faces) {
-                    objects.insert(object.id, mesh);
-                }
+                insert_object_mesh(
+                    &mut objects,
+                    object,
+                    &mut parsed_vertices,
+                    &mut parsed_faces,
+                )?;
             }
             continue;
         }
 
         if !closing && name.ends_with("vertex") {
             if let Some(object) = current.as_mut() {
+                if object.vertices.len() >= MAX_3MF_PREVIEW_VERTICES {
+                    return None;
+                }
                 let vertex = match (attr_f32(tag, "x"), attr_f32(tag, "y"), attr_f32(tag, "z")) {
                     (Some(x), Some(y), Some(z)) => Some([x, y, z]),
                     _ => None,
@@ -781,6 +829,9 @@ fn parse_three_mf_mesh_xml(xml: &str) -> Option<MeshData> {
             }
         } else if !closing && name.ends_with("triangle") {
             if let Some(object) = current.as_mut() {
+                if object.faces.len() >= MAX_3MF_PREVIEW_FACES {
+                    return None;
+                }
                 if let (Some(v1), Some(v2), Some(v3)) = (
                     attr_u32(tag, "v1"),
                     attr_u32(tag, "v2"),
@@ -791,6 +842,9 @@ fn parse_three_mf_mesh_xml(xml: &str) -> Option<MeshData> {
             }
         } else if !closing && name.ends_with("item") {
             if let Some(object_id) = attr_u32(tag, "objectid") {
+                if build_items.len() >= MAX_3MF_BUILD_ITEMS {
+                    return None;
+                }
                 build_items.push(BuildItem {
                     object_id,
                     transform: attr_value(tag, "transform").and_then(parse_three_mf_transform),
@@ -804,9 +858,12 @@ fn parse_three_mf_mesh_xml(xml: &str) -> Option<MeshData> {
     }
 
     if let Some(object) = current.take() {
-        if let Some(mesh) = compact_mesh(&object.vertices, &object.faces) {
-            objects.insert(object.id, mesh);
-        }
+        insert_object_mesh(
+            &mut objects,
+            object,
+            &mut parsed_vertices,
+            &mut parsed_faces,
+        )?;
     }
 
     if objects.is_empty() {
@@ -816,14 +873,23 @@ fn parse_three_mf_mesh_xml(xml: &str) -> Option<MeshData> {
     let meshes = if build_items.is_empty() {
         objects.values().cloned().collect::<Vec<_>>()
     } else {
-        build_items
-            .iter()
-            .filter_map(|item| {
-                objects
-                    .get(&item.object_id)
-                    .map(|mesh| transformed_mesh(mesh, item.transform))
-            })
-            .collect::<Vec<_>>()
+        let mut meshes = Vec::new();
+        let mut merged_vertices = 0usize;
+        let mut merged_faces = 0usize;
+        for item in &build_items {
+            if let Some(mesh) = objects.get(&item.object_id) {
+                let mesh = transformed_mesh(mesh, item.transform);
+                merged_vertices = merged_vertices.checked_add(mesh.vertices.len())?;
+                merged_faces = merged_faces.checked_add(mesh.faces.len())?;
+                if merged_vertices > MAX_3MF_PREVIEW_VERTICES
+                    || merged_faces > MAX_3MF_PREVIEW_FACES
+                {
+                    return None;
+                }
+                meshes.push(mesh);
+            }
+        }
+        meshes
     };
 
     merge_meshes(&meshes)
@@ -850,25 +916,46 @@ fn parse_bambu_plate_meshes(
     }
     let build_transforms = parse_three_mf_build_transforms(root_xml);
     let component_refs = parse_three_mf_root_components(root_xml);
+    let mut mesh_cache = HashMap::<String, Option<MeshData>>::new();
 
     plate_defs
         .into_iter()
         .filter_map(|plate| {
             let mut meshes = Vec::new();
+            let mut component_count = 0usize;
+            let mut plate_vertices = 0usize;
+            let mut plate_faces = 0usize;
             for object_id in plate.object_ids {
                 let item_transform = build_transforms.get(&object_id).copied().flatten();
                 let Some(components) = component_refs.get(&object_id) else {
                     continue;
                 };
                 for component in components {
-                    let Some(xml) = model_texts.get(&component.path) else {
-                        continue;
+                    component_count += 1;
+                    if component_count > MAX_3MF_COMPONENT_REFS {
+                        return None;
+                    }
+                    let mesh = if let Some(cached) = mesh_cache.get(&component.path) {
+                        cached.clone()
+                    } else {
+                        let parsed = model_texts
+                            .get(&component.path)
+                            .and_then(|xml| parse_three_mf_mesh_xml(xml));
+                        mesh_cache.insert(component.path.clone(), parsed.clone());
+                        parsed
                     };
-                    let Some(mesh) = parse_three_mf_mesh_xml(xml) else {
+                    let Some(mesh) = mesh else {
                         continue;
                     };
                     let mesh = transformed_mesh(&mesh, component.transform);
                     let mesh = transformed_mesh(&mesh, item_transform);
+                    plate_vertices = plate_vertices.checked_add(mesh.vertices.len())?;
+                    plate_faces = plate_faces.checked_add(mesh.faces.len())?;
+                    if plate_vertices > MAX_3MF_PREVIEW_VERTICES
+                        || plate_faces > MAX_3MF_PREVIEW_FACES
+                    {
+                        return None;
+                    }
                     meshes.push(mesh);
                 }
             }
@@ -1220,15 +1307,18 @@ fn parse_stl_file(path: &Path) -> Result<(StlFileInfo, Option<MeshData>)> {
         if try_mesh {
             parse_binary_stl_fast(&data)
                 .filter(|(_, _, _, mesh)| mesh.is_some())
-                .or_else(|| parse_stl_io_mesh(&data))
-                .unwrap_or_else(|| (StlType::LargeStl, tri_header, None, None))
+                .unwrap_or((StlType::LargeStl, tri_header, None, None))
         } else {
             (StlType::LargeStl, tri_header, None, None)
         }
     } else {
         let parsed = parse_binary_stl_fast(&data).unwrap_or_else(|| parse_ascii_stl(&data));
         if parsed.0 == StlType::Unknown || parsed.3.is_none() {
-            parse_stl_io_mesh(&data).unwrap_or(parsed)
+            if size <= MAX_STL_IO_FALLBACK_BYTES {
+                parse_stl_io_mesh(&data).unwrap_or(parsed)
+            } else {
+                parsed
+            }
         } else {
             parsed
         }
@@ -1987,7 +2077,10 @@ mod tests {
         let mut child = if cfg!(unix) {
             Command::new("true").spawn().unwrap()
         } else {
-            Command::new("cmd").args(["/C", "exit", "0"]).spawn().unwrap()
+            Command::new("cmd")
+                .args(["/C", "exit", "0"])
+                .spawn()
+                .unwrap()
         };
         let status = wait_child_with_timeout(&mut child, Duration::from_secs(5)).unwrap();
         assert!(status.success());
@@ -2269,6 +2362,37 @@ mod tests {
             .iter()
             .any(|vertex| *vertex == [40.0, 50.0, 60.0]));
         assert_eq!(dims, [31.0, 31.0, 30.0]);
+    }
+
+    #[test]
+    fn three_mf_mesh_rejects_excessive_preview_triangles() {
+        let mut xml = String::from(
+            r#"<model><resources><object id="1"><mesh><vertices>
+            <vertex x="0" y="0" z="0"/><vertex x="1" y="0" z="0"/><vertex x="0" y="1" z="0"/>
+            </vertices><triangles>"#,
+        );
+        for _ in 0..=MAX_3MF_PREVIEW_FACES {
+            xml.push_str(r#"<triangle v1="0" v2="1" v3="2"/>"#);
+        }
+        xml.push_str("</triangles></mesh></object></resources></model>");
+
+        assert!(parse_three_mf_mesh_xml(&xml).is_none());
+    }
+
+    #[test]
+    fn three_mf_mesh_rejects_excessive_build_items() {
+        let mut xml = String::from(
+            r#"<model><resources><object id="1"><mesh><vertices>
+            <vertex x="0" y="0" z="0"/><vertex x="1" y="0" z="0"/><vertex x="0" y="1" z="0"/>
+            </vertices><triangles><triangle v1="0" v2="1" v3="2"/></triangles></mesh></object></resources>
+            <build>"#,
+        );
+        for _ in 0..=MAX_3MF_BUILD_ITEMS {
+            xml.push_str(r#"<item objectid="1"/>"#);
+        }
+        xml.push_str("</build></model>");
+
+        assert!(parse_three_mf_mesh_xml(&xml).is_none());
     }
 
     #[test]

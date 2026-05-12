@@ -17,8 +17,6 @@ mod imp {
     static MENU_TARGET: OnceLock<usize> = OnceLock::new();
 
     pub fn install_app_icon() {
-
-
         let Some(path) = app_icon_path() else {
             return;
         };

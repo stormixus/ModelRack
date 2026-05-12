@@ -38,7 +38,10 @@ pub fn library_db_path(library_root: &Path) -> PathBuf {
 }
 
 /// Picks the longest `library_folders` prefix that contains `model_path`, if any.
-pub fn library_root_for_model_path(model_path: &Path, library_folders: &[PathBuf]) -> Option<PathBuf> {
+pub fn library_root_for_model_path(
+    model_path: &Path,
+    library_folders: &[PathBuf],
+) -> Option<PathBuf> {
     let mut best: Option<(usize, PathBuf)> = None;
     for root in library_folders {
         let root = expand_user_pref_path(root);
@@ -204,10 +207,7 @@ fn upsert_one_file(tx: &rusqlite::Transaction<'_>, entry: &StlFileInfo) -> Resul
         0i32
     };
     let printed_count = entry.meta.as_ref().map(|m| m.printed as i64).unwrap_or(0);
-    let triangle_count = entry
-        .triangle_count
-        .map(|n| n as i64)
-        .filter(|&n| n >= 0);
+    let triangle_count = entry.triangle_count.map(|n| n as i64).filter(|&n| n >= 0);
     let (dx, dy, dz) = entry
         .dimensions
         .map(|d| (Some(d[0] as f64), Some(d[1] as f64), Some(d[2] as f64)))
@@ -277,11 +277,10 @@ fn upsert_one_file(tx: &rusqlite::Transaction<'_>, entry: &StlFileInfo) -> Resul
                 continue;
             }
             tx.execute("INSERT OR IGNORE INTO tags (name) VALUES (?1)", [tag])?;
-            let tag_id: i64 = tx.query_row(
-                "SELECT id FROM tags WHERE name = ?1",
-                [tag],
-                |row| row.get(0),
-            )?;
+            let tag_id: i64 =
+                tx.query_row("SELECT id FROM tags WHERE name = ?1", [tag], |row| {
+                    row.get(0)
+                })?;
             tx.execute(
                 "INSERT OR IGNORE INTO file_tags (file_id, tag_id) VALUES (?1, ?2)",
                 params![id, tag_id],
@@ -356,10 +355,7 @@ mod tests {
 
     #[test]
     fn migration_applies_and_user_version_set() {
-        let tmp = std::env::temp_dir().join(format!(
-            "modelrack-db-migrate-{}",
-            std::process::id()
-        ));
+        let tmp = std::env::temp_dir().join(format!("modelrack-db-migrate-{}", std::process::id()));
         let _ = fs::remove_dir_all(&tmp);
         fs::create_dir_all(&tmp).unwrap();
         let conn = open_library_db(&tmp).unwrap();
@@ -368,16 +364,17 @@ mod tests {
             .unwrap();
         assert_eq!(v, 1);
         let _: i64 = conn
-            .query_row("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='files'", [], |row| row.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='files'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
     }
 
     #[test]
     fn upsert_idempotent_unique_path() {
-        let tmp = std::env::temp_dir().join(format!(
-            "modelrack-db-upsert-{}",
-            std::process::id()
-        ));
+        let tmp = std::env::temp_dir().join(format!("modelrack-db-upsert-{}", std::process::id()));
         let _ = fs::remove_dir_all(&tmp);
         fs::create_dir_all(&tmp.join("models")).unwrap();
         let stl = tmp.join("models").join("part.stl");
@@ -396,10 +393,7 @@ mod tests {
 
     #[test]
     fn foreign_keys_enforced() {
-        let tmp = std::env::temp_dir().join(format!(
-            "modelrack-db-fk-{}",
-            std::process::id()
-        ));
+        let tmp = std::env::temp_dir().join(format!("modelrack-db-fk-{}", std::process::id()));
         let _ = fs::remove_dir_all(&tmp);
         fs::create_dir_all(&tmp).unwrap();
         let conn = open_library_db(&tmp).unwrap();
@@ -416,10 +410,7 @@ mod tests {
         let b = PathBuf::from("/data/lib/sub");
         let roots = vec![a.clone(), b.clone()];
         let p = PathBuf::from("/data/lib/sub/x.stl");
-        assert_eq!(
-            library_root_for_model_path(&p, &roots),
-            Some(b)
-        );
+        assert_eq!(library_root_for_model_path(&p, &roots), Some(b));
     }
 
     #[test]

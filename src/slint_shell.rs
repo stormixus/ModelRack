@@ -63,19 +63,14 @@ pub fn run() -> Result<(), slint::PlatformError> {
     let startup_mode = state.borrow().prefs.startup_view.clone();
     if startup_mode != "empty" {
         let restored_queue = state.borrow().restored_library_scan_queue();
-        if let Some(folder) = restored_queue.first() {
-            let folder = folder.clone();
-            state.borrow_mut().startup_restore_queue =
-                restored_queue.into_iter().skip(1).collect();
-            start_folder_scan(
-                &ui,
-                &state,
-                &scan_runtime,
-                &folder,
-                "Restoring last library",
-            );
-            set_watch_status(&ui, &watcher_runtime, &folder);
-        }
+        start_library_scan_queue(
+            &ui,
+            &state,
+            &scan_runtime,
+            &watcher_runtime,
+            restored_queue,
+            "Restoring last library",
+        );
     }
 
     let weak = ui.as_weak();
@@ -94,14 +89,13 @@ pub fn run() -> Result<(), slint::PlatformError> {
     let refresh_scan = scan_runtime.clone();
     ui.on_refresh_library(move || {
         if let Some(ui) = weak.upgrade() {
-            if let Some(folder) = request_active_real_folder_scan(
+            request_library_folder_scans(
                 &ui,
                 &refresh_state,
                 &refresh_scan,
+                &refresh_watcher,
                 "Refreshing library",
-            ) {
-                set_watch_status(&ui, &refresh_watcher, &folder);
-            }
+            );
         }
     });
 
@@ -503,14 +497,10 @@ pub fn run() -> Result<(), slint::PlatformError> {
             };
             match crate::thumbnail_cache::clear_all() {
                 Ok(()) => {
-                    ui.set_status_text(
-                        regenerate_thumbnails_status(&language, count, true).into(),
-                    );
+                    ui.set_status_text(regenerate_thumbnails_status(&language, count, true).into());
                 }
                 Err(err) => {
-                    ui.set_status_text(
-                        format!("Could not clear thumbnail cache: {}", err).into(),
-                    );
+                    ui.set_status_text(format!("Could not clear thumbnail cache: {}", err).into());
                 }
             }
         }
@@ -525,9 +515,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                     ui.set_status_text(clear_cache_status(&language).into());
                 }
                 Err(err) => {
-                    ui.set_status_text(
-                        format!("Could not clear thumbnail cache: {}", err).into(),
-                    );
+                    ui.set_status_text(format!("Could not clear thumbnail cache: {}", err).into());
                 }
             }
         }
@@ -769,7 +757,12 @@ pub fn run() -> Result<(), slint::PlatformError> {
             "favorite" => {
                 let allow_sidecar_writes = state.sidecar_writes_enabled;
                 let prefs = state.prefs.clone();
-                match persist_favorite_toggle(&prefs, &mut state.entries, &path, allow_sidecar_writes) {
+                match persist_favorite_toggle(
+                    &prefs,
+                    &mut state.entries,
+                    &path,
+                    allow_sidecar_writes,
+                ) {
                     Ok(Some(favorite)) if allow_sidecar_writes => {
                         ui.set_status_text(
                             if favorite {
@@ -941,7 +934,12 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 if let Some(path) = selected_path {
                     let allow_sidecar_writes = state.sidecar_writes_enabled;
                     let prefs = state.prefs.clone();
-                    match persist_favorite_toggle(&prefs, &mut state.entries, &path, allow_sidecar_writes) {
+                    match persist_favorite_toggle(
+                        &prefs,
+                        &mut state.entries,
+                        &path,
+                        allow_sidecar_writes,
+                    ) {
                         Ok(Some(_)) if allow_sidecar_writes => {
                             ui.set_status_text("Favorite saved".into())
                         }
@@ -1127,7 +1125,13 @@ pub fn run() -> Result<(), slint::PlatformError> {
 
             let allow_sidecar_writes = state.sidecar_writes_enabled;
             let prefs = state.prefs.clone();
-            match persist_remove_tag(&prefs, &mut state.entries, &path, allow_sidecar_writes, index) {
+            match persist_remove_tag(
+                &prefs,
+                &mut state.entries,
+                &path,
+                allow_sidecar_writes,
+                index,
+            ) {
                 Ok(Some(count)) if allow_sidecar_writes => {
                     ui.set_status_text(format!("Tag removed: {}", count).into())
                 }
@@ -1161,8 +1165,13 @@ pub fn run() -> Result<(), slint::PlatformError> {
 
             let allow_sidecar_writes = state.sidecar_writes_enabled;
             let prefs = state.prefs.clone();
-            match persist_print_count_delta(&prefs, &mut state.entries, &path, allow_sidecar_writes, delta)
-            {
+            match persist_print_count_delta(
+                &prefs,
+                &mut state.entries,
+                &path,
+                allow_sidecar_writes,
+                delta,
+            ) {
                 Ok(Some(count)) if allow_sidecar_writes => {
                     ui.set_status_text(format!("Print count saved: {}", count).into())
                 }
@@ -1324,10 +1333,11 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 .borrow_mut()
                 .poll(Instant::now(), LIBRARY_WATCH_DEBOUNCE);
             if watch_poll.refresh_due {
-                let _ = request_active_real_folder_scan(
+                request_library_folder_scans(
                     &ui,
                     &auto_state,
                     &auto_scan,
+                    &auto_watcher,
                     "Auto-refreshing library after file change",
                 );
             }
@@ -1776,7 +1786,7 @@ fn choose_library_folder(
         if scan_runtime.borrow().active_generation.is_some() {
             let mut state_mut = state.borrow_mut();
             ShellState::merge_library_folder_into_prefs(&mut state_mut.prefs, &folder);
-            state_mut.startup_restore_queue.push_back(folder.clone());
+            state_mut.queue_pending_scan_roots([folder.clone()]);
             ui.set_status_text(format!("Queued {} for scan", folder.display()).into());
             save_prefs_status(ui, &state_mut);
         } else {
@@ -1785,6 +1795,27 @@ fn choose_library_folder(
             set_watch_status(ui, watcher_runtime, &folder);
         }
     }
+}
+
+fn start_library_scan_queue(
+    ui: &ModelRackWindow,
+    state: &Rc<RefCell<ShellState>>,
+    scan_runtime: &Rc<RefCell<LibraryScanRuntime>>,
+    watcher_runtime: &Rc<RefCell<LibraryWatcherRuntime>>,
+    folders: Vec<PathBuf>,
+    status: &str,
+) -> Option<PathBuf> {
+    let mut folders = crate::view_model::dedupe_paths_keep_order(folders);
+    folders.retain(|folder| folder.is_dir());
+    let first = folders.first().cloned()?;
+    {
+        let mut state = state.borrow_mut();
+        state.replace_pending_scan_queue(folders.into_iter().skip(1));
+    }
+    scan_runtime.borrow_mut().invalidate();
+    start_folder_scan(ui, state, scan_runtime, &first, status);
+    set_watch_status(ui, watcher_runtime, &first);
+    Some(first)
 }
 
 fn start_folder_scan(
@@ -1808,33 +1839,47 @@ fn start_folder_scan(
     }
 }
 
-fn request_active_real_folder_scan(
+fn request_library_folder_scans(
     ui: &ModelRackWindow,
     state: &Rc<RefCell<ShellState>>,
     scan_runtime: &Rc<RefCell<LibraryScanRuntime>>,
+    watcher_runtime: &Rc<RefCell<LibraryWatcherRuntime>>,
     status: &str,
 ) -> Option<PathBuf> {
-    let Some(folder) = state.borrow().active_real_folder() else {
+    let folders = state.borrow().restored_library_scan_queue();
+    let Some(first) = folders.first().cloned() else {
         ui.set_status_text("Choose a real library folder before refreshing".into());
         return None;
     };
 
-    match scan_runtime.borrow_mut().request_scan(&folder) {
-        ScanRequest::Started => {
-            ui.set_scan_progress_percent(0);
-            ui.set_status_text(status.into());
+    let active_folder = scan_runtime.borrow().active_folder.clone();
+    if scan_runtime.borrow().active_generation.is_some() {
+        let queued: Vec<PathBuf> = folders
+            .into_iter()
+            .filter(|folder| {
+                active_folder.as_ref().is_none_or(|active| {
+                    !crate::view_model::paths_equal_or_same_target(active, folder)
+                })
+            })
+            .collect();
+        if queued.is_empty() {
+            ui.set_status_text("Refresh already running".into());
+        } else {
+            state.borrow_mut().queue_pending_scan_roots(queued);
+            ui.set_status_text("Refresh queued after current scan finishes".into());
         }
-        ScanRequest::AlreadyRunning => {
-            ui.set_status_text("Refresh already running for this library".into())
-        }
+        return Some(first);
     }
-    Some(folder)
+
+    start_library_scan_queue(ui, state, scan_runtime, watcher_runtime, folders, status)
 }
 
 fn apply_scan_progress(ui: &ModelRackWindow, progress: &ScanProgress) {
     let language = ui.get_settings_language_key().to_string();
     let percent = if progress.total == 0 {
         0
+    } else if progress.scanned < progress.total {
+        ((progress.scanned * 100) / progress.total).min(98)
     } else {
         ((progress.scanned.min(progress.total) * 100) / progress.total).min(99)
     };
@@ -1894,24 +1939,21 @@ fn rescan_sidebar_folder(
     label: &str,
 ) {
     let status = format!("Rescanning {label}");
-    if let Some(root) = state.borrow().active_real_folder() {
-        match scan_runtime.borrow_mut().request_scan(&root) {
-            ScanRequest::Started => {
-                ui.set_scan_progress_percent(0);
-                ui.set_status_text(status.into());
-            }
-            ScanRequest::AlreadyRunning => {
-                ui.set_status_text("Rescan already running for this library".into())
-            }
-        }
+    let Some(scan_root) = state.borrow().scan_root_for_folder(folder) else {
+        ui.set_status_text(format!("Folder no longer exists: {}", folder.display()).into());
+        return;
+    };
+
+    if scan_runtime.borrow().active_generation.is_some() {
+        state
+            .borrow_mut()
+            .queue_pending_scan_roots([scan_root.clone()]);
+        ui.set_status_text(format!("Queued {label} for rescan").into());
         return;
     }
 
-    if folder.is_dir() {
-        start_folder_scan(ui, state, scan_runtime, folder, &status);
-    } else {
-        ui.set_status_text(format!("Folder no longer exists: {}", folder.display()).into());
-    }
+    scan_runtime.borrow_mut().invalidate();
+    start_folder_scan(ui, state, scan_runtime, &scan_root, &status);
 }
 
 fn remove_sidebar_folder_from_library(
@@ -2198,22 +2240,32 @@ fn apply_scan_result(
     watcher_runtime: &Rc<RefCell<LibraryWatcherRuntime>>,
     result: ScanResult,
 ) {
-    if !state.borrow().should_apply_completed_scan(&result.folder) {
-        return;
-    }
     ui.set_scan_progress_percent(-1);
-    let (snapshot, next_restore) = {
+    let should_apply = state.borrow().should_apply_completed_scan(&result.folder);
+    let (snapshot, next_scan) = {
         let mut state = state.borrow_mut();
-        let snapshot = state.apply_scan_result(result);
-        let next = state.startup_restore_queue.pop_front();
+        let snapshot = if should_apply {
+            Some(state.apply_scan_result(result))
+        } else {
+            None
+        };
+        let next = state.pop_next_pending_scan_root();
         (snapshot, next)
     };
-    apply_snapshot(ui, &snapshot);
-    apply_detail_rc(ui, state);
-    apply_settings(ui, &state.borrow());
-    save_prefs_status(ui, &state.borrow());
-    if let Some(folder) = next_restore {
-        start_folder_scan(ui, state, scan_runtime, &folder, "Restoring library folder");
+    if let Some(snapshot) = snapshot {
+        apply_snapshot(ui, &snapshot);
+        apply_detail_rc(ui, state);
+        apply_settings(ui, &state.borrow());
+        save_prefs_status(ui, &state.borrow());
+    }
+    if let Some(folder) = next_scan {
+        start_folder_scan(
+            ui,
+            state,
+            scan_runtime,
+            &folder,
+            "Scanning queued library folder",
+        );
         set_watch_status(ui, watcher_runtime, &folder);
     }
 }
@@ -3321,8 +3373,9 @@ struct ShellState {
     displayed: Vec<scanner::StlFileInfo>,
     current_folder: Option<PathBuf>,
     prefs: AppPrefs,
-    /// After the first path in `restored_library_scan_queue()` is started, remaining paths to scan on startup.
-    startup_restore_queue: VecDeque<PathBuf>,
+    /// Scan roots waiting for the current scan to finish, used by startup restore,
+    /// refresh-all, and folders added while a scan is already running.
+    pending_scan_queue: VecDeque<PathBuf>,
     undo_stack: Vec<LibraryUndo>,
     search_query: String,
     filter: LibraryFilter,
@@ -3431,7 +3484,7 @@ impl ShellState {
             displayed: Vec::new(),
             current_folder: None,
             prefs,
-            startup_restore_queue: VecDeque::new(),
+            pending_scan_queue: VecDeque::new(),
             undo_stack: Vec::new(),
             search_query: String::new(),
             filter: LibraryFilter::All,
@@ -4048,9 +4101,8 @@ impl ShellState {
     fn begin_folder_scan(&mut self, folder: &Path, current: &str) -> AppViewSnapshot {
         self.remove_excluded_folder(folder);
         Self::merge_library_folder_into_prefs(&mut self.prefs, folder);
-        self.entries.retain(|entry| {
-            !crate::view_model::entry_under_library_root(&entry.path, folder)
-        });
+        self.entries
+            .retain(|entry| !crate::view_model::entry_under_library_root(&entry.path, folder));
         self.retain_entries_under_library_roots();
         self.displayed.clear();
         self.current_folder = Some(folder.to_path_buf());
@@ -4289,6 +4341,45 @@ impl ShellState {
         out
     }
 
+    fn replace_pending_scan_queue<I>(&mut self, folders: I)
+    where
+        I: IntoIterator<Item = PathBuf>,
+    {
+        self.pending_scan_queue =
+            crate::view_model::dedupe_paths_keep_order(folders.into_iter().collect()).into();
+    }
+
+    fn queue_pending_scan_roots<I>(&mut self, folders: I)
+    where
+        I: IntoIterator<Item = PathBuf>,
+    {
+        let mut queued: Vec<PathBuf> = self.pending_scan_queue.iter().cloned().collect();
+        queued.extend(folders);
+        self.pending_scan_queue = crate::view_model::dedupe_paths_keep_order(queued).into();
+    }
+
+    fn pop_next_pending_scan_root(&mut self) -> Option<PathBuf> {
+        while let Some(folder) = self.pending_scan_queue.pop_front() {
+            if folder.is_dir() && !is_excluded_path(&folder, &self.prefs.excluded_folders) {
+                return Some(folder);
+            }
+        }
+        None
+    }
+
+    fn scan_root_for_folder(&self, folder: &Path) -> Option<PathBuf> {
+        let folder = crate::view_model::expand_user_pref_path(folder);
+        let mut roots = self.restored_library_scan_queue();
+        roots.sort_by_key(|root| std::cmp::Reverse(root.components().count()));
+        roots
+            .into_iter()
+            .find(|root| {
+                crate::view_model::paths_equal_or_same_target(root, &folder)
+                    || crate::view_model::entry_under_library_root(&folder, root)
+            })
+            .or_else(|| folder.is_dir().then_some(folder))
+    }
+
     fn active_real_folder(&self) -> Option<PathBuf> {
         if !self.sidecar_writes_enabled {
             return None;
@@ -4306,6 +4397,7 @@ impl ShellState {
             })
     }
 
+    #[cfg(test)]
     fn restored_real_folder_candidate(&self) -> Option<PathBuf> {
         self.restored_library_scan_queue().into_iter().next()
     }
@@ -4376,7 +4468,7 @@ impl ShellState {
         self.current_folder = None;
         self.prefs.last_folder = None;
         self.prefs.library_folders.clear();
-        self.startup_restore_queue.clear();
+        self.pending_scan_queue.clear();
         self.skipped = 0;
         self.sidecar_writes_enabled = false;
         self.selected_index = None;
@@ -4612,14 +4704,11 @@ impl ShellState {
     /// resolves to (if all three are set and match a catalog entry).
     fn pending_printer_profile(&self) -> Option<PrinterProfile> {
         let catalog = load_printer_profiles();
-        catalog
-            .into_iter()
-            .find(|profile| {
-                printer_maker_label(profile) == self.settings_printer_maker
-                    && printer_model_label(profile) == self.settings_printer_model
-                    && format!("{:.1}mm", profile.nozzle_diameter_mm)
-                        == self.settings_printer_nozzle
-            })
+        catalog.into_iter().find(|profile| {
+            printer_maker_label(profile) == self.settings_printer_maker
+                && printer_model_label(profile) == self.settings_printer_model
+                && format!("{:.1}mm", profile.nozzle_diameter_mm) == self.settings_printer_nozzle
+        })
     }
 
     /// Returns true when the pending picker selection is a *new* (not
@@ -5127,8 +5216,7 @@ fn apply_settings(ui: &ModelRackWindow, state: &ShellState) {
             .collect::<Vec<_>>(),
     );
     // Fixed quartet in Settings → Printer; catalog must define matching profiles per maker/model.
-    const SETTINGS_PRINTER_NOZZLE_PICKER_LABELS: [&str; 4] =
-        ["0.2mm", "0.4mm", "0.6mm", "0.8mm"];
+    const SETTINGS_PRINTER_NOZZLE_PICKER_LABELS: [&str; 4] = ["0.2mm", "0.4mm", "0.6mm", "0.8mm"];
     let nozzle_values: Vec<String> = SETTINGS_PRINTER_NOZZLE_PICKER_LABELS
         .iter()
         .map(|label| (*label).to_string())
@@ -6437,6 +6525,46 @@ mod tests {
     }
 
     #[test]
+    fn pending_scan_queue_drains_every_remaining_root() {
+        let root = temp_path("mr-pending-roots");
+        let first = root.join("one");
+        let second = root.join("two");
+        let third = root.join("three");
+        std::fs::create_dir_all(&first).unwrap();
+        std::fs::create_dir_all(&second).unwrap();
+        std::fs::create_dir_all(&third).unwrap();
+        let mut state = ShellState::with_prefs(AppPrefs {
+            library_folders: vec![first.clone(), second.clone(), third.clone()],
+            ..Default::default()
+        });
+
+        state.replace_pending_scan_queue(vec![second.clone(), third.clone()]);
+
+        assert_eq!(state.pop_next_pending_scan_root(), Some(second));
+        assert_eq!(state.pop_next_pending_scan_root(), Some(third));
+        assert_eq!(state.pop_next_pending_scan_root(), None);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn scan_root_for_sidebar_folder_uses_containing_library_root() {
+        let root = temp_path("mr-sidebar-rescan-root");
+        let downloads = root.join("Downloads");
+        let models = root.join("3D Files");
+        let nested = models.join("parts");
+        std::fs::create_dir_all(&downloads).unwrap();
+        std::fs::create_dir_all(&nested).unwrap();
+        let state = ShellState::with_prefs(AppPrefs {
+            last_folder: Some(downloads.clone()),
+            library_folders: vec![downloads, models.clone()],
+            ..Default::default()
+        });
+
+        assert_eq!(state.scan_root_for_folder(&nested), Some(models));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn watcher_relevance_includes_models_and_sidecars_only() {
         assert!(is_refresh_relevant_path(Path::new("part.stl")));
         assert!(is_refresh_relevant_path(Path::new("assembly.3mf")));
@@ -7301,7 +7429,14 @@ mod tests {
         });
 
         assert_eq!(
-            persist_add_tags(&prefs_with_root(&root), &mut entries, &model, true, "rack, jig, printer").unwrap(),
+            persist_add_tags(
+                &prefs_with_root(&root),
+                &mut entries,
+                &model,
+                true,
+                "rack, jig, printer"
+            )
+            .unwrap(),
             Some(3)
         );
 
@@ -7331,7 +7466,14 @@ mod tests {
         });
 
         assert_eq!(
-            persist_add_existing_tag(&prefs_with_root(&root), &mut entries, &model, true, "printer").unwrap(),
+            persist_add_existing_tag(
+                &prefs_with_root(&root),
+                &mut entries,
+                &model,
+                true,
+                "printer"
+            )
+            .unwrap(),
             Some(TagDropOutcome::Added {
                 tag: "printer".to_string(),
                 count: 2,
@@ -7364,7 +7506,14 @@ mod tests {
         });
 
         assert_eq!(
-            persist_add_existing_tag(&prefs_with_root(&root), &mut entries, &model, true, "printer").unwrap(),
+            persist_add_existing_tag(
+                &prefs_with_root(&root),
+                &mut entries,
+                &model,
+                true,
+                "printer"
+            )
+            .unwrap(),
             Some(TagDropOutcome::AlreadyPresent {
                 tag: "printer".to_string(),
                 count: 2,
@@ -7413,7 +7562,14 @@ mod tests {
         let mut entries = vec![test_entry(&model)];
 
         assert_eq!(
-            persist_add_tags(&AppPrefs::default(), &mut entries, &model, false, "demo, tag").unwrap(),
+            persist_add_tags(
+                &AppPrefs::default(),
+                &mut entries,
+                &model,
+                false,
+                "demo, tag"
+            )
+            .unwrap(),
             Some(2)
         );
         assert_eq!(
@@ -7430,7 +7586,8 @@ mod tests {
         let model = root.join("missing.stl");
         let mut entries = vec![test_entry(&model)];
 
-        let err = match persist_add_tags(&prefs_with_root(&root), &mut entries, &model, true, "tag") {
+        let err = match persist_add_tags(&prefs_with_root(&root), &mut entries, &model, true, "tag")
+        {
             Ok(_) => panic!("missing real model should be rejected"),
             Err(err) => err,
         };
@@ -7494,7 +7651,16 @@ mod tests {
         let model = root.join("missing.stl");
         let mut entries = vec![test_entry(&model)];
 
-        persist_metadata_fields(&AppPrefs::default(), &mut entries, &model, false, "demo, tag", "You", "memo").unwrap();
+        persist_metadata_fields(
+            &AppPrefs::default(),
+            &mut entries,
+            &model,
+            false,
+            "demo, tag",
+            "You",
+            "memo",
+        )
+        .unwrap();
 
         let meta = entries[0].meta.as_ref().unwrap();
         assert_eq!(meta.tags, vec!["demo", "tag"]);
@@ -7573,11 +7739,13 @@ mod tests {
         let mut entries = vec![test_entry(&model)];
 
         assert_eq!(
-            persist_print_count_delta(&prefs_with_root(&root), &mut entries, &model, true, 2).unwrap(),
+            persist_print_count_delta(&prefs_with_root(&root), &mut entries, &model, true, 2)
+                .unwrap(),
             Some(2)
         );
         assert_eq!(
-            persist_print_count_delta(&prefs_with_root(&root), &mut entries, &model, true, -5).unwrap(),
+            persist_print_count_delta(&prefs_with_root(&root), &mut entries, &model, true, -5)
+                .unwrap(),
             Some(0)
         );
 
@@ -7682,7 +7850,8 @@ mod tests {
         });
 
         assert_eq!(
-            persist_remove_print_record(&prefs_with_root(&root), &mut entries, &model, true, 0).unwrap(),
+            persist_remove_print_record(&prefs_with_root(&root), &mut entries, &model, true, 0)
+                .unwrap(),
             Some(1)
         );
 
@@ -7781,11 +7950,18 @@ mod tests {
         let model = root.join("missing.stl");
         let mut entries = vec![test_entry(&model)];
 
-        let err =
-            match persist_metadata_fields(&prefs_with_root(&root), &mut entries, &model, true, "tag", "author", "notes") {
-                Ok(_) => panic!("missing real model should be rejected"),
-                Err(err) => err,
-            };
+        let err = match persist_metadata_fields(
+            &prefs_with_root(&root),
+            &mut entries,
+            &model,
+            true,
+            "tag",
+            "author",
+            "notes",
+        ) {
+            Ok(_) => panic!("missing real model should be rejected"),
+            Err(err) => err,
+        };
         assert!(err.to_string().contains("model does not exist"));
     }
 

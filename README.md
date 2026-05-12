@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://github.com/stormixus/ModelRack/releases/latest"><strong>Download latest release</strong></a>
   ·
-  <a href="https://github.com/stormixus/ModelRack/releases/tag/v0.1.1">v0.1.1 release</a>
+  <a href="https://github.com/stormixus/ModelRack/releases/tag/v0.1.2">v0.1.2 release</a>
 </p>
 
 <p align="center">
