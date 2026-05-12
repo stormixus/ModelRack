@@ -3,10 +3,15 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Cursor, Read, Seek};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use walkdir::WalkDir;
 
 const MAX_STL_PARSE_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_STL_PREVIEW_BYTES: u64 = 32 * 1024 * 1024;
+/// When a binary STL exceeds [`MAX_STL_PREVIEW_BYTES`], we still parse geometry if the header
+/// reports a modest triangle count. Many on-disk files are padded, sparse exports, or carry
+/// non-mesh payload while the facet section stays small enough to load safely.
+const MAX_STL_TRIANGLES_PARSE_OVER_PREVIEW_BYTES_CAP: usize = 550_000;
 const MAX_TEXT_PREVIEW_BYTES: u64 = 16 * 1024 * 1024;
 type ParsedStl = (StlType, Option<usize>, Option<[f32; 3]>, Option<MeshData>);
 
@@ -26,6 +31,10 @@ pub struct SidecarMeta {
     pub author: String,
     #[serde(default)]
     pub added: Option<String>,
+    /// Optional human-readable title used when the user has chosen the
+    /// title-cased card label mode. Falls back to the filename stem.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub title: String,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -483,16 +492,6 @@ fn parse_step_file(path: &Path) -> Result<(StlFileInfo, Option<MeshData>)> {
 }
 
 fn parse_scad_file(path: &Path) -> Result<(StlFileInfo, Option<MeshData>)> {
-    parse_text_cad_file(path, StlType::Scad, |text| {
-        parse_scad_dimensions(text).map(|dims| ([0.0, 0.0, 0.0], dims))
-    })
-}
-
-fn parse_text_cad_file(
-    path: &Path,
-    stl_type: StlType,
-    bounds_parser: impl FnOnce(&str) -> Option<([f32; 3], [f32; 3])>,
-) -> Result<(StlFileInfo, Option<MeshData>)> {
     let metadata = std::fs::metadata(path)
         .with_context(|| format!("Failed to read metadata for {}", path.display()))?;
     let size = metadata.len();
@@ -503,19 +502,31 @@ fn parse_text_cad_file(
         .unwrap_or("unknown")
         .to_string();
 
-    let (hash, dimensions, mesh) = if size <= MAX_TEXT_PREVIEW_BYTES {
+    let (hash, mesh) = if size <= MAX_TEXT_PREVIEW_BYTES {
         let data =
             std::fs::read(path).with_context(|| format!("Failed to read {}", path.display()))?;
         let hash: [u8; 32] = blake3::hash(&data).into();
         let text = String::from_utf8_lossy(&data);
-        let bounds = bounds_parser(&text);
-        let dimensions =
-            bounds.map(|(min, max)| [max[0] - min[0], max[1] - min[1], max[2] - min[2]]);
-        let mesh = bounds.and_then(|(min, max)| bounding_box_mesh(min, max));
-        (hash, dimensions, mesh)
+        let mut mesh = if size <= MAX_STL_PREVIEW_BYTES {
+            try_scad_mesh_via_openscad(path)
+        } else {
+            None
+        };
+        if mesh.is_none() {
+            mesh = parse_scad_dimensions(&text)
+                .and_then(|dims| bounding_box_mesh([0.0, 0.0, 0.0], dims));
+        }
+        (hash, mesh)
+    } else if size <= MAX_STL_PREVIEW_BYTES {
+        let hash = metadata_hash(path, size, modified);
+        let mesh = try_scad_mesh_via_openscad(path);
+        (hash, mesh)
     } else {
-        (metadata_hash(path, size, modified), None, None)
+        (metadata_hash(path, size, modified), None)
     };
+
+    let triangle_count = mesh.as_ref().map(|m| m.faces.len());
+    let dimensions = mesh.as_ref().and_then(mesh_dimensions);
 
     Ok((
         StlFileInfo {
@@ -523,8 +534,8 @@ fn parse_text_cad_file(
             filename,
             size,
             hash,
-            stl_type,
-            triangle_count: None,
+            stl_type: StlType::Scad,
+            triangle_count,
             dimensions,
             three_mf_plate_count: None,
             modified,
@@ -533,6 +544,48 @@ fn parse_text_cad_file(
         },
         mesh,
     ))
+}
+
+/// OpenSCAD CLI used for `.scad` preview meshes. Override with `OPENSCAD_PATH` when the binary
+/// is not on `PATH` (for example the macOS `.app` bundle binary).
+fn openscad_program() -> PathBuf {
+    std::env::var_os("OPENSCAD_PATH")
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("openscad"))
+}
+
+/// Renders the given `.scad` to a temporary STL via OpenSCAD and parses that mesh.
+fn try_scad_mesh_via_openscad(scad_path: &Path) -> Option<MeshData> {
+    let program = openscad_program();
+    let out_path = std::env::temp_dir().join(format!(
+        "modelrack-openscad-{}-{}.stl",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+
+    let status = Command::new(&program)
+        .arg("-o")
+        .arg(&out_path)
+        .arg(scad_path)
+        .output()
+        .ok()?;
+
+    if !status.status.success() {
+        let _ = std::fs::remove_file(&out_path);
+        return None;
+    }
+
+    let data = std::fs::read(&out_path).ok()?;
+    let _ = std::fs::remove_file(&out_path);
+    if data.is_empty() {
+        return None;
+    }
+
+    parse_stl_io_mesh(&data).and_then(|(_, _, _, mesh)| mesh)
 }
 
 fn parse_obj_mesh(text: &str) -> Option<MeshData> {
@@ -1080,12 +1133,19 @@ fn parse_stl_file(path: &Path) -> Result<(StlFileInfo, Option<MeshData>)> {
     let hash_bytes: [u8; 32] = blake3::hash(&data).into();
 
     let (stl_type, triangle_count, dimensions, mesh_data) = if size > MAX_STL_PREVIEW_BYTES {
-        (
-            StlType::LargeStl,
-            binary_stl_triangle_count(&data),
-            None,
-            None,
-        )
+        let tri_header = binary_stl_triangle_count(&data);
+        let try_mesh = tri_header.is_some_and(|triangles| {
+            triangles <= MAX_STL_TRIANGLES_PARSE_OVER_PREVIEW_BYTES_CAP
+                && detect_stl_type(&data) != StlType::Ascii
+        });
+        if try_mesh {
+            parse_binary_stl_fast(&data)
+                .filter(|(_, _, _, mesh)| mesh.is_some())
+                .or_else(|| parse_stl_io_mesh(&data))
+                .unwrap_or_else(|| (StlType::LargeStl, tri_header, None, None))
+        } else {
+            (StlType::LargeStl, tri_header, None, None)
+        }
     } else {
         let parsed = parse_binary_stl_fast(&data).unwrap_or_else(|| parse_ascii_stl(&data));
         if parsed.0 == StlType::Unknown || parsed.3.is_none() {
@@ -1829,6 +1889,7 @@ fn detect_stl_type(data: &[u8]) -> StlType {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::process::Command;
 
     fn make_binary_stl(triangles: &[[[f32; 3]; 3]]) -> Vec<u8> {
         let mut buf = Vec::new();
@@ -2146,6 +2207,45 @@ mod tests {
     }
 
     #[test]
+    fn binary_stl_padded_beyond_preview_cap_still_parses_mesh() {
+        let dir = std::env::temp_dir().join(format!(
+            "modelrack-padded-stl-preview-cap-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("padded.stl");
+
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&[0u8; 80]);
+        buf.extend_from_slice(&1u32.to_le_bytes());
+        buf.extend_from_slice(&[0u8; 12]);
+        for _ in 0..3 {
+            buf.extend_from_slice(&1.0f32.to_le_bytes());
+            buf.extend_from_slice(&0.0f32.to_le_bytes());
+            buf.extend_from_slice(&0.0f32.to_le_bytes());
+        }
+        buf.extend_from_slice(&0u16.to_le_bytes());
+        assert_eq!(buf.len(), 134);
+        let target = (MAX_STL_PREVIEW_BYTES + 4096) as usize;
+        buf.resize(target, 0);
+
+        std::fs::write(&path, &buf).unwrap();
+
+        let result = scan_folder(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert_eq!(result.entries.len(), 1);
+        assert_eq!(
+            result.meshes.len(),
+            1,
+            "mesh should parse when triangle count is tiny but file size exceeds preview cap"
+        );
+        assert_eq!(result.entries[0].triangle_count, Some(1));
+        assert_ne!(result.entries[0].stl_type, StlType::LargeStl);
+    }
+
+    #[test]
     fn ascii_stl_appears_with_mesh_preview() {
         let dir =
             std::env::temp_dir().join(format!("modelrack-ascii-stl-test-{}", std::process::id()));
@@ -2290,8 +2390,22 @@ mod tests {
 
         assert_eq!(result.entries.len(), 1);
         assert!(matches!(result.entries[0].stl_type, StlType::Scad));
-        assert_eq!(result.entries[0].dimensions, Some([18.0, 32.0, 6.0]));
-        assert_eq!(result.meshes.len(), 1);
+        let openscad_ok = Command::new(openscad_program())
+            .arg("--version")
+            .output()
+            .ok()
+            .is_some_and(|o| o.status.success());
+        if openscad_ok {
+            assert!(
+                result.entries[0].triangle_count.unwrap_or(0) > 8,
+                "OpenSCAD should yield a real triangle mesh"
+            );
+            assert_eq!(result.meshes.len(), 1);
+            assert!(result.meshes[0].faces.len() > 8);
+        } else {
+            assert_eq!(result.entries[0].dimensions, Some([18.0, 32.0, 6.0]));
+            assert_eq!(result.meshes.len(), 1);
+        }
     }
 
     #[test]

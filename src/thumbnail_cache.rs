@@ -14,6 +14,26 @@ pub fn ensure_thumbnail(entry: &StlFileInfo, mesh: Option<&MeshData>) -> io::Res
     ensure_thumbnail_in(entry, mesh, &root)
 }
 
+/// Invalidate the on-disk thumbnail cache for the current renderer version.
+/// Deletes the entire versioned directory; the next `ensure_thumbnail` call
+/// will recreate the directory and regenerate any thumbnails it needs.
+///
+/// Returns `Ok(())` when the cache directory was missing (treated as already
+/// cleared) so callers can wire this to a one-shot "Clear cache" button
+/// without special-casing the first invocation.
+pub fn clear_all() -> io::Result<()> {
+    let root = platform_cache_root().join("thumbnails").join(CACHE_VERSION);
+    clear_in(&root)
+}
+
+fn clear_in(root: &Path) -> io::Result<()> {
+    match fs::remove_dir_all(root) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err),
+    }
+}
+
 fn ensure_thumbnail_in(
     entry: &StlFileInfo,
     mesh: Option<&MeshData>,
@@ -494,7 +514,8 @@ fn draw_dimension_block(canvas: &mut Canvas, entry: &StlFileInfo, high: [u8; 4],
 
 fn draw_corner_mark(canvas: &mut Canvas, entry: &StlFileInfo, accent: [u8; 3]) {
     let tris = entry.triangle_count.unwrap_or(0) as u32;
-    let bars = 1 + ((tris.max(entry.size as u32) as usize + entry.filename.len()) % 4);
+    let size_hint = u32::try_from(entry.size.min(u32::MAX as u64)).unwrap_or(u32::MAX);
+    let bars = 1 + ((tris.max(size_hint) as usize + entry.filename.len()) % 4);
     for i in 0..bars {
         let x = 18 + i as i32 * 8;
         let y = canvas.height as i32 - 26 - i as i32 * 3;
@@ -976,5 +997,27 @@ mod tests {
     #[test]
     fn thumbnail_cache_version_reflects_renderer_contract() {
         assert_eq!(CACHE_VERSION, "v9");
+    }
+
+    #[test]
+    fn clear_in_removes_on_disk_thumbnails_and_is_idempotent() {
+        let root = temp_dir("clear");
+        let entry = entry(31);
+
+        let path = ensure_thumbnail_in(&entry, None, &root).unwrap();
+        assert!(path.exists());
+
+        clear_in(&root).expect("first clear succeeds");
+        assert!(!path.exists());
+        assert!(!root.exists());
+
+        clear_in(&root).expect("clearing a missing cache is OK");
+
+        // Subsequent regeneration works as before.
+        let regenerated = ensure_thumbnail_in(&entry, None, &root).unwrap();
+        assert_eq!(path, regenerated);
+        assert!(regenerated.exists());
+
+        let _ = fs::remove_dir_all(root);
     }
 }

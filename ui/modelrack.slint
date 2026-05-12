@@ -877,9 +877,33 @@ component ModelCard inherits Rectangle {
     in property <BrowserCard> card;
     in property <bool> selected: false;
     in property <bool> layout-motion: true;
+    in property <bool> streaming-list: false;
     in property <int> card-index;
     callback clicked(int);
     callback context-requested(int, length, length);
+
+    property <float> list-appear-opacity;
+    property <length> list-appear-y;
+
+    init => {
+        list-appear-opacity = streaming-list ? 0 : 1;
+        list-appear-y = streaming-list ? 6px : 0px;
+        if (streaming-list) {
+            list-appear-opacity = 1;
+            list-appear-y = 0px;
+        }
+    }
+
+    animate list-appear-opacity {
+        duration: 185ms;
+        easing: ease-out;
+        delay: streaming-list ? min(card.slot-index, 44) * 10ms : 0ms;
+    }
+    animate list-appear-y {
+        duration: 185ms;
+        easing: ease-out;
+        delay: streaming-list ? min(card.slot-index, 44) * 10ms : 0ms;
+    }
 
     background: selected ? Theme.bg-5 : Theme.bg-3;
     border-color: card.error ? Theme.error :
@@ -893,115 +917,124 @@ component ModelCard inherits Rectangle {
     animate background { duration: 120ms; easing: ease-in-out; }
     animate border-color { duration: 120ms; easing: ease-in-out; }
 
-    VerticalLayout {
-        // Thumbnail area
-        Rectangle {
-            height: root.width;
-            background: Theme.bg-0;
-            border-radius: Theme.radius-card;
+    Rectangle {
+        y: list-appear-y;
+        width: parent.width;
+        height: parent.height;
+        clip: true;
+        opacity: list-appear-opacity;
+        background: transparent;
 
-            CachedThumb {
-                x: 0;
-                y: 0;
-                width: parent.width;
-                height: parent.height;
-                thumb-key: card.thumb-key;
-                cached-image: card.thumb-image;
-                thumb-ready: card.thumb-ready;
-            }
+        VerticalLayout {
+            // Thumbnail area
+            Rectangle {
+                height: root.width;
+                background: Theme.bg-0;
+                border-radius: Theme.radius-card;
 
-            // Badge
-            if card.error: Rectangle {
-                x: 6px;
-                y: 6px;
-                width: err-text.width + 12px;
-                height: 18px;
-                background: #3c151ccc;
-                border-radius: 3px;
+                CachedThumb {
+                    x: 0;
+                    y: 0;
+                    width: parent.width;
+                    height: parent.height;
+                    thumb-key: card.thumb-key;
+                    cached-image: card.thumb-image;
+                    thumb-ready: card.thumb-ready;
+                }
 
-                err-text := Text {
+                // Badge
+                if card.error: Rectangle {
                     x: 6px;
-                    y: (parent.height - self.height) / 2;
-                    text: "ERR";
-                    color: #ff9b8e;
+                    y: 6px;
+                    width: err-text.width + 12px;
+                    height: 18px;
+                    background: #3c151ccc;
+                    border-radius: 3px;
+
+                    err-text := Text {
+                        x: 6px;
+                        y: (parent.height - self.height) / 2;
+                        text: "ERR";
+                        color: #ff9b8e;
+                        font-family: "JetBrains Mono";
+                        font-size: 10px;
+                        font-weight: 700;
+                    }
+                }
+
+                if !card.error && card.badge != "": Text {
+                    x: 6px;
+                    y: 6px;
+                    text: card.badge;
+                    color: card.error ? #ffb4b0 : Theme.fg-2;
                     font-family: "JetBrains Mono";
                     font-size: 10px;
                     font-weight: 700;
                 }
-            }
 
-            if !card.error && card.badge != "": Text {
-                x: 6px;
-                y: 6px;
-                text: card.badge;
-                color: card.error ? #ffb4b0 : Theme.fg-2;
-                font-family: "JetBrains Mono";
-                font-size: 10px;
-                font-weight: 700;
-            }
+                // Favorite star
+                if card.favorite: SvgIcon {
+                    x: parent.width - 24px;
+                    y: 6px;
+                    width: 18px;
+                    height: 18px;
+                    icon: @image-url("../assets/icons/star.svg");
+                    tint: #d4a84f;
+                }
 
-            // Favorite star
-            if card.favorite: SvgIcon {
-                x: parent.width - 24px;
-                y: 6px;
-                width: 18px;
-                height: 18px;
-                icon: @image-url("../assets/icons/star.svg");
-                tint: #d4a84f;
-            }
-
-            // Printed badge
-            if card.printed: Rectangle {
-                x: 6px;
-                y: parent.height - self.height - 6px;
-                width: print-label.width + 12px;
-                height: 18px;
-                background: #00000088;
-                border-radius: 3px;
-
-                print-label := Text {
+                // Printed badge
+                if card.printed: Rectangle {
                     x: 6px;
-                    y: (parent.height - self.height) / 2;
-                    text: card.printed-count;
-                    color: Theme.success;
-                    font-size: 10px;
+                    y: parent.height - self.height - 6px;
+                    width: print-label.width + 12px;
+                    height: 18px;
+                    background: #00000088;
+                    border-radius: 3px;
+
+                    print-label := Text {
+                        x: 6px;
+                        y: (parent.height - self.height) / 2;
+                        text: card.printed-count;
+                        color: Theme.success;
+                        font-size: 10px;
+                    }
                 }
             }
-        }
 
-        // Card body
-        Rectangle {
-            height: 62px;
+            // Card body
+            Rectangle {
+                height: 62px;
 
-            VerticalLayout {
-                padding-left: 9px;
-                padding-right: 9px;
-                padding-top: 7px;
-                padding-bottom: 8px;
-                spacing: 3px;
+                VerticalLayout {
+                    padding-left: 9px;
+                    padding-right: 9px;
+                    padding-top: 7px;
+                    padding-bottom: 8px;
+                    spacing: 3px;
 
-                Text {
-                    text: card.title;
-                    color: Theme.fg-0;
-                    font-size: 11.5px;
-                    font-weight: 500;
-                    overflow: elide;
-                }
+                    Text {
+                        text: card.title;
+                        color: Theme.fg-0;
+                        font-size: 11.5px;
+                        font-weight: 500;
+                        overflow: elide;
+                    }
 
-                Text {
-                    text: card.subtitle;
-                    color: Theme.fg-2;
-                    font-family: "JetBrains Mono";
-                    font-size: 10px;
-                    overflow: elide;
-                }
+                    Text {
+                        text: card.subtitle;
+                        color: Theme.fg-2;
+                        font-family: "JetBrains Mono";
+                        font-size: 10px;
+                        overflow: elide;
+                    }
 
-                Text {
-                    text: card.relative-modified;
-                    color: Theme.fg-3;
-                    font-family: "JetBrains Mono";
-                    font-size: 10px;
-                    overflow: elide;
+                    Text {
+                        text: card.relative-modified;
+                        color: Theme.fg-3;
+                        font-family: "JetBrains Mono";
+                        font-size: 10px;
+                        overflow: elide;
+                    }
                 }
             }
         }
@@ -1211,7 +1244,9 @@ component SettingsToggle inherits Rectangle {
 
 component SettingsSwatch inherits Rectangle {
     in property <brush> fill;
+    in property <string> key;
     in property <bool> selected: false;
+    callback activated(string);
 
     width: 26px;
     height: 26px;
@@ -1219,6 +1254,10 @@ component SettingsSwatch inherits Rectangle {
     border-radius: 13px;
     border-color: selected ? Theme.fg-0 : transparent;
     border-width: 2px;
+
+    TouchArea {
+        clicked => { root.activated(root.key); }
+    }
 }
 
 component SettingsActionButton inherits Rectangle {
@@ -1281,8 +1320,32 @@ component ModelListRow inherits Rectangle {
     in property <BrowserCard> card;
     in property <int> card-index;
     in property <bool> selected: false;
+    in property <bool> streaming-list: false;
     callback clicked(int);
     callback context-requested(int, length, length);
+
+    property <float> list-appear-opacity;
+    property <length> list-appear-y;
+
+    init => {
+        list-appear-opacity = streaming-list ? 0 : 1;
+        list-appear-y = streaming-list ? 5px : 0px;
+        if (streaming-list) {
+            list-appear-opacity = 1;
+            list-appear-y = 0px;
+        }
+    }
+
+    animate list-appear-opacity {
+        duration: 175ms;
+        easing: ease-out;
+        delay: streaming-list ? min(card.slot-index, 44) * 10ms : 0ms;
+    }
+    animate list-appear-y {
+        duration: 175ms;
+        easing: ease-out;
+        delay: streaming-list ? min(card.slot-index, 44) * 10ms : 0ms;
+    }
 
     height: 58px;
     background: selected ? Theme.bg-5 : list-touch.has-hover ? Theme.bg-3 : Theme.bg-1;
@@ -1290,73 +1353,82 @@ component ModelListRow inherits Rectangle {
     border-width: 1px;
     border-radius: 6px;
 
-    CachedThumb {
-        x: 8px;
-        y: 6px;
-        width: 46px;
-        height: 46px;
-        thumb-key: card.thumb-key;
-        cached-image: card.thumb-image;
-        thumb-ready: card.thumb-ready;
-    }
-
-    Text {
-        x: 64px;
-        y: 10px;
-        width: parent.width - 360px;
-        text: card.title;
-        color: Theme.fg-0;
-        font-size: Theme.font-body;
-        font-weight: 600;
-        overflow: elide;
-    }
-
-    Text {
-        x: 64px;
-        y: 31px;
-        width: parent.width - 360px;
-        text: card.subtitle;
-        color: Theme.fg-2;
-        font-family: "JetBrains Mono";
-        font-size: Theme.font-overline;
-        overflow: elide;
-    }
-
-    Text {
-        x: parent.width - 230px;
-        y: 20px;
-        width: 110px;
-        text: card.author;
-        color: Theme.fg-2;
-        font-size: Theme.font-meta;
-        overflow: elide;
-    }
-
-    Text {
-        x: parent.width - 108px;
-        y: 20px;
-        width: 92px;
-        text: card.relative-modified;
-        color: Theme.fg-3;
-        font-family: "JetBrains Mono";
-        font-size: Theme.font-overline;
-        horizontal-alignment: right;
-        overflow: elide;
-    }
-
-    list-drag := DragArea {
+    Rectangle {
+        y: list-appear-y;
         width: parent.width;
         height: parent.height;
-        mime-type: "application/x-modelrack-model-index";
-        data: "" + root.card-index;
+        clip: true;
+        opacity: list-appear-opacity;
+        background: transparent;
 
-        list-touch := TouchArea {
+        CachedThumb {
+            x: 8px;
+            y: 6px;
+            width: 46px;
+            height: 46px;
+            thumb-key: card.thumb-key;
+            cached-image: card.thumb-image;
+            thumb-ready: card.thumb-ready;
+        }
+
+        Text {
+            x: 64px;
+            y: 10px;
+            width: parent.width - 360px;
+            text: card.title;
+            color: Theme.fg-0;
+            font-size: Theme.font-body;
+            font-weight: 600;
+            overflow: elide;
+        }
+
+        Text {
+            x: 64px;
+            y: 31px;
+            width: parent.width - 360px;
+            text: card.subtitle;
+            color: Theme.fg-2;
+            font-family: "JetBrains Mono";
+            font-size: Theme.font-overline;
+            overflow: elide;
+        }
+
+        Text {
+            x: parent.width - 230px;
+            y: 20px;
+            width: 110px;
+            text: card.author;
+            color: Theme.fg-2;
+            font-size: Theme.font-meta;
+            overflow: elide;
+        }
+
+        Text {
+            x: parent.width - 108px;
+            y: 20px;
+            width: 92px;
+            text: card.relative-modified;
+            color: Theme.fg-3;
+            font-family: "JetBrains Mono";
+            font-size: Theme.font-overline;
+            horizontal-alignment: right;
+            overflow: elide;
+        }
+
+        list-drag := DragArea {
             width: parent.width;
             height: parent.height;
-            clicked => { root.clicked(root.card-index); }
-            pointer-event(event) => {
-                if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
-                    root.context-requested(root.card-index, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+            mime-type: "application/x-modelrack-model-index";
+            data: "" + root.card-index;
+
+            list-touch := TouchArea {
+                width: parent.width;
+                height: parent.height;
+                clicked => { root.clicked(root.card-index); }
+                pointer-event(event) => {
+                    if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                        root.context-requested(root.card-index, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+                    }
                 }
             }
         }
@@ -1745,6 +1817,13 @@ export component ModelRackWindow inherits Window {
     property <string> tr-nozzle: settings-language-key == "ko" ? "노즐" : settings-language-key == "ja" ? "ノズル" : "Nozzle";
     property <string> tr-default: settings-language-key == "ko" ? "기본" : settings-language-key == "ja" ? "既定" : "Default";
     property <string> tr-set-default: settings-language-key == "ko" ? "기본 설정" : settings-language-key == "ja" ? "既定に設定" : "Set default";
+    property <string> tr-add-printer: settings-language-key == "ko" ? "내 프린터에 추가" : settings-language-key == "ja" ? "プリンタを追加" : "Add to my printers";
+    property <string> tr-my-printers: settings-language-key == "ko" ? "내 프린터" : settings-language-key == "ja" ? "マイプリンタ" : "My printers";
+    property <string> tr-no-printers: settings-language-key == "ko" ? "활성 프린터가 없습니다 — 위에서 선택 후 추가하세요" : settings-language-key == "ja" ? "アクティブなプリンタがありません — 上で選択して追加してください" : "No active printers — pick one above and add it";
+    property <string> tr-already-added: settings-language-key == "ko" ? "이미 추가됨" : settings-language-key == "ja" ? "追加済み" : "Already added";
+    property <string> tr-pick-nozzle: settings-language-key == "ko" ? "노즐을 선택하세요" : settings-language-key == "ja" ? "ノズルを選択してください" : "Pick a nozzle";
+    property <string> tr-remove: settings-language-key == "ko" ? "제거" : settings-language-key == "ja" ? "削除" : "Remove";
+    property <string> tr-empty-cta: settings-language-key == "ko" ? "라이브러리 폴더 열기" : settings-language-key == "ja" ? "ライブラリフォルダを開く" : "Open library folder";
     property <string> tr-default-slicer: settings-language-key == "ko" ? "기본 슬라이서" : settings-language-key == "ja" ? "既定のスライサー" : "Default slicer";
     property <string> tr-detected-apps: settings-language-key == "ko" ? "감지된 앱" : settings-language-key == "ja" ? "検出したアプリ" : "Detected apps";
     property <string> tr-choices-suffix: settings-language-key == "ko" ? "개 선택지" : settings-language-key == "ja" ? " 件" : " choices";
@@ -1773,6 +1852,7 @@ export component ModelRackWindow inherits Window {
     property <string> tr-check: settings-language-key == "ko" ? "확인" : settings-language-key == "ja" ? "確認" : "Check";
     in property <string> settings-theme-key: "dark";
     in property <string> settings-theme-label: "Dark";
+    in property <string> settings-accent-key: "teal";
     in property <string> settings-sort-key: "name";
     in property <bool> settings-sort-ascending: true;
     in property <string> settings-thumbnail-style: "iso";
@@ -1794,6 +1874,14 @@ export component ModelRackWindow inherits Window {
     in property <[ChoiceRow]> settings-printer-nozzles;
     in property <string> settings-printer-maker-label;
     in property <string> settings-printer-model-label;
+    in property <string> settings-printer-nozzle-label;
+    in property <string> settings-printer-pending-label;
+    in property <bool> settings-printer-pending-active: false;
+    in property <bool> settings-printer-can-add: false;
+    in property <string> settings-card-label-key: "filename";
+    in property <string> settings-date-format-key: "auto";
+    in property <bool> settings-show-file-extensions: true;
+    in property <string> settings-startup-key: "last";
     property <bool> sidebar-context-open: false;
     property <string> sidebar-context-key;
     property <string> sidebar-context-label;
@@ -1842,6 +1930,7 @@ export component ModelRackWindow inherits Window {
     callback choose-settings-tab(string);
     callback choose-settings-language(string);
     callback choose-settings-theme(string);
+    callback choose-settings-accent(string);
     callback choose-settings-sort(string);
     callback choose-settings-thumbnail-style(string);
     callback choose-settings-thumbnail-lighting(string);
@@ -1849,6 +1938,13 @@ export component ModelRackWindow inherits Window {
     callback choose-settings-printer-maker(string);
     callback choose-settings-printer-model(string);
     callback choose-settings-printer-nozzle(string);
+    callback add-settings-printer();
+    callback choose-settings-card-label(string);
+    callback choose-settings-date-format(string);
+    callback toggle-settings-show-file-extensions(bool);
+    callback choose-settings-startup(string);
+    callback regenerate-thumbnails();
+    callback clear-thumbnail-cache();
     callback check-updates();
     callback cycle-settings-language();
     callback toggle-settings-theme();
@@ -2633,6 +2729,7 @@ export component ModelRackWindow inherits Window {
 
                     if model-cards.length == 0: VerticalLayout {
                         alignment: center;
+                        spacing: 14px;
 
                         Rectangle {
                             height: 36px;
@@ -2658,6 +2755,16 @@ export component ModelRackWindow inherits Window {
                             color: Theme.fg-1;
                             font-size: Theme.font-body;
                             horizontal-alignment: center;
+                        }
+
+                        HorizontalLayout {
+                            alignment: center;
+                            SettingsActionButton {
+                                button-width: 200px;
+                                label: tr-empty-cta;
+                                icon: @image-url("../assets/icons/folder.svg");
+                                activated => { open-folder(); }
+                            }
                         }
                     }
 
@@ -2692,6 +2799,7 @@ export component ModelRackWindow inherits Window {
                             layout-motion: grid-flick.full-layout-motion
                                 || (target-y + grid-flick.card-h >= grid-flick.viewport-y - grid-flick.render-buffer
                                     && target-y <= grid-flick.viewport-y + grid-flick.height + grid-flick.render-buffer);
+                            streaming-list: scan-progress-percent >= 0;
                             card: card;
                             card-index: card.slot-index;
                             selected: card.slot-index == selected-card-index;
@@ -2735,6 +2843,7 @@ export component ModelRackWindow inherits Window {
                             y: card.slot-index * (list-flick.row-h + list-flick.gap);
                             width: list-flick.width;
                             height: list-flick.row-h;
+                            streaming-list: scan-progress-percent >= 0;
                             card: card;
                             card-index: card.slot-index;
                             selected: card.slot-index == selected-card-index;
@@ -4295,7 +4404,7 @@ export component ModelRackWindow inherits Window {
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
                             Text { x: 0; y: 13px; width: 180px; text: tr-on-startup; color: Theme.fg-1; font-size: Theme.font-body; }
                             Text { x: 0; y: 31px; width: 180px; text: tr-startup-hint; color: Theme.fg-3; font-size: Theme.font-meta; overflow: elide; }
-                            SettingsSegment { x: 196px; y: 14px; button-width: 104px; a-label: tr-last-library; a-key: "last"; b-label: tr-empty-state; b-key: "empty"; selected-key: "last"; activated(key) => { } }
+                            SettingsSegment { x: 196px; y: 14px; button-width: 104px; a-label: tr-last-library; a-key: "last"; b-label: tr-empty-state; b-key: "empty"; selected-key: settings-startup-key; activated(key) => { choose-settings-startup(key); } }
                         }
                         if settings-tab == "general": Rectangle {
                             height: 54px;
@@ -4313,13 +4422,13 @@ export component ModelRackWindow inherits Window {
                             height: 54px;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
                             Text { x: 0; y: 18px; width: 180px; text: tr-date-format; color: Theme.fg-1; font-size: Theme.font-body; }
-                            SettingsSegment { x: 196px; y: 12px; button-width: 92px; a-label: tr-auto; a-key: "auto"; b-label: "2026-05-08"; b-key: "iso"; c-label: tr-us-date-example; c-key: "us"; selected-key: "auto"; activated(key) => { } }
+                            SettingsSegment { x: 196px; y: 12px; button-width: 92px; a-label: tr-auto; a-key: "auto"; b-label: "2026-05-08"; b-key: "iso"; c-label: tr-us-date-example; c-key: "us"; selected-key: settings-date-format-key; activated(key) => { choose-settings-date-format(key); } }
                         }
                         if settings-tab == "general": Rectangle {
                             height: 54px;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
                             Text { x: 0; y: 18px; width: 180px; text: tr-show-file-extensions; color: Theme.fg-1; font-size: Theme.font-body; }
-                            SettingsToggle { x: 196px; y: 17px; on: true; interactive: false; }
+                            SettingsToggle { x: 196px; y: 17px; on: settings-show-file-extensions; toggled(value) => { toggle-settings-show-file-extensions(value); } }
                         }
 
                         if settings-tab == "appearance": Rectangle {
@@ -4332,7 +4441,7 @@ export component ModelRackWindow inherits Window {
                             height: 54px;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
                             Text { x: 0; y: 18px; width: 180px; text: tr-accent-color; color: Theme.fg-1; font-size: Theme.font-body; }
-                            HorizontalLayout { x: 196px; y: 14px; width: 160px; height: 26px; spacing: 8px; SettingsSwatch { fill: Theme.accent; selected: true; } SettingsSwatch { fill: #a779d9; } SettingsSwatch { fill: #d99057; } SettingsSwatch { fill: #5fb87a; } }
+                            HorizontalLayout { x: 196px; y: 14px; width: 160px; height: 26px; spacing: 8px; SettingsSwatch { key: "teal"; fill: #5fb8d4; selected: settings-accent-key == "teal"; activated(key) => { choose-settings-accent(key); } } SettingsSwatch { key: "purple"; fill: #a779d9; selected: settings-accent-key == "purple"; activated(key) => { choose-settings-accent(key); } } SettingsSwatch { key: "orange"; fill: #d99057; selected: settings-accent-key == "orange"; activated(key) => { choose-settings-accent(key); } } SettingsSwatch { key: "green"; fill: #5fb87a; selected: settings-accent-key == "green"; activated(key) => { choose-settings-accent(key); } } }
                         }
                         if settings-tab == "appearance": Rectangle {
                             height: 54px;
@@ -4345,7 +4454,7 @@ export component ModelRackWindow inherits Window {
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
                             Text { x: 0; y: 13px; width: 180px; text: tr-card-label; color: Theme.fg-1; font-size: Theme.font-body; }
                             Text { x: 0; y: 31px; width: 180px; text: tr-card-label-hint; color: Theme.fg-3; font-size: Theme.font-meta; overflow: elide; }
-                            SettingsSegment { x: 196px; y: 14px; button-width: 92px; a-label: tr-filename; a-key: "filename"; b-label: tr-title-cased; b-key: "titled"; selected-key: "filename"; activated(key) => { } }
+                            SettingsSegment { x: 196px; y: 14px; button-width: 92px; a-label: tr-filename; a-key: "filename"; b-label: tr-title-cased; b-key: "titled"; selected-key: settings-card-label-key; activated(key) => { choose-settings-card-label(key); } }
                         }
 
                         if settings-tab == "library": Rectangle {
@@ -4403,13 +4512,13 @@ export component ModelRackWindow inherits Window {
                         }
                         if settings-tab == "thumbnails": Rectangle {
                             height: 48px;
-                            HorizontalLayout { x: 196px; y: 10px; spacing: 8px; SettingsActionButton { button-width: 170px; label: tr-regenerate-thumbnails; icon: @image-url("../assets/icons/refresh.svg"); activated => { } } SettingsActionButton { button-width: 108px; label: tr-clear-cache; icon: @image-url("../assets/icons/close.svg"); activated => { } } }
+                            HorizontalLayout { x: 196px; y: 10px; spacing: 8px; SettingsActionButton { button-width: 170px; label: tr-regenerate-thumbnails; icon: @image-url("../assets/icons/refresh.svg"); activated => { regenerate-thumbnails(); } } SettingsActionButton { button-width: 108px; label: tr-clear-cache; icon: @image-url("../assets/icons/close.svg"); activated => { clear-thumbnail-cache(); } } }
                         }
 
                         if settings-tab == "printers": SettingsRow { label: tr-enabled-profiles; value: settings-printer-summary; }
                         if settings-tab == "printers": SettingsRow { label: tr-default-estimate; value: settings-default-printer-label; }
                         if settings-tab == "printers": Rectangle {
-                            height: 136px;
+                            height: 184px;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
                             Text { x: 0; y: 14px; width: 180px; text: tr-printer-selector; color: Theme.fg-1; font-size: Theme.font-body; }
                             Text { x: 0; y: 32px; width: 180px; text: tr-maker-model-nozzle; color: Theme.fg-3; font-size: Theme.font-meta; }
@@ -4442,6 +4551,54 @@ export component ModelRackWindow inherits Window {
                                     }
                                 }
                             }
+                            // Pending selection summary + Add button.
+                            Text {
+                                x: 196px;
+                                y: 130px;
+                                width: parent.width - 196px - 162px;
+                                height: 24px;
+                                text: settings-printer-pending-label;
+                                color: settings-printer-pending-active ? Theme.fg-2 : Theme.fg-3;
+                                font-size: 11px;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                            Rectangle {
+                                x: parent.width - 156px;
+                                y: 128px;
+                                width: 152px;
+                                height: 28px;
+                                background: settings-printer-can-add
+                                    ? (add-printer-touch.has-hover ? Theme.accent : Theme.accent-dim)
+                                    : Theme.bg-3;
+                                border-color: settings-printer-can-add ? Theme.accent-line : Theme.line;
+                                border-width: 1px;
+                                border-radius: 5px;
+                                opacity: settings-printer-can-add ? 1.0 : 0.55;
+                                HorizontalLayout {
+                                    x: 0; y: 0; width: parent.width; height: parent.height;
+                                    spacing: 6px;
+                                    alignment: center;
+                                    SvgIcon { width: 12px; height: 12px; icon: @image-url("../assets/icons/plus.svg"); tint: settings-printer-can-add ? Theme.fg-0 : Theme.fg-3; }
+                                    Text { text: tr-add-printer; color: settings-printer-can-add ? Theme.fg-0 : Theme.fg-3; font-size: 11px; font-weight: 600; vertical-alignment: center; }
+                                }
+                                add-printer-touch := TouchArea {
+                                    enabled: settings-printer-can-add;
+                                    clicked => { add-settings-printer(); }
+                                }
+                            }
+                        }
+                        if settings-tab == "printers": Rectangle {
+                            height: 26px;
+                            Text { x: 0; y: 6px; text: tr-my-printers; color: Theme.fg-2; font-size: 11px; font-weight: 600; letter-spacing: 0.4px; }
+                        }
+                        if settings-tab == "printers" && settings-printer-active-count == 0: Rectangle {
+                            height: 44px;
+                            background: Theme.bg-2;
+                            border-color: Theme.line;
+                            border-width: 1px;
+                            border-radius: 6px;
+                            Text { x: 12px; y: 14px; width: parent.width - 24px; text: tr-no-printers; color: Theme.fg-3; font-size: Theme.font-body; overflow: elide; }
                         }
                         if settings-tab == "printers": VerticalLayout {
                             spacing: 6px;
@@ -4456,10 +4613,10 @@ export component ModelRackWindow inherits Window {
                                 border-radius: 6px;
 
                                 Rectangle { x: 8px; y: 12px; width: 20px; height: 20px; background: printer.selected ? Theme.accent : Theme.bg-3; border-color: printer.selected ? Theme.accent : Theme.line; border-width: 1px; border-radius: 5px; Text { x: 0; y: 1px; width: parent.width; height: parent.height; text: printer.selected ? "✓" : ""; color: #0e2a32; font-size: 12px; font-weight: 700; horizontal-alignment: center; } }
-                                Text { x: 36px; y: 7px; width: parent.width - 150px; text: printer.label; color: Theme.fg-0; font-size: Theme.font-body; font-weight: 600; overflow: elide; }
-                                Text { x: 36px; y: 24px; width: parent.width - 150px; text: printer.detail; color: Theme.fg-2; font-family: "JetBrains Mono"; font-size: Theme.font-overline; overflow: elide; }
-                                if printer.selected: Rectangle { x: parent.width - 104px; y: 10px; width: 96px; height: 24px; background: printer.defaulted ? Theme.bg-4 : set-default-touch.has-hover ? Theme.bg-4 : Theme.bg-3; border-color: printer.defaulted ? Theme.accent-line : Theme.line; border-width: 1px; border-radius: 5px; Text { x: 0; y: 5px; width: parent.width; text: printer.defaulted ? tr-default : tr-set-default; color: printer.defaulted ? Theme.fg-0 : Theme.fg-1; font-size: 11px; font-weight: 600; horizontal-alignment: center; } set-default-touch := TouchArea { clicked => { choose-settings-default-printer(printer.key); } } }
-                                TouchArea { width: parent.width - 112px; height: parent.height; clicked => { toggle-settings-printer(printer.key); } }
+                                Text { x: 36px; y: 7px; width: parent.width - 220px; text: printer.label; color: Theme.fg-0; font-size: Theme.font-body; font-weight: 600; overflow: elide; }
+                                Text { x: 36px; y: 24px; width: parent.width - 220px; text: printer.detail; color: Theme.fg-2; font-family: "JetBrains Mono"; font-size: Theme.font-overline; overflow: elide; }
+                                Rectangle { x: parent.width - 208px; y: 10px; width: 96px; height: 24px; background: printer.defaulted ? Theme.bg-4 : set-default-touch.has-hover ? Theme.bg-4 : Theme.bg-3; border-color: printer.defaulted ? Theme.accent-line : Theme.line; border-width: 1px; border-radius: 5px; Text { x: 0; y: 5px; width: parent.width; text: printer.defaulted ? tr-default : tr-set-default; color: printer.defaulted ? Theme.fg-0 : Theme.fg-1; font-size: 11px; font-weight: 600; horizontal-alignment: center; } set-default-touch := TouchArea { clicked => { choose-settings-default-printer(printer.key); } } }
+                                Rectangle { x: parent.width - 104px; y: 10px; width: 96px; height: 24px; background: remove-printer-touch.has-hover ? Theme.bg-4 : Theme.bg-3; border-color: Theme.line; border-width: 1px; border-radius: 5px; Text { x: 0; y: 5px; width: parent.width; text: tr-remove; color: Theme.fg-1; font-size: 11px; font-weight: 600; horizontal-alignment: center; } remove-printer-touch := TouchArea { clicked => { toggle-settings-printer(printer.key); } } }
                             }
                         }
 

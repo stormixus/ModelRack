@@ -53,6 +53,7 @@ It is built for the “I make things” workflow, not a generic file browser wit
 ### 3D preview pipeline
 
 - STL, 3MF, STEP, SCAD, and OBJ-aware scanning paths
+- SCAD geometry and thumbnails use the OpenSCAD CLI when installed (`openscad` on `PATH`, or set `OPENSCAD_PATH` to the binary, e.g. `/Applications/OpenSCAD.app/Contents/MacOS/OpenSCAD` on macOS); otherwise a simple primitive-size fallback is used
 - Thumbnail cache for repeat browsing
 - Detail preview with orbit/drag interaction
 - Multi-plate 3MF plate selection

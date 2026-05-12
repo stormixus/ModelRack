@@ -102,6 +102,8 @@ pub struct AppPrefs {
     pub view_mode: String,
     #[serde(default = "default_theme")]
     pub theme: String,
+    #[serde(default = "default_accent_color")]
+    pub accent_color: String,
     #[serde(default = "default_language")]
     pub language: String,
     #[serde(default)]
@@ -120,8 +122,19 @@ pub struct AppPrefs {
     pub active_printer_keys: Vec<String>,
     #[serde(default = "default_printer_key")]
     pub default_printer_key: String,
+    #[serde(default = "default_card_label_mode")]
+    pub card_label_mode: String,
+    #[serde(default = "default_date_format_mode")]
+    pub date_format_mode: String,
+    #[serde(default = "default_show_file_extensions")]
+    pub show_file_extensions: bool,
+    #[serde(default = "default_startup_view")]
+    pub startup_view: String,
     #[serde(default)]
     pub last_folder: Option<PathBuf>,
+    /// Top-level library folders (user-added roots). Persisted; merged with legacy `last_folder` on load when empty.
+    #[serde(default)]
+    pub library_folders: Vec<PathBuf>,
     #[serde(default)]
     pub excluded_folders: Vec<PathBuf>,
     #[serde(default)]
@@ -134,6 +147,7 @@ impl Default for AppPrefs {
             density: default_density(),
             view_mode: default_view_mode(),
             theme: default_theme(),
+            accent_color: default_accent_color(),
             language: default_language(),
             slicer_path: String::new(),
             sort_by: default_sort_by(),
@@ -143,7 +157,12 @@ impl Default for AppPrefs {
             thumbnail_aa: default_thumbnail_aa(),
             active_printer_keys: default_active_printer_keys(),
             default_printer_key: default_printer_key(),
+            card_label_mode: default_card_label_mode(),
+            date_format_mode: default_date_format_mode(),
+            show_file_extensions: default_show_file_extensions(),
+            startup_view: default_startup_view(),
             last_folder: None,
+            library_folders: Vec::new(),
             excluded_folders: Vec::new(),
             collapsed_folders: Vec::new(),
         }
@@ -156,6 +175,10 @@ fn default_density() -> String {
 
 fn default_theme() -> String {
     "dark".to_string()
+}
+
+fn default_accent_color() -> String {
+    "teal".to_string()
 }
 
 fn default_language() -> String {
@@ -192,6 +215,76 @@ fn default_printer_key() -> String {
 
 fn default_active_printer_keys() -> Vec<String> {
     vec![default_printer_key()]
+}
+
+fn default_card_label_mode() -> String {
+    "filename".to_string()
+}
+
+fn default_date_format_mode() -> String {
+    "auto".to_string()
+}
+
+fn default_show_file_extensions() -> bool {
+    true
+}
+
+fn default_startup_view() -> String {
+    "last".to_string()
+}
+
+/// Card label rendering mode controlling how the model card title is built.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CardLabelMode {
+    /// Show the filename as-is, optionally including the file extension.
+    Filename,
+    /// Prefer the sidecar-provided title, falling back to a title-cased filename stem.
+    Titled,
+}
+
+impl CardLabelMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Filename => "filename",
+            Self::Titled => "titled",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Self {
+        match value {
+            "titled" | "title" | "title-cased" => Self::Titled,
+            _ => Self::Filename,
+        }
+    }
+}
+
+/// Timestamp formatting choice used for list/detail rows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DateFormatMode {
+    /// Localized relative phrasing ("3d ago", "오늘", "今日").
+    Auto,
+    /// ISO 8601 (`YYYY-MM-DD`).
+    Iso,
+    /// US-style (`Month D, YYYY`).
+    Us,
+}
+
+impl DateFormatMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Iso => "iso",
+            Self::Us => "us",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Self {
+        match value {
+            "iso" => Self::Iso,
+            "us" => Self::Us,
+            _ => Self::Auto,
+        }
+    }
 }
 
 pub struct DisplayQuery<'a> {
@@ -274,7 +367,7 @@ pub struct AppViewSnapshot {
 impl AppViewSnapshot {
     pub fn from_parts(
         entries: &[scanner::StlFileInfo],
-        current_folder: Option<&Path>,
+        library_roots: &[PathBuf],
         scan_status: &ScanStatus,
         prefs: &AppPrefs,
         query: DisplayQuery<'_>,
@@ -286,11 +379,11 @@ impl AppViewSnapshot {
         let sort_ascending = query.sort_ascending;
         let displayed = filtered_sorted_entries(entries, query);
         Self {
-            library_label: titlebar_path(current_folder),
+            library_label: titlebar_for_library_roots(library_roots, language),
             sidebar: sidebar_summary(entries),
-            folders: sidebar_folders(entries, current_folder, &prefs.collapsed_folders),
+            folders: sidebar_folders(entries, library_roots, &prefs.collapsed_folders),
             tags: sidebar_tags(entries),
-            cards: browser_cards_for_language(&displayed, language),
+            cards: browser_cards_for_prefs(&displayed, prefs),
             browser: BrowserSummary {
                 displayed: displayed.len(),
                 total: entries.len(),
@@ -307,10 +400,29 @@ impl AppViewSnapshot {
     }
 }
 
+/// Convenience wrapper used by tests and external callers that only have a
+/// language string at hand. Production code prefers
+/// [`browser_cards_for_prefs`].
+#[allow(dead_code)]
 pub fn browser_cards_for_language(
     entries: &[scanner::StlFileInfo],
     language: &str,
 ) -> Vec<BrowserCard> {
+    let prefs = AppPrefs {
+        language: language.to_string(),
+        ..AppPrefs::default()
+    };
+    browser_cards_for_prefs(entries, &prefs)
+}
+
+pub fn browser_cards_for_prefs(
+    entries: &[scanner::StlFileInfo],
+    prefs: &AppPrefs,
+) -> Vec<BrowserCard> {
+    let language = prefs.language.as_str();
+    let label_mode = CardLabelMode::from_str(&prefs.card_label_mode);
+    let date_mode = DateFormatMode::from_str(&prefs.date_format_mode);
+    let show_extension = prefs.show_file_extensions;
     let mut cards = entries
         .iter()
         .enumerate()
@@ -321,14 +433,14 @@ pub fn browser_cards_for_language(
             BrowserCard {
                 stable_key: entry.path.display().to_string(),
                 slot_index,
-                title: entry.filename.clone(),
+                title: card_label_for_entry(entry, label_mode, show_extension),
                 subtitle: browser_card_subtitle(entry, language),
                 author: entry
                     .meta
                     .as_ref()
                     .and_then(|meta| (!meta.author.is_empty()).then(|| meta.author.clone()))
                     .unwrap_or_else(|| localized("You", "나", "自分", language).to_string()),
-                relative_modified: relative_modified_label_for_language(entry.modified, language),
+                relative_modified: format_modified_label(entry.modified, date_mode, language),
                 thumb_key: thumbnail_key(&entry.filename).to_string(),
                 thumb_path: entry.thumbnail_path.clone(),
                 badge: browser_card_badge(entry, language),
@@ -341,6 +453,92 @@ pub fn browser_cards_for_language(
         .collect::<Vec<_>>();
     cards.sort_by(|a, b| a.stable_key.cmp(&b.stable_key));
     cards
+}
+
+/// Render the user-facing card title from a scan entry, honoring the configured
+/// label mode and file-extension toggle. Falls back to the filename stem when a
+/// sidecar title is not available.
+pub fn card_label_for_entry(
+    entry: &scanner::StlFileInfo,
+    mode: CardLabelMode,
+    show_extension: bool,
+) -> String {
+    let filename = entry.filename.as_str();
+    let (stem, extension) = split_filename(filename);
+    let sidecar_title = entry
+        .meta
+        .as_ref()
+        .map(|meta| meta.title.trim())
+        .filter(|title| !title.is_empty());
+
+    match mode {
+        CardLabelMode::Filename => {
+            if show_extension {
+                filename.to_string()
+            } else {
+                stem.to_string()
+            }
+        }
+        CardLabelMode::Titled => {
+            if let Some(title) = sidecar_title {
+                if show_extension && !extension.is_empty() {
+                    format!("{title}.{extension}")
+                } else {
+                    title.to_string()
+                }
+            } else {
+                let titled = humanize_filename_stem(stem);
+                if show_extension && !extension.is_empty() {
+                    format!("{titled}.{extension}")
+                } else {
+                    titled
+                }
+            }
+        }
+    }
+}
+
+fn split_filename(filename: &str) -> (&str, &str) {
+    match filename.rsplit_once('.') {
+        Some((stem, extension)) if !stem.is_empty() && !extension.contains('/') => {
+            (stem, extension)
+        }
+        _ => (filename, ""),
+    }
+}
+
+/// Turn a filename stem into a friendlier, title-cased label by splitting on
+/// common separators and capitalizing each fragment.
+pub fn humanize_filename_stem(stem: &str) -> String {
+    let cleaned: String = stem
+        .chars()
+        .map(|c| match c {
+            '_' | '-' | '.' => ' ',
+            _ => c,
+        })
+        .collect();
+    let mut out = String::with_capacity(cleaned.len());
+    for (idx, word) in cleaned.split_whitespace().enumerate() {
+        if word.is_empty() {
+            continue;
+        }
+        if idx > 0 {
+            out.push(' ');
+        }
+        let lower = word.to_lowercase();
+        let mut chars = lower.chars();
+        if let Some(first) = chars.next() {
+            for c in first.to_uppercase() {
+                out.push(c);
+            }
+        }
+        out.push_str(chars.as_str());
+    }
+    if out.is_empty() {
+        stem.to_string()
+    } else {
+        out
+    }
 }
 
 fn browser_card_subtitle(entry: &scanner::StlFileInfo, language: &str) -> String {
@@ -410,13 +608,28 @@ pub fn sidebar_summary(entries: &[scanner::StlFileInfo]) -> SidebarSummary {
 
 pub fn sidebar_folders(
     entries: &[scanner::StlFileInfo],
-    root: Option<&Path>,
+    roots: &[PathBuf],
     collapsed_folders: &[PathBuf],
 ) -> Vec<SidebarFolder> {
-    let Some(root) = root else {
+    if roots.is_empty() {
         return Vec::new();
-    };
+    }
+    let mut out = Vec::new();
+    for root in roots {
+        out.extend(sidebar_folders_for_one_root(
+            entries,
+            root,
+            collapsed_folders,
+        ));
+    }
+    out
+}
 
+fn sidebar_folders_for_one_root(
+    entries: &[scanner::StlFileInfo],
+    root: &Path,
+    collapsed_folders: &[PathBuf],
+) -> Vec<SidebarFolder> {
     let mut counts: BTreeMap<PathBuf, usize> = BTreeMap::new();
     counts.insert(root.to_path_buf(), 0);
     for entry in entries {
@@ -604,6 +817,21 @@ fn view_mode_title(view_mode: ViewMode) -> &'static str {
     }
 }
 
+/// Public helper for rendering a modification timestamp using the user's
+/// chosen date-format preference. Falls back to the localized "auto" relative
+/// label when an absolute date cannot be derived.
+pub fn format_modified_label(
+    modified: Option<std::time::SystemTime>,
+    mode: DateFormatMode,
+    language: &str,
+) -> String {
+    match mode {
+        DateFormatMode::Auto => relative_modified_label_for_language(modified, language),
+        DateFormatMode::Iso => absolute_modified_label(modified, language, DateFormatMode::Iso),
+        DateFormatMode::Us => absolute_modified_label(modified, language, DateFormatMode::Us),
+    }
+}
+
 fn relative_modified_label_for_language(
     modified: Option<std::time::SystemTime>,
     language: &str,
@@ -642,6 +870,66 @@ fn relative_modified_label_for_language(
             _ => format!("{}y ago", days / 365),
         }
     }
+}
+
+fn absolute_modified_label(
+    modified: Option<std::time::SystemTime>,
+    language: &str,
+    mode: DateFormatMode,
+) -> String {
+    let Some(modified) = modified else {
+        return localized("unknown", "알 수 없음", "不明", language).to_string();
+    };
+    let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH) else {
+        return relative_modified_label_for_language(Some(modified), language);
+    };
+    let (year, month, day) = civil_date_from_unix_seconds(duration.as_secs() as i64);
+    match mode {
+        DateFormatMode::Iso => format!("{year:04}-{month:02}-{day:02}"),
+        DateFormatMode::Us => match language_key(language) {
+            "ko" => format!("{year}년 {month}월 {day}일"),
+            "ja" => format!("{year}年{month}月{day}日"),
+            _ => format!("{} {}, {}", us_month_name(month), day, year),
+        },
+        DateFormatMode::Auto => relative_modified_label_for_language(Some(modified), language),
+    }
+}
+
+fn us_month_name(month: u32) -> &'static str {
+    match month {
+        1 => "Jan",
+        2 => "Feb",
+        3 => "Mar",
+        4 => "Apr",
+        5 => "May",
+        6 => "Jun",
+        7 => "Jul",
+        8 => "Aug",
+        9 => "Sep",
+        10 => "Oct",
+        11 => "Nov",
+        12 => "Dec",
+        _ => "—",
+    }
+}
+
+/// Convert a Unix timestamp (seconds since epoch, may be negative) into a
+/// civil (proleptic Gregorian) `(year, month, day)` tuple. Avoids any chrono
+/// dependency so we stay within the existing minimal-stdlib budget.
+/// Implements Howard Hinnant's `date::civil_from_days` (public domain).
+fn civil_date_from_unix_seconds(seconds: i64) -> (i32, u32, u32) {
+    let mut days = seconds.div_euclid(86_400);
+    days += 719_468;
+    let era = days.div_euclid(146_097);
+    let doe = days - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    (y as i32, m as u32, d as u32)
 }
 
 pub fn filter_key(filter: &LibraryFilter) -> String {
@@ -757,12 +1045,29 @@ fn empty_message(
     }
 }
 
-fn titlebar_path(current_folder: Option<&Path>) -> String {
-    let Some(path) = current_folder else {
-        return "Sample library".to_string();
-    };
-
-    display_path_label(path)
+fn titlebar_for_library_roots(roots: &[PathBuf], language: &str) -> String {
+    match roots.len() {
+        0 => localized(
+            "Sample library",
+            "샘플 라이브러리",
+            "サンプルライブラリ",
+            language,
+        )
+        .to_string(),
+        1 => display_path_label(&roots[0]),
+        n => {
+            let joined = roots
+                .iter()
+                .map(|p| display_path_label(p))
+                .collect::<Vec<_>>()
+                .join(", ");
+            match language_key(language) {
+                "ko" => format!("라이브러리 폴더 {n}개 · {joined}"),
+                "ja" => format!("ライブラリフォルダ {n} 件 · {joined}"),
+                _ => format!("{n} library folders · {joined}"),
+            }
+        }
+    }
 }
 
 pub fn display_path_label(path: &Path) -> String {
@@ -1060,6 +1365,7 @@ mod tests {
             density: "large".to_string(),
             view_mode: "masonry".to_string(),
             theme: "light".to_string(),
+            accent_color: "purple".to_string(),
             language: "ko".to_string(),
             slicer_path: "/Applications/PrusaSlicer.app".to_string(),
             sort_by: "triangles".to_string(),
@@ -1069,7 +1375,12 @@ mod tests {
             thumbnail_aa: "msaa8x".to_string(),
             active_printer_keys: vec!["bambu-p1s-0.4".to_string(), "prusa-mk4-0.4".to_string()],
             default_printer_key: "prusa-mk4-0.4".to_string(),
+            card_label_mode: "titled".to_string(),
+            date_format_mode: "iso".to_string(),
+            show_file_extensions: false,
+            startup_view: "empty".to_string(),
             last_folder: Some(PathBuf::from("/tmp/models")),
+            library_folders: vec![PathBuf::from("/tmp/other-lib")],
             excluded_folders: vec![PathBuf::from("/tmp/models/archived")],
             collapsed_folders: vec![PathBuf::from("/tmp/models/nested")],
         };
@@ -1078,12 +1389,17 @@ mod tests {
 
         assert_eq!(Density::from_str(&loaded.density), Density::Large);
         assert_eq!(ViewMode::from_str(&loaded.view_mode), ViewMode::Masonry);
+        assert_eq!(loaded.accent_color, "purple");
         assert_eq!(loaded.sort_by, "triangles");
         assert!(!loaded.sort_ascending);
         assert_eq!(loaded.thumbnail_style, "wire");
         assert_eq!(loaded.thumbnail_lighting, "rim");
         assert_eq!(loaded.thumbnail_aa, "msaa8x");
         assert_eq!(loaded.last_folder, Some(PathBuf::from("/tmp/models")));
+        assert_eq!(
+            loaded.library_folders,
+            vec![PathBuf::from("/tmp/other-lib")]
+        );
         assert_eq!(
             loaded.active_printer_keys,
             vec!["bambu-p1s-0.4".to_string(), "prusa-mk4-0.4".to_string()]
@@ -1106,6 +1422,7 @@ mod tests {
         assert_eq!(Density::from_str(&loaded.density), Density::Medium);
         assert_eq!(ViewMode::from_str(&loaded.view_mode), ViewMode::Grid);
         assert_eq!(loaded.theme, "dark");
+        assert_eq!(loaded.accent_color, "teal");
         assert_eq!(loaded.language, "en");
         assert_eq!(loaded.sort_by, "name");
         assert!(loaded.sort_ascending);
@@ -1119,6 +1436,7 @@ mod tests {
         assert_eq!(loaded.default_printer_key, "bambu-p1s-0.4");
         assert!(loaded.excluded_folders.is_empty());
         assert!(loaded.collapsed_folders.is_empty());
+        assert!(loaded.library_folders.is_empty());
     }
 
     #[test]
@@ -1150,7 +1468,7 @@ mod tests {
         assert_eq!(summary.ready, 2);
         assert_eq!(summary.errors, 1);
 
-        let folders = sidebar_folders(&entries, Some(Path::new("/tmp/models")), &[]);
+        let folders = sidebar_folders(&entries, &[PathBuf::from("/tmp/models")], &[]);
         assert_eq!(folders.len(), 2);
         assert_eq!(folders[0].label, "models");
         assert_eq!(folders[0].count, 3);
@@ -1166,7 +1484,7 @@ mod tests {
 
         let collapsed = sidebar_folders(
             &entries,
-            Some(Path::new("/tmp/models")),
+            &[PathBuf::from("/tmp/models")],
             &[PathBuf::from("/tmp/models")],
         );
         assert_eq!(collapsed.len(), 2);
@@ -1204,7 +1522,7 @@ mod tests {
 
         let snapshot = AppViewSnapshot::from_parts(
             &entries,
-            Some(Path::new("/tmp/models")),
+            &[PathBuf::from("/tmp/models")],
             &ScanStatus::Done {
                 found: 2,
                 skipped: 1,
@@ -1246,7 +1564,7 @@ mod tests {
 
         let snapshot = AppViewSnapshot::from_parts(
             &[model],
-            Some(Path::new("/tmp/models")),
+            &[PathBuf::from("/tmp/models")],
             &ScanStatus::Done {
                 found: 1,
                 skipped: 0,
@@ -1346,7 +1664,7 @@ mod tests {
 
         let snapshot = AppViewSnapshot::from_parts(
             &entries,
-            None,
+            &[],
             &ScanStatus::Idle,
             &prefs,
             DisplayQuery {
@@ -1434,5 +1752,97 @@ mod tests {
             LibraryFilter::Tag("fixture".to_string())
         );
         assert!(smart_filter_from_key("unknown").is_none());
+    }
+
+    #[test]
+    fn card_label_respects_filename_mode_and_extension_toggle() {
+        let model = entry("/tmp/models/Hex_grip-v2.stl", 7);
+        // Filename mode + extension visible → exact filename.
+        assert_eq!(
+            card_label_for_entry(&model, CardLabelMode::Filename, true),
+            "Hex_grip-v2.stl"
+        );
+        // Filename mode + extension hidden → stem only.
+        assert_eq!(
+            card_label_for_entry(&model, CardLabelMode::Filename, false),
+            "Hex_grip-v2"
+        );
+    }
+
+    #[test]
+    fn card_label_prefers_sidecar_title_in_titled_mode_else_humanizes_stem() {
+        let mut titled = entry("/tmp/models/spool_holder.stl", 8);
+        titled.meta = Some(SidecarMeta {
+            title: "Smooth Spool Holder".to_string(),
+            ..SidecarMeta::default()
+        });
+        assert_eq!(
+            card_label_for_entry(&titled, CardLabelMode::Titled, false),
+            "Smooth Spool Holder"
+        );
+        // Extension toggle should append the original extension.
+        assert_eq!(
+            card_label_for_entry(&titled, CardLabelMode::Titled, true),
+            "Smooth Spool Holder.stl"
+        );
+
+        // No sidecar title → humanized stem.
+        let plain = entry("/tmp/models/hex_grip-v2.stl", 9);
+        assert_eq!(
+            card_label_for_entry(&plain, CardLabelMode::Titled, false),
+            "Hex Grip V2"
+        );
+    }
+
+    #[test]
+    fn browser_cards_for_prefs_apply_card_label_and_extension_settings() {
+        let mut model = entry("/tmp/models/cool_thing.stl", 3);
+        model.size = 1024;
+        model.triangle_count = Some(2_000);
+        model.meta = Some(SidecarMeta {
+            title: "Cool Thing v2".to_string(),
+            ..SidecarMeta::default()
+        });
+
+        let mut prefs = AppPrefs::default();
+        prefs.card_label_mode = "titled".to_string();
+        prefs.show_file_extensions = false;
+        let cards = browser_cards_for_prefs(&[model.clone()], &prefs);
+        assert_eq!(cards[0].title, "Cool Thing v2");
+
+        prefs.card_label_mode = "filename".to_string();
+        prefs.show_file_extensions = true;
+        let cards = browser_cards_for_prefs(&[model.clone()], &prefs);
+        assert_eq!(cards[0].title, "cool_thing.stl");
+
+        prefs.card_label_mode = "filename".to_string();
+        prefs.show_file_extensions = false;
+        let cards = browser_cards_for_prefs(&[model], &prefs);
+        assert_eq!(cards[0].title, "cool_thing");
+    }
+
+    #[test]
+    fn format_modified_label_iso_and_us_modes_render_civil_date() {
+        // 2024-03-15 00:00:00 UTC.
+        let epoch = std::time::UNIX_EPOCH
+            + std::time::Duration::from_secs(1710460800);
+
+        assert_eq!(
+            format_modified_label(Some(epoch), DateFormatMode::Iso, "en"),
+            "2024-03-15"
+        );
+        assert_eq!(
+            format_modified_label(Some(epoch), DateFormatMode::Us, "en"),
+            "Mar 15, 2024"
+        );
+        assert_eq!(
+            format_modified_label(Some(epoch), DateFormatMode::Us, "ko"),
+            "2024년 3월 15일"
+        );
+
+        // Auto mode (today) should not panic and yields a localized string.
+        let now = std::time::SystemTime::now();
+        let label = format_modified_label(Some(now), DateFormatMode::Auto, "ko");
+        assert!(!label.is_empty());
     }
 }

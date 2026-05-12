@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::{HashSet, VecDeque};
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -10,10 +11,11 @@ use std::time::{Duration, Instant};
 
 use crate::scanner;
 use crate::strings;
+use crate::view_model;
 use crate::view_model::{
     browser_count_label_for_language, display_path_label, smart_filter_from_key, AppPrefs,
-    AppViewSnapshot, BrowserCard as BrowserCardVm, Density, DisplayQuery, LibraryFilter,
-    ScanStatus, SortBy, ViewMode,
+    AppViewSnapshot, BrowserCard as BrowserCardVm, CardLabelMode, DateFormatMode, Density,
+    DisplayQuery, LibraryFilter, ScanStatus, SortBy, ViewMode,
 };
 
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
@@ -49,16 +51,25 @@ pub fn run() -> Result<(), slint::PlatformError> {
     apply_snapshot(&ui, &snapshot);
     apply_detail_rc(&ui, &state);
     apply_settings(&ui, &state.borrow());
-    let restored_folder = state.borrow().restored_real_folder_candidate();
-    if let Some(folder) = restored_folder {
-        start_folder_scan(
-            &ui,
-            &state,
-            &scan_runtime,
-            &folder,
-            "Restoring last library",
-        );
-        set_watch_status(&ui, &watcher_runtime, &folder);
+    // Respect the user's startup preference: when set to "empty", skip the
+    // automatic last-library restore and present the empty state with its
+    // clickable CTA. Default "last" preserves the historical behavior.
+    let startup_mode = state.borrow().prefs.startup_view.clone();
+    if startup_mode != "empty" {
+        let restored_queue = state.borrow().restored_library_scan_queue();
+        if let Some(folder) = restored_queue.first() {
+            let folder = folder.clone();
+            state.borrow_mut().startup_restore_queue =
+                restored_queue.into_iter().skip(1).collect();
+            start_folder_scan(
+                &ui,
+                &state,
+                &scan_runtime,
+                &folder,
+                "Restoring last library",
+            );
+            set_watch_status(&ui, &watcher_runtime, &folder);
+        }
     }
 
     let weak = ui.as_weak();
@@ -347,6 +358,19 @@ pub fn run() -> Result<(), slint::PlatformError> {
 
     let weak = ui.as_weak();
     let settings_state = state.clone();
+    ui.on_choose_settings_accent(move |accent| {
+        if let Some(ui) = weak.upgrade() {
+            {
+                let mut state = settings_state.borrow_mut();
+                state.choose_accent(accent.as_str());
+            }
+            apply_settings(&ui, &settings_state.borrow());
+            save_prefs_status(&ui, &settings_state.borrow());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let settings_state = state.clone();
     ui.on_choose_settings_sort(move |sort| {
         if let Some(ui) = weak.upgrade() {
             let snapshot = {
@@ -401,6 +425,105 @@ pub fn run() -> Result<(), slint::PlatformError> {
             }
             apply_settings(&ui, &settings_state.borrow());
             save_prefs_status(&ui, &settings_state.borrow());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let settings_state = state.clone();
+    ui.on_choose_settings_card_label(move |key| {
+        if let Some(ui) = weak.upgrade() {
+            let snapshot = {
+                let mut state = settings_state.borrow_mut();
+                state.choose_card_label_mode(key.as_str());
+                state.snapshot_done()
+            };
+            apply_snapshot(&ui, &snapshot);
+            apply_settings(&ui, &settings_state.borrow());
+            save_prefs_status(&ui, &settings_state.borrow());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let settings_state = state.clone();
+    ui.on_choose_settings_date_format(move |key| {
+        if let Some(ui) = weak.upgrade() {
+            let snapshot = {
+                let mut state = settings_state.borrow_mut();
+                state.choose_date_format_mode(key.as_str());
+                state.snapshot_done()
+            };
+            apply_snapshot(&ui, &snapshot);
+            apply_settings(&ui, &settings_state.borrow());
+            save_prefs_status(&ui, &settings_state.borrow());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let settings_state = state.clone();
+    ui.on_toggle_settings_show_file_extensions(move |on| {
+        if let Some(ui) = weak.upgrade() {
+            let snapshot = {
+                let mut state = settings_state.borrow_mut();
+                state.set_show_file_extensions(on);
+                state.snapshot_done()
+            };
+            apply_snapshot(&ui, &snapshot);
+            apply_settings(&ui, &settings_state.borrow());
+            save_prefs_status(&ui, &settings_state.borrow());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let settings_state = state.clone();
+    ui.on_choose_settings_startup(move |key| {
+        if let Some(ui) = weak.upgrade() {
+            {
+                let mut state = settings_state.borrow_mut();
+                state.choose_startup_view(key.as_str());
+            }
+            apply_settings(&ui, &settings_state.borrow());
+            save_prefs_status(&ui, &settings_state.borrow());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let settings_state = state.clone();
+    ui.on_regenerate_thumbnails(move || {
+        if let Some(ui) = weak.upgrade() {
+            let language = ui.get_settings_language_key().to_string();
+            let count = {
+                let state = settings_state.borrow();
+                state.entries.len()
+            };
+            match crate::thumbnail_cache::clear_all() {
+                Ok(()) => {
+                    ui.set_status_text(
+                        regenerate_thumbnails_status(&language, count, true).into(),
+                    );
+                }
+                Err(err) => {
+                    ui.set_status_text(
+                        format!("Could not clear thumbnail cache: {}", err).into(),
+                    );
+                }
+            }
+        }
+    });
+
+    let weak = ui.as_weak();
+    ui.on_clear_thumbnail_cache(move || {
+        if let Some(ui) = weak.upgrade() {
+            let language = ui.get_settings_language_key().to_string();
+            match crate::thumbnail_cache::clear_all() {
+                Ok(()) => {
+                    ui.set_status_text(clear_cache_status(&language).into());
+                }
+                Err(err) => {
+                    ui.set_status_text(
+                        format!("Could not clear thumbnail cache: {}", err).into(),
+                    );
+                }
+            }
         }
     });
 
@@ -540,13 +663,30 @@ pub fn run() -> Result<(), slint::PlatformError> {
         if let Some(ui) = weak.upgrade() {
             {
                 let mut state = settings_state.borrow_mut();
-                match state.choose_settings_printer_nozzle(nozzle.as_str()) {
-                    Ok(()) => ui.set_status_text(
-                        settings_printer_status(&state.prefs, &load_printer_profiles()).into(),
-                    ),
-                    Err(message) => ui.set_status_text(message.into()),
+                if let Err(message) = state.choose_settings_printer_nozzle(nozzle.as_str()) {
+                    ui.set_status_text(message.into());
                 }
             }
+            // Selecting a nozzle is a picker-only action — no prefs change,
+            // no save. Re-render the settings panel so the Add button can
+            // enable/disable.
+            apply_settings(&ui, &settings_state.borrow());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let settings_state = state.clone();
+    ui.on_add_settings_printer(move || {
+        if let Some(ui) = weak.upgrade() {
+            let language = ui.get_settings_language_key().to_string();
+            let status = {
+                let mut state = settings_state.borrow_mut();
+                match state.add_pending_printer() {
+                    Ok(_) => settings_printer_status(&state.prefs, &load_printer_profiles()),
+                    Err(message) => printer_add_error_text(&language, message),
+                }
+            };
+            ui.set_status_text(status.into());
             apply_detail_rc(&ui, &settings_state);
             apply_settings(&ui, &settings_state.borrow());
             save_prefs_status(&ui, &settings_state.borrow());
@@ -1187,7 +1327,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 apply_scan_progress(&ui, &progress);
             }
             if let Some(result) = scan_poll.result {
-                apply_scan_result(&ui, &auto_state, result);
+                apply_scan_result(&ui, &auto_state, &auto_scan, &auto_watcher, result);
             }
         },
     );
@@ -1747,11 +1887,26 @@ fn remove_sidebar_folder_from_library(
             folder: folder.to_path_buf(),
             label: label.to_string(),
         });
-        state.add_excluded_folder(folder);
-        if state.current_folder.as_deref() == Some(folder) {
-            state.clear_library_state();
-            state.snapshot_idle()
+        let is_library_root = state
+            .prefs
+            .library_folders
+            .iter()
+            .any(|root| root.as_path() == folder);
+        if is_library_root {
+            state.remove_library_root(folder);
+            state.selected_index = None;
+            if matches!(&state.filter, LibraryFilter::Folder(active) if active.starts_with(folder))
+            {
+                state.filter = LibraryFilter::All;
+            }
+            if state.prefs.library_folders.is_empty() {
+                state.clear_library_state();
+                state.snapshot_idle()
+            } else {
+                state.snapshot_done()
+            }
         } else {
+            state.add_excluded_folder(folder);
             state
                 .entries
                 .retain(|entry| !entry.path.starts_with(folder));
@@ -1805,32 +1960,43 @@ fn move_sidebar_folder_to_trash(
                 {
                     state.filter = LibraryFilter::All;
                 }
+                state
+                    .prefs
+                    .library_folders
+                    .retain(|root| !root.starts_with(folder));
+                if state
+                    .prefs
+                    .last_folder
+                    .as_ref()
+                    .is_some_and(|p| p.starts_with(folder))
+                {
+                    state.prefs.last_folder = state.prefs.library_folders.last().cloned();
+                }
             }
-            if active_root.as_deref() != Some(folder) {
+            save_prefs_status(ui, &state.borrow());
+            if state.borrow().prefs.library_folders.is_empty() {
+                scan_runtime.borrow_mut().invalidate();
+                clear_deleted_library(ui, state);
+                ui.set_status_text(format!("Deleted folder {label}").into());
+            } else {
                 let snapshot = state.borrow_mut().snapshot_done();
                 apply_snapshot(ui, &snapshot);
                 apply_detail_rc(ui, state);
                 apply_settings(ui, &state.borrow());
-            }
-            save_prefs_status(ui, &state.borrow());
-            if active_root.as_deref() == Some(folder)
-                || active_root
-                    .as_ref()
-                    .is_some_and(|root| !root.exists() || root.starts_with(folder))
-            {
-                scan_runtime.borrow_mut().invalidate();
-                clear_deleted_library(ui, state);
-                ui.set_status_text(format!("Deleted folder {label}").into());
-            } else if let Some(root) = active_root {
-                match scan_runtime.borrow_mut().request_scan(&root) {
-                    ScanRequest::Started => {
-                        ui.set_scan_progress_percent(0);
-                        ui.set_status_text(
-                            format!("Deleted folder {label}; rescanning library").into(),
-                        );
-                    }
-                    ScanRequest::AlreadyRunning => {
-                        ui.set_status_text("Library rescan already running".into());
+                save_prefs_status(ui, &state.borrow());
+                if let Some(root) = active_root {
+                    if root.exists() && !root.starts_with(folder) {
+                        match scan_runtime.borrow_mut().request_scan(&root) {
+                            ScanRequest::Started => {
+                                ui.set_scan_progress_percent(0);
+                                ui.set_status_text(
+                                    format!("Deleted folder {label}; rescanning library").into(),
+                                );
+                            }
+                            ScanRequest::AlreadyRunning => {
+                                ui.set_status_text("Library rescan already running".into());
+                            }
+                        }
                     }
                 }
             }
@@ -1986,16 +2152,31 @@ fn clear_deleted_library(ui: &ModelRackWindow, state: &Rc<RefCell<ShellState>>) 
     save_prefs_status(ui, &state.borrow());
 }
 
-fn apply_scan_result(ui: &ModelRackWindow, state: &Rc<RefCell<ShellState>>, result: ScanResult) {
-    if state.borrow().active_real_folder().as_deref() != Some(result.folder.as_path()) {
+fn apply_scan_result(
+    ui: &ModelRackWindow,
+    state: &Rc<RefCell<ShellState>>,
+    scan_runtime: &Rc<RefCell<LibraryScanRuntime>>,
+    watcher_runtime: &Rc<RefCell<LibraryWatcherRuntime>>,
+    result: ScanResult,
+) {
+    if !state.borrow().should_apply_completed_scan(&result.folder) {
         return;
     }
     ui.set_scan_progress_percent(-1);
-    let snapshot = state.borrow_mut().apply_scan_result(result);
+    let (snapshot, next_restore) = {
+        let mut state = state.borrow_mut();
+        let snapshot = state.apply_scan_result(result);
+        let next = state.startup_restore_queue.pop_front();
+        (snapshot, next)
+    };
     apply_snapshot(ui, &snapshot);
     apply_detail_rc(ui, state);
     apply_settings(ui, &state.borrow());
     save_prefs_status(ui, &state.borrow());
+    if let Some(folder) = next_restore {
+        start_folder_scan(ui, state, scan_runtime, &folder, "Restoring library folder");
+        set_watch_status(ui, watcher_runtime, &folder);
+    }
 }
 
 fn apply_detail_rc(ui: &ModelRackWindow, state: &Rc<RefCell<ShellState>>) {
@@ -2409,8 +2590,16 @@ fn app_prefs_path() -> PathBuf {
 
 fn load_app_prefs_from_path(path: &Path) -> io::Result<AppPrefs> {
     match fs::read_to_string(path) {
-        Ok(data) => serde_json::from_str::<AppPrefs>(&data)
-            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err)),
+        Ok(data) => {
+            let mut prefs: AppPrefs = serde_json::from_str(&data)
+                .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
+            if prefs.library_folders.is_empty() {
+                if let Some(folder) = prefs.last_folder.clone() {
+                    prefs.library_folders.push(folder);
+                }
+            }
+            Ok(prefs)
+        }
         Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(AppPrefs::default()),
         Err(err) => Err(err),
     }
@@ -3015,6 +3204,11 @@ fn filter_excluded_entries(
         .collect()
 }
 
+fn dedupe_entries_by_path(entries: &mut Vec<scanner::StlFileInfo>) {
+    let mut seen = HashSet::new();
+    entries.retain(|entry| seen.insert(entry.path.clone()));
+}
+
 #[derive(Clone)]
 struct LibraryUndo {
     folder: PathBuf,
@@ -3053,6 +3247,8 @@ struct ShellState {
     displayed: Vec<scanner::StlFileInfo>,
     current_folder: Option<PathBuf>,
     prefs: AppPrefs,
+    /// After the first path in `restored_library_scan_queue()` is started, remaining paths to scan on startup.
+    startup_restore_queue: VecDeque<PathBuf>,
     undo_stack: Vec<LibraryUndo>,
     search_query: String,
     filter: LibraryFilter,
@@ -3069,6 +3265,9 @@ struct ShellState {
     preview_plate_index: Option<usize>,
     settings_printer_maker: String,
     settings_printer_model: String,
+    /// Pending nozzle for the maker/model picker. Empty until the user
+    /// selects a nozzle; cleared after a successful add.
+    settings_printer_nozzle: String,
     estimate_printer_key: String,
     sidecar_writes_enabled: bool,
     streaming_scan_generation: Option<u64>,
@@ -3148,6 +3347,7 @@ impl ShellState {
         let mut prefs = prefs;
         let sort_by = sort_by_from_key(&prefs.sort_by);
         prefs.sort_by = sort_key(sort_by).to_string();
+        prefs.accent_color = accent_key(&prefs.accent_color).to_string();
         let sort_ascending = prefs.sort_ascending;
         let estimate_printer_key = default_printer_key_for_prefs(&prefs, &catalog);
         let default_profile = default_printer_profile(&prefs, &catalog);
@@ -3156,6 +3356,7 @@ impl ShellState {
             displayed: Vec::new(),
             current_folder: None,
             prefs,
+            startup_restore_queue: VecDeque::new(),
             undo_stack: Vec::new(),
             search_query: String::new(),
             filter: LibraryFilter::All,
@@ -3172,6 +3373,7 @@ impl ShellState {
             preview_plate_index: Some(0),
             settings_printer_maker: printer_maker_label(&default_profile),
             settings_printer_model: printer_model_label(&default_profile),
+            settings_printer_nozzle: String::new(),
             estimate_printer_key,
             sidecar_writes_enabled: false,
             streaming_scan_generation: None,
@@ -3748,7 +3950,7 @@ impl ShellState {
         };
         AppViewSnapshot::from_parts(
             &self.entries,
-            self.current_folder.as_deref(),
+            self.library_roots_for_snapshot(),
             &status,
             &self.prefs,
             query,
@@ -3766,7 +3968,7 @@ impl ShellState {
         self.displayed = crate::view_model::filtered_sorted_entries(&self.entries, query);
         AppViewSnapshot::from_parts(
             &self.entries,
-            self.current_folder.as_deref(),
+            self.library_roots_for_snapshot(),
             &ScanStatus::Idle,
             &self.prefs,
             DisplayQuery {
@@ -3781,7 +3983,9 @@ impl ShellState {
 
     fn begin_folder_scan(&mut self, folder: &Path, current: &str) -> AppViewSnapshot {
         self.remove_excluded_folder(folder);
-        self.entries.clear();
+        Self::merge_library_folder_into_prefs(&mut self.prefs, folder);
+        self.entries.retain(|entry| !entry.path.starts_with(folder));
+        self.retain_entries_under_library_roots();
         self.displayed.clear();
         self.current_folder = Some(folder.to_path_buf());
         self.prefs.last_folder = Some(folder.to_path_buf());
@@ -3798,7 +4002,7 @@ impl ShellState {
         };
         AppViewSnapshot::from_parts(
             &self.entries,
-            self.current_folder.as_deref(),
+            self.library_roots_for_snapshot(),
             &ScanStatus::Scanning {
                 found: 0,
                 scanned: 0,
@@ -3825,7 +4029,8 @@ impl ShellState {
                 continue;
             }
             if self.streaming_scan_generation != Some(batch.generation) {
-                self.entries.clear();
+                self.entries
+                    .retain(|entry| !entry.path.starts_with(batch.folder.as_path()));
                 self.displayed.clear();
                 self.skipped = 0;
                 self.selected_index = None;
@@ -3841,6 +4046,9 @@ impl ShellState {
         if !updated {
             return None;
         }
+
+        dedupe_entries_by_path(&mut self.entries);
+        self.retain_entries_under_library_roots();
 
         if self.selected_index.is_none() && !self.entries.is_empty() {
             self.selected_index = Some(0);
@@ -3866,12 +4074,14 @@ impl ShellState {
                 current: progress.current.clone(),
             },
         );
+        // During streaming, keep discovery order so the UI can append rows incrementally
+        // (sorted order is applied again when the scan completes).
         let query = DisplayQuery {
             search_query: &self.search_query,
             library_filter: &self.filter,
             sort_by: self.sort_by,
             sort_ascending: self.sort_ascending,
-            preserve_order: false,
+            preserve_order: true,
         };
         self.displayed = crate::view_model::filtered_sorted_entries(&self.entries, query);
         let query = DisplayQuery {
@@ -3879,11 +4089,11 @@ impl ShellState {
             library_filter: &self.filter,
             sort_by: self.sort_by,
             sort_ascending: self.sort_ascending,
-            preserve_order: false,
+            preserve_order: true,
         };
         Some(AppViewSnapshot::from_parts(
             &self.entries,
-            self.current_folder.as_deref(),
+            self.library_roots_for_snapshot(),
             &status,
             &self.prefs,
             query,
@@ -3896,7 +4106,13 @@ impl ShellState {
         entries: Vec<scanner::StlFileInfo>,
         skipped: usize,
     ) -> AppViewSnapshot {
-        self.entries = filter_excluded_entries(entries, &self.prefs.excluded_folders);
+        let cleaned = filter_excluded_entries(entries, &self.prefs.excluded_folders);
+        Self::merge_library_folder_into_prefs(&mut self.prefs, &folder);
+        self.entries
+            .retain(|entry| !entry.path.starts_with(folder.as_path()));
+        self.entries.extend(cleaned);
+        dedupe_entries_by_path(&mut self.entries);
+        self.retain_entries_under_library_roots();
         self.current_folder = Some(folder.clone());
         self.prefs.last_folder = Some(folder);
         self.skipped = skipped;
@@ -3910,19 +4126,90 @@ impl ShellState {
         self.snapshot_done()
     }
 
-    fn active_real_folder(&self) -> Option<PathBuf> {
-        self.sidecar_writes_enabled
-            .then(|| self.current_folder.clone())
-            .flatten()
-            .filter(|folder| folder.is_dir())
+    fn should_apply_completed_scan(&self, folder: &Path) -> bool {
+        self.sidecar_writes_enabled && self.prefs.library_folders.iter().any(|root| root == folder)
     }
 
-    fn restored_real_folder_candidate(&self) -> Option<PathBuf> {
+    fn library_roots_for_snapshot(&self) -> &[PathBuf] {
+        if self.sidecar_writes_enabled {
+            &self.prefs.library_folders
+        } else {
+            &[]
+        }
+    }
+
+    fn merge_library_folder_into_prefs(prefs: &mut AppPrefs, folder: &Path) {
+        let path = folder.to_path_buf();
+        if !prefs
+            .library_folders
+            .iter()
+            .any(|existing| existing == &path)
+        {
+            prefs.library_folders.push(path);
+        }
+    }
+
+    /// Drop bundled demo entries (and any stray paths) once at least one real library root exists.
+    fn retain_entries_under_library_roots(&mut self) {
+        if self.prefs.library_folders.is_empty() {
+            return;
+        }
+        let roots = self.prefs.library_folders.clone();
+        self.entries
+            .retain(|e| roots.iter().any(|r| e.path.starts_with(r)));
+    }
+
+    fn restored_library_scan_queue(&self) -> Vec<PathBuf> {
+        let mut out: Vec<PathBuf> = self
+            .prefs
+            .library_folders
+            .iter()
+            .filter(|path| path.is_dir() && !is_excluded_path(path, &self.prefs.excluded_folders))
+            .cloned()
+            .collect();
+        out.dedup();
+        if out.is_empty() {
+            if let Some(path) = self.prefs.last_folder.clone() {
+                if path.is_dir() && !is_excluded_path(&path, &self.prefs.excluded_folders) {
+                    out.push(path);
+                }
+            }
+        }
+        out
+    }
+
+    fn active_real_folder(&self) -> Option<PathBuf> {
+        if !self.sidecar_writes_enabled {
+            return None;
+        }
         self.prefs
             .last_folder
             .clone()
-            .filter(|folder| folder.is_dir())
-            .filter(|folder| !is_excluded_path(folder, &self.prefs.excluded_folders))
+            .filter(|path| path.is_dir())
+            .or_else(|| {
+                self.prefs
+                    .library_folders
+                    .iter()
+                    .find(|path| path.is_dir())
+                    .cloned()
+            })
+    }
+
+    fn restored_real_folder_candidate(&self) -> Option<PathBuf> {
+        self.restored_library_scan_queue().into_iter().next()
+    }
+
+    fn remove_library_root(&mut self, folder: &Path) {
+        self.prefs
+            .library_folders
+            .retain(|root| root.as_path() != folder);
+        self.entries.retain(|entry| !entry.path.starts_with(folder));
+        if self.prefs.last_folder.as_deref() == Some(folder) {
+            self.prefs.last_folder = self.prefs.library_folders.last().cloned();
+        }
+        if self.current_folder.as_deref() == Some(folder) {
+            self.current_folder = self.prefs.last_folder.clone();
+        }
     }
 
     fn add_excluded_folder(&mut self, folder: &Path) {
@@ -3977,6 +4264,8 @@ impl ShellState {
         self.displayed.clear();
         self.current_folder = None;
         self.prefs.last_folder = None;
+        self.prefs.library_folders.clear();
+        self.startup_restore_queue.clear();
         self.skipped = 0;
         self.sidecar_writes_enabled = false;
         self.selected_index = None;
@@ -4035,6 +4324,10 @@ impl ShellState {
         .to_string();
     }
 
+    fn choose_accent(&mut self, accent: &str) {
+        self.prefs.accent_color = accent_key(accent).to_string();
+    }
+
     fn toggle_theme(&mut self) {
         self.prefs.theme = if self.prefs.theme == "dark" {
             "light".to_string()
@@ -4072,6 +4365,30 @@ impl ShellState {
             "msaa2x" => "msaa2x",
             "msaa8x" => "msaa8x",
             _ => "msaa4x",
+        }
+        .to_string();
+    }
+
+    fn choose_card_label_mode(&mut self, mode: &str) {
+        self.prefs.card_label_mode = view_model::CardLabelMode::from_str(mode)
+            .as_str()
+            .to_string();
+    }
+
+    fn choose_date_format_mode(&mut self, mode: &str) {
+        self.prefs.date_format_mode = view_model::DateFormatMode::from_str(mode)
+            .as_str()
+            .to_string();
+    }
+
+    fn set_show_file_extensions(&mut self, on: bool) {
+        self.prefs.show_file_extensions = on;
+    }
+
+    fn choose_startup_view(&mut self, key: &str) {
+        self.prefs.startup_view = match key {
+            "empty" => "empty",
+            _ => "last",
         }
         .to_string();
     }
@@ -4145,6 +4462,8 @@ impl ShellState {
         {
             self.settings_printer_model = printer_model_label(profile);
         }
+        // Picking a new maker invalidates the pending nozzle.
+        self.settings_printer_nozzle.clear();
     }
 
     fn choose_settings_printer_model(&mut self, model: &str) {
@@ -4155,27 +4474,79 @@ impl ShellState {
                 && printer_model_label(profile) == model
         }) {
             self.settings_printer_model = model.to_string();
+            // Picking a new model invalidates the pending nozzle.
+            self.settings_printer_nozzle.clear();
         }
     }
 
+    /// Record the pending nozzle for the current maker/model picker. This
+    /// does NOT add the printer to the active list — the user must press the
+    /// "Add to my printers" button. Returns an error only if the nozzle
+    /// doesn't match the current maker/model combo.
     fn choose_settings_printer_nozzle(&mut self, nozzle: &str) -> Result<(), &'static str> {
         let catalog = load_printer_profiles();
-        let Some(profile) = catalog.iter().find(|profile| {
+        let exists = catalog.iter().any(|profile| {
             printer_maker_label(profile) == self.settings_printer_maker
                 && printer_model_label(profile) == self.settings_printer_model
                 && format!("{:.1}mm", profile.nozzle_diameter_mm) == nozzle.trim()
-        }) else {
+        });
+        if !exists {
             return Err("Unknown printer/nozzle combination");
-        };
-        let mut active = active_printer_keys(&self.prefs, &catalog);
-        if !active.iter().any(|key| key == &profile.key) {
-            active.push(profile.key.clone());
         }
-        self.prefs.active_printer_keys = active;
-        self.prefs.default_printer_key = profile.key.clone();
-        self.estimate_printer_key = profile.key.clone();
-        normalize_printer_prefs(&mut self.prefs, &catalog);
+        self.settings_printer_nozzle = nozzle.trim().to_string();
         Ok(())
+    }
+
+    /// Returns the profile that the maker/model/nozzle picker currently
+    /// resolves to (if all three are set and match a catalog entry).
+    fn pending_printer_profile(&self) -> Option<PrinterProfile> {
+        let catalog = load_printer_profiles();
+        catalog
+            .into_iter()
+            .find(|profile| {
+                printer_maker_label(profile) == self.settings_printer_maker
+                    && printer_model_label(profile) == self.settings_printer_model
+                    && format!("{:.1}mm", profile.nozzle_diameter_mm)
+                        == self.settings_printer_nozzle
+            })
+    }
+
+    /// Returns true when the pending picker selection is a *new* (not
+    /// already-active) profile that can be added to the user's printer list.
+    #[allow(dead_code)] // Used by tests + future direct callers; UI derives this in apply_settings.
+    fn can_add_pending_printer(&self) -> bool {
+        let Some(profile) = self.pending_printer_profile() else {
+            return false;
+        };
+        !self
+            .prefs
+            .active_printer_keys
+            .iter()
+            .any(|key| key == &profile.key)
+    }
+
+    /// Commit the maker/model/nozzle selection: add it to active printers
+    /// and, if this was the first printer, set it as default. Returns the
+    /// added profile's key on success.
+    fn add_pending_printer(&mut self) -> Result<String, &'static str> {
+        let Some(profile) = self.pending_printer_profile() else {
+            return Err("Pick maker, model, and nozzle first");
+        };
+        let catalog = load_printer_profiles();
+        let mut active = active_printer_keys(&self.prefs, &catalog);
+        if active.iter().any(|key| key == &profile.key) {
+            return Err("Printer already in your list");
+        }
+        let was_empty = active.is_empty();
+        active.push(profile.key.clone());
+        self.prefs.active_printer_keys = active;
+        if was_empty || self.prefs.default_printer_key.is_empty() {
+            self.prefs.default_printer_key = profile.key.clone();
+            self.estimate_printer_key = profile.key.clone();
+        }
+        normalize_printer_prefs(&mut self.prefs, &catalog);
+        self.settings_printer_nozzle.clear();
+        Ok(profile.key)
     }
 
     fn choose_default_printer(&mut self, key: &str) {
@@ -4422,6 +4793,35 @@ fn sync_browser_cards(ui: &ModelRackWindow, cards: Vec<BrowserCard>) {
         return;
     };
 
+    let old_len = model.row_count();
+
+    if old_len == 0 && !cards.is_empty() {
+        for card in cards {
+            model.push(card);
+        }
+        return;
+    }
+
+    if cards.len() > old_len && old_len > 0 {
+        let prefix_ok = (0..old_len).all(|row| {
+            model
+                .row_data(row)
+                .zip(cards.get(row))
+                .is_some_and(|(old, new)| old.stable_key == new.stable_key)
+        });
+        if prefix_ok {
+            for row in 0..old_len {
+                if let Some(new_card) = cards.get(row).cloned() {
+                    model.set_row_data(row, new_card);
+                }
+            }
+            for row in old_len..cards.len() {
+                model.push(cards[row].clone());
+            }
+            return;
+        }
+    }
+
     let same_cards = model.row_count() == cards.len()
         && cards.iter().enumerate().all(|(row, card)| {
             model
@@ -4459,19 +4859,33 @@ fn detail_parent_label(entry: &scanner::StlFileInfo, state: &ShellState) -> Stri
 
 fn settings_folder_label(state: &ShellState) -> String {
     if state.sidecar_writes_enabled {
-        state
-            .current_folder
-            .as_ref()
-            .map(|folder| display_path_label(folder))
-            .unwrap_or_else(|| {
+        let roots = &state.prefs.library_folders;
+        if roots.is_empty() {
+            localized(
+                "No folder selected",
+                "선택한 폴더 없음",
+                "フォルダ未選択",
+                &state.prefs.language,
+            )
+            .to_string()
+        } else if roots.len() == 1 {
+            display_path_label(&roots[0])
+        } else {
+            format!(
+                "{} ({})",
                 localized(
-                    "No folder selected",
-                    "선택한 폴더 없음",
-                    "フォルダ未選択",
-                    &state.prefs.language,
-                )
-                .to_string()
-            })
+                    "Multiple folders",
+                    "여러 폴더",
+                    "複数フォルダ",
+                    &state.prefs.language
+                ),
+                roots
+                    .iter()
+                    .map(|p| display_path_label(p))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        }
     } else {
         localized(
             "Sample library (demo, memory-only)",
@@ -4513,7 +4927,7 @@ fn toggle_sidebar_folder(ui: &ModelRackWindow, state: &Rc<RefCell<ShellState>>, 
 }
 
 fn apply_settings(ui: &ModelRackWindow, state: &ShellState) {
-    apply_theme(ui, &state.prefs.theme);
+    apply_theme(ui, &state.prefs.theme, &state.prefs.accent_color);
     let discovered_slicers = discover_slicer_candidates();
     let slicer_rows = slicer_choice_rows(&state.prefs.slicer_path, &discovered_slicers);
     let (selected_slicer_icon, selected_slicer_icon_ready) = slicer_rows
@@ -4527,11 +4941,30 @@ fn apply_settings(ui: &ModelRackWindow, state: &ShellState) {
     ui.set_settings_language_label(language_label(&state.prefs.language).into());
     ui.set_settings_theme_key(state.prefs.theme.clone().into());
     ui.set_settings_theme_label(theme_label(&state.prefs.theme).into());
+    ui.set_settings_accent_key(accent_key(&state.prefs.accent_color).into());
     ui.set_settings_sort_key(sort_key(state.sort_by).into());
     ui.set_settings_sort_ascending(state.sort_ascending);
     ui.set_settings_thumbnail_style(state.prefs.thumbnail_style.clone().into());
     ui.set_settings_thumbnail_lighting(state.prefs.thumbnail_lighting.clone().into());
     ui.set_settings_thumbnail_aa(state.prefs.thumbnail_aa.clone().into());
+    ui.set_settings_card_label_key(
+        CardLabelMode::from_str(&state.prefs.card_label_mode)
+            .as_str()
+            .into(),
+    );
+    ui.set_settings_date_format_key(
+        DateFormatMode::from_str(&state.prefs.date_format_mode)
+            .as_str()
+            .into(),
+    );
+    ui.set_settings_show_file_extensions(state.prefs.show_file_extensions);
+    ui.set_settings_startup_key(
+        match state.prefs.startup_view.as_str() {
+            "empty" => "empty",
+            _ => "last",
+        }
+        .into(),
+    );
     ui.set_settings_folder_label(settings_folder_label(state).into());
     ui.set_settings_density_label(Density::from_str(&state.prefs.density).as_str().into());
     ui.set_settings_slicer_label(
@@ -4606,25 +5039,41 @@ fn apply_settings(ui: &ModelRackWindow, state: &ShellState) {
         nozzle_values
             .into_iter()
             .map(|value| ChoiceRow {
-                selected: state
-                    .prefs
-                    .active_printer_keys
-                    .iter()
-                    .filter_map(|key| printer_profile(&printer_catalog, key))
-                    .any(|profile| {
-                        printer_maker_label(profile) == state.settings_printer_maker
-                            && printer_model_label(profile) == state.settings_printer_model
-                            && format!("{:.1}mm", profile.nozzle_diameter_mm) == value
-                    }),
+                selected: value == state.settings_printer_nozzle,
                 key: value.clone().into(),
                 label: value.into(),
             })
             .collect::<Vec<ChoiceRow>>(),
     )));
+    ui.set_settings_printer_nozzle_label(state.settings_printer_nozzle.clone().into());
+    let pending_active = !state.settings_printer_nozzle.is_empty();
+    let already_added = pending_active
+        && state
+            .pending_printer_profile()
+            .map(|profile| {
+                state
+                    .prefs
+                    .active_printer_keys
+                    .iter()
+                    .any(|key| key == &profile.key)
+            })
+            .unwrap_or(false);
+    ui.set_settings_printer_pending_active(pending_active);
+    ui.set_settings_printer_can_add(pending_active && !already_added);
+    ui.set_settings_printer_pending_label(
+        printer_pending_label(
+            &state.prefs.language,
+            &state.settings_printer_maker,
+            &state.settings_printer_model,
+            &state.settings_printer_nozzle,
+            already_added,
+        )
+        .into(),
+    );
     ui.set_settings_update_status(update_status_text_for_language(&state.prefs.language).into());
 }
 
-fn apply_theme(ui: &ModelRackWindow, theme: &str) {
+fn apply_theme(ui: &ModelRackWindow, theme: &str, accent: &str) {
     let globals = ui.global::<Theme>();
     if theme == "light" {
         globals.set_bg_0(rgb(0xf6, 0xf7, 0xf9));
@@ -4655,6 +5104,11 @@ fn apply_theme(ui: &ModelRackWindow, theme: &str) {
         globals.set_line_2(rgba(0xff, 0xff, 0xff, 0x1a));
         globals.set_line_3(rgba(0xff, 0xff, 0xff, 0x29));
     }
+    let palette = accent_palette(accent);
+    globals.set_accent(rgb(palette.r, palette.g, palette.b));
+    globals.set_accent_dim(rgba(palette.r, palette.g, palette.b, 0x2e));
+    globals.set_accent_line(rgba(palette.r, palette.g, palette.b, 0x59));
+    globals.set_accent_dark(rgb(palette.dark_r, palette.dark_g, palette.dark_b));
 }
 
 fn rgb(r: u8, g: u8, b: u8) -> Color {
@@ -4663,6 +5117,62 @@ fn rgb(r: u8, g: u8, b: u8) -> Color {
 
 fn rgba(r: u8, g: u8, b: u8, a: u8) -> Color {
     Color::from_argb_u8(a, r, g, b)
+}
+
+#[derive(Clone, Copy)]
+struct AccentPalette {
+    r: u8,
+    g: u8,
+    b: u8,
+    dark_r: u8,
+    dark_g: u8,
+    dark_b: u8,
+}
+
+fn accent_key(accent: &str) -> &'static str {
+    match accent {
+        "purple" => "purple",
+        "orange" => "orange",
+        "green" => "green",
+        _ => "teal",
+    }
+}
+
+fn accent_palette(accent: &str) -> AccentPalette {
+    match accent_key(accent) {
+        "purple" => AccentPalette {
+            r: 0xa7,
+            g: 0x79,
+            b: 0xd9,
+            dark_r: 0x31,
+            dark_g: 0x24,
+            dark_b: 0x44,
+        },
+        "orange" => AccentPalette {
+            r: 0xd9,
+            g: 0x90,
+            b: 0x57,
+            dark_r: 0x46,
+            dark_g: 0x2c,
+            dark_b: 0x19,
+        },
+        "green" => AccentPalette {
+            r: 0x5f,
+            g: 0xb8,
+            b: 0x7a,
+            dark_r: 0x1e,
+            dark_g: 0x3e,
+            dark_b: 0x28,
+        },
+        _ => AccentPalette {
+            r: 0x5f,
+            g: 0xb8,
+            b: 0xd4,
+            dark_r: 0x1a,
+            dark_g: 0x3a,
+            dark_b: 0x44,
+        },
+    }
 }
 
 fn language_key(language: &str) -> &str {
@@ -4690,6 +5200,76 @@ fn localized_plate_label(label: &str, index: usize, language: &str) -> String {
         }
     } else {
         label.to_string()
+    }
+}
+
+fn regenerate_thumbnails_status(language: &str, queued: usize, cleared: bool) -> String {
+    if !cleared {
+        return clear_cache_status(language);
+    }
+    match language_key(language) {
+        "ko" => format!("썸네일 캐시 비움 · 재스캔 시 {}개 재생성", queued),
+        "ja" => format!(
+            "サムネイルキャッシュをクリア · 再スキャン時に {} 件を再生成",
+            queued
+        ),
+        _ => format!(
+            "Thumbnail cache cleared · {} thumbnails will regenerate on rescan",
+            queued
+        ),
+    }
+}
+
+fn clear_cache_status(language: &str) -> String {
+    match language_key(language) {
+        "ko" => "썸네일 캐시를 비웠습니다".to_string(),
+        "ja" => "サムネイルキャッシュをクリアしました".to_string(),
+        _ => "Thumbnail cache cleared".to_string(),
+    }
+}
+
+fn printer_pending_label(
+    language: &str,
+    maker: &str,
+    model: &str,
+    nozzle: &str,
+    already_added: bool,
+) -> String {
+    if nozzle.is_empty() {
+        return match language_key(language) {
+            "ko" => "노즐을 선택하세요".to_string(),
+            "ja" => "ノズルを選択してください".to_string(),
+            _ => "Pick a nozzle to add a printer".to_string(),
+        };
+    }
+    let combo = format!("{} {} · {}", maker, model, nozzle);
+    if already_added {
+        match language_key(language) {
+            "ko" => format!("{} · 이미 추가됨", combo),
+            "ja" => format!("{} · 追加済み", combo),
+            _ => format!("{} · already added", combo),
+        }
+    } else {
+        combo
+    }
+}
+
+fn printer_add_error_text(language: &str, message: &str) -> String {
+    let key = language_key(language);
+    if message.contains("already") {
+        match key {
+            "ko" => "이미 추가된 프린터입니다".to_string(),
+            "ja" => "すでに追加済みのプリンタです".to_string(),
+            _ => message.to_string(),
+        }
+    } else if message.contains("Pick") || message.contains("nozzle") {
+        match key {
+            "ko" => "제조사 → 모델 → 노즐을 먼저 선택하세요".to_string(),
+            "ja" => "まずメーカー → モデル → ノズルを選択してください".to_string(),
+            _ => message.to_string(),
+        }
+    } else {
+        message.to_string()
     }
 }
 
@@ -4889,7 +5469,21 @@ fn printer_detail(profile: &PrinterProfile) -> String {
 
 fn printer_model_label(profile: &PrinterProfile) -> String {
     let label = profile.printer_label.trim();
-    for maker in ["Bambu", "Prusa", "Creality", "Snapmaker"] {
+    // Keep this list in sync with the makers represented in
+    // assets/data/printer_profiles.json. Each entry's `printer_label` must
+    // start with one of these maker tokens — that's how maker/model are
+    // split for the hierarchical picker in Settings.
+    for maker in [
+        "Bambu",
+        "Prusa",
+        "Creality",
+        "Anycubic",
+        "Elegoo",
+        "Sovol",
+        "Snapmaker",
+        "FlashForge",
+        "Voron",
+    ] {
         if let Some(model) = label.strip_prefix(&format!("{maker} ")) {
             return model.to_string();
         }
@@ -4949,18 +5543,21 @@ fn settings_printer_choices(
     prefs: &AppPrefs,
     catalog: &[PrinterProfile],
 ) -> Vec<PrinterProfileChoice> {
-    let active = active_printer_keys(prefs, catalog);
+    // "My printers" — only the active set, in user order, with default flagged.
     let default_key = default_printer_key_for_prefs(prefs, catalog);
-    catalog
-        .iter()
-        .map(|profile| PrinterProfileChoice {
-            key: profile.key.clone().into(),
-            label: profile.label.clone().into(),
-            detail: printer_detail(profile).into(),
-            selected: active.iter().any(|key| key == &profile.key),
-            defaulted: default_key == profile.key,
-        })
-        .collect()
+    let mut rows: Vec<PrinterProfileChoice> = Vec::new();
+    for key in &prefs.active_printer_keys {
+        if let Some(profile) = printer_profile(catalog, key) {
+            rows.push(PrinterProfileChoice {
+                key: profile.key.clone().into(),
+                label: profile.label.clone().into(),
+                detail: printer_detail(profile).into(),
+                selected: true,
+                defaulted: default_key == profile.key,
+            });
+        }
+    }
+    rows
 }
 
 fn estimate_printer_choices(
@@ -6141,6 +6738,7 @@ mod tests {
             density: "large".to_string(),
             view_mode: "masonry".to_string(),
             theme: "light".to_string(),
+            accent_color: "orange".to_string(),
             language: "ko".to_string(),
             slicer_path: "/Applications/PrusaSlicer.app".to_string(),
             sort_by: "size".to_string(),
@@ -6150,7 +6748,12 @@ mod tests {
             thumbnail_aa: "msaa2x".to_string(),
             active_printer_keys: vec!["bambu-p1s-0.4".to_string()],
             default_printer_key: "bambu-p1s-0.4".to_string(),
+            card_label_mode: "titled".to_string(),
+            date_format_mode: "us".to_string(),
+            show_file_extensions: false,
+            startup_view: "empty".to_string(),
             last_folder: Some(root.join("models")),
+            library_folders: vec![root.join("models")],
             excluded_folders: vec![root.join("models/archived")],
             collapsed_folders: vec![root.join("models/nested")],
         };
@@ -6181,6 +6784,25 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn accent_key_is_normalized_in_shell_state() {
+        let mut prefs = AppPrefs {
+            accent_color: "unknown".to_string(),
+            ..AppPrefs::default()
+        };
+        let state = ShellState::with_prefs(prefs.clone());
+        assert_eq!(state.prefs.accent_color, "teal");
+
+        prefs.accent_color = "purple".to_string();
+        let mut state = ShellState::with_prefs(prefs);
+        assert_eq!(state.prefs.accent_color, "purple");
+
+        state.choose_accent("green");
+        assert_eq!(state.prefs.accent_color, "green");
+        state.choose_accent("not-a-color");
+        assert_eq!(state.prefs.accent_color, "teal");
     }
 
     #[test]
@@ -6252,13 +6874,26 @@ mod tests {
         assert_eq!(state.settings_printer_maker, "Prusa");
         assert_eq!(state.settings_printer_model, "MK4");
 
+        // Choosing a nozzle stages it as the pending pick — explicit add required.
         state.choose_settings_printer_nozzle("0.4mm").unwrap();
-        assert_eq!(state.prefs.default_printer_key, "prusa-mk4-0.4");
-        assert_eq!(state.estimate_printer_key, "prusa-mk4-0.4");
+        assert_eq!(state.settings_printer_nozzle, "0.4mm");
+        assert!(state.can_add_pending_printer());
+
+        // Adding promotes it into the active list and (since the user only had
+        // the bundled default) keeps the default in sync.
+        let added = state.add_pending_printer().unwrap();
+        assert_eq!(added, "prusa-mk4-0.4");
         assert!(state
             .prefs
             .active_printer_keys
             .contains(&"prusa-mk4-0.4".to_string()));
+        // Adding clears the pending nozzle so the UI button disables.
+        assert!(state.settings_printer_nozzle.is_empty());
+        assert!(!state.can_add_pending_printer());
+
+        // Trying to add the same printer again is a no-op (Err returned).
+        state.choose_settings_printer_nozzle("0.4mm").unwrap();
+        assert!(state.add_pending_printer().is_err());
     }
 
     #[test]
