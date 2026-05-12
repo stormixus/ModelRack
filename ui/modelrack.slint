@@ -2914,8 +2914,8 @@ export component ModelRackWindow inherits Window {
                             : (density-label == "S" ? 144px : density-label == "L" ? 208px : 168px);
                         property <length> card-w: target-card-w;
                         property <length> gap: 12px;
+                        // Keep layout-motion lighter for large libraries (fewer simultaneous x/y animations).
                         property <bool> full-layout-motion: model-cards.length <= 96;
-                        property <length> render-buffer: full-layout-motion ? 1400px : 520px;
                         property <int> cols: max(1, floor((self.width + gap) / (target-card-w + gap)));
                         property <int> rows: ceil(model-cards.length / max(1, cols));
                         property <length> card-h: view-mode-label == "Masonry" ? card-w + 94px : card-w + 62px;
@@ -2929,11 +2929,14 @@ export component ModelRackWindow inherits Window {
                             y: target-y;
                             width: card-w;
                             height: grid-flick.card-h;
-                            visible: target-y + grid-flick.card-h >= grid-flick.viewport-y - grid-flick.render-buffer
-                                && target-y <= grid-flick.viewport-y + grid-flick.height + grid-flick.render-buffer;
+                            // Do not cull with `visible: false` here: in Slint, non-visible elements do not
+                            // take layout space, which breaks absolutely-positioned grid cells and can leave
+                            // tiles missing until resize. List view has no culling; grid/masonry must show
+                            // the same logical set. The Flickable clips off-screen content.
+                            visible: true;
                             layout-motion: grid-flick.full-layout-motion
-                                || (target-y + grid-flick.card-h >= grid-flick.viewport-y - grid-flick.render-buffer
-                                    && target-y <= grid-flick.viewport-y + grid-flick.height + grid-flick.render-buffer);
+                                || (target-y + grid-flick.card-h >= grid-flick.viewport-y - 520px
+                                    && target-y <= grid-flick.viewport-y + grid-flick.height + 520px);
                             streaming-list: scan-progress-percent >= 0;
                             card: card;
                             card-index: card.slot-index;

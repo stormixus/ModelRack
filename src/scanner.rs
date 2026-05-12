@@ -180,9 +180,10 @@ pub fn scan_folder(path: &Path) -> ScanResult {
 }
 
 pub fn scan_folder_stream(path: &Path, tx: crossbeam_channel::Sender<ScanEvent>) {
+    use rayon::prelude::*;
+
     let mut walk_errors = 0usize;
-    let mut parse_errors = 0usize;
-    let mut scanned = 0usize;
+    let mut paths_to_process = Vec::new();
 
     for entry_result in WalkDir::new(path).follow_links(false) {
         let entry = match entry_result {
@@ -198,24 +199,37 @@ pub fn scan_folder_stream(path: &Path, tx: crossbeam_channel::Sender<ScanEvent>)
             continue;
         }
 
-        let file_path = entry.path();
+        let file_path = entry.path().to_path_buf();
         let ext = file_path
             .extension()
             .and_then(|e| e.to_str())
             .map(|s| s.to_lowercase());
 
         if let Some(ext) = ext.as_deref().filter(|ext| is_supported_model_ext(ext)) {
-            scanned += 1;
+            paths_to_process.push((file_path, ext.to_string()));
+        }
+    }
+
+    let scanned = std::sync::atomic::AtomicUsize::new(0);
+    let parse_errors = std::sync::atomic::AtomicUsize::new(0);
+
+    paths_to_process
+        .into_par_iter()
+        .for_each_with(tx.clone(), |tx, (file_path, ext)| {
+            let current_scanned = scanned.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+            let current_errors = parse_errors.load(std::sync::atomic::Ordering::Relaxed);
+            
             let _ = tx.send(ScanEvent::Progress {
-                scanned,
-                skipped: walk_errors + parse_errors,
+                scanned: current_scanned,
+                skipped: walk_errors + current_errors,
                 current: file_path
                     .file_name()
                     .and_then(|name| name.to_str())
                     .unwrap_or("model file")
                     .to_string(),
             });
-            match parse_supported_file(file_path, ext) {
+
+            match parse_supported_file(&file_path, &ext) {
                 Ok((info, mesh_opt)) => {
                     let _ = tx.send(ScanEvent::Entry {
                         info: Box::new(info),
@@ -224,10 +238,10 @@ pub fn scan_folder_stream(path: &Path, tx: crossbeam_channel::Sender<ScanEvent>)
                 }
                 Err(err) => {
                     eprintln!("Parse error for {}: {}", file_path.display(), err);
-                    parse_errors += 1;
+                    parse_errors.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     let _ = tx.send(ScanEvent::Progress {
-                        scanned,
-                        skipped: walk_errors + parse_errors,
+                        scanned: current_scanned,
+                        skipped: walk_errors + parse_errors.load(std::sync::atomic::Ordering::Relaxed),
                         current: file_path
                             .file_name()
                             .and_then(|name| name.to_str())
@@ -236,10 +250,9 @@ pub fn scan_folder_stream(path: &Path, tx: crossbeam_channel::Sender<ScanEvent>)
                     });
                 }
             }
-        }
-    }
+        });
 
-    let skipped = walk_errors + parse_errors;
+    let skipped = walk_errors + parse_errors.load(std::sync::atomic::Ordering::Relaxed);
     let _ = tx.send(ScanEvent::Done { skipped });
 }
 

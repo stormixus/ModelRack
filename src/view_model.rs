@@ -141,6 +141,24 @@ pub struct AppPrefs {
     pub collapsed_folders: Vec<PathBuf>,
 }
 
+impl AppPrefs {
+    /// Expand `~/` prefixes in persisted paths so they match scan results and filesystem APIs.
+    pub fn normalize_path_fields(&mut self) {
+        if let Some(ref mut p) = self.last_folder {
+            *p = expand_user_pref_path(&**p);
+        }
+        for p in &mut self.library_folders {
+            *p = expand_user_pref_path(&**p);
+        }
+        for p in &mut self.excluded_folders {
+            *p = expand_user_pref_path(&**p);
+        }
+        for p in &mut self.collapsed_folders {
+            *p = expand_user_pref_path(&**p);
+        }
+    }
+}
+
 impl Default for AppPrefs {
     fn default() -> Self {
         Self {
@@ -644,23 +662,89 @@ pub fn sidebar_summary(entries: &[scanner::StlFileInfo]) -> SidebarSummary {
     }
 }
 
+/// Expands a leading `~` / `~/` using `$HOME` (macOS/Linux prefs and hand-edited JSON often store
+/// `~/Downloads` while scans and [`std::fs::canonicalize`] use absolute paths under `/Users/...`).
+pub fn expand_user_pref_path(path: &Path) -> PathBuf {
+    let lossy = path.to_string_lossy();
+    if let Some(rest) = lossy.strip_prefix("~/") {
+        if let Some(home) = std::env::var_os("HOME") {
+            return PathBuf::from(home).join(rest);
+        }
+    }
+    if lossy == "~" {
+        if let Some(home) = std::env::var_os("HOME") {
+            return PathBuf::from(home);
+        }
+    }
+    path.to_path_buf()
+}
+
+/// Deduplicate paths by canonical target when possible, preserving first-seen order.
+pub fn dedupe_paths_keep_order(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for p in paths {
+        let key = std::fs::canonicalize(&p).unwrap_or_else(|_| p.clone());
+        if seen.insert(key) {
+            out.push(p);
+        }
+    }
+    out
+}
+
+/// True if two paths are identical or resolve to the same file/directory (symlink aliases).
+pub fn paths_equal_or_same_target(a: &Path, b: &Path) -> bool {
+    let a = expand_user_pref_path(a);
+    let b = expand_user_pref_path(b);
+    if a == b {
+        return true;
+    }
+    match (std::fs::canonicalize(&a), std::fs::canonicalize(&b)) {
+        (Ok(ca), Ok(cb)) => ca == cb,
+        _ => false,
+    }
+}
+
+/// Whether `entry_path` lies under library `root`, using [`Path::starts_with`] first and
+/// falling back to canonical prefixes when spellings differ (macOS `/private/var`, symlinks).
+pub fn entry_under_library_root(entry_path: &Path, root: &Path) -> bool {
+    let root = expand_user_pref_path(root);
+    if entry_path.starts_with(&root) {
+        return true;
+    }
+    match (
+        std::fs::canonicalize(entry_path),
+        std::fs::canonicalize(&root),
+    ) {
+        (Ok(ep), Ok(rr)) => ep.starts_with(&rr),
+        _ => false,
+    }
+}
+
+/// Whether `folder` is the same library root as `active` (optional), including symlink spellings.
+pub fn scan_message_folder_matches_active(active: Option<&Path>, folder: &Path) -> bool {
+    active.is_some_and(|a| a == folder || paths_equal_or_same_target(a, folder))
+}
+
 /// Deduplicate library roots by canonical path (when resolvable), preserving first occurrence
 /// order, then sort lexically by path components for stable UI.
 pub fn dedupe_library_roots(roots: &[PathBuf]) -> Vec<PathBuf> {
     let mut seen = HashSet::new();
     let mut out = Vec::new();
     for r in roots {
-        let key = std::fs::canonicalize(r).unwrap_or_else(|_| r.clone());
+        let expanded = expand_user_pref_path(r);
+        let key = std::fs::canonicalize(&expanded).unwrap_or_else(|_| expanded.clone());
         if seen.insert(key) {
-            out.push(r.clone());
+            out.push(expanded);
         }
     }
     out.sort_by(|a, b| a.components().cmp(b.components()));
     out
 }
 
-/// One sidebar row per configured library root: counts only entries under that root
-/// (`strip_prefix`), never mixing in paths from sibling roots.
+/// One sidebar row per configured library root: counts only entries under that root,
+/// never mixing in paths from sibling roots. Uses [`entry_under_library_root`] so counts
+/// stay correct when entry paths and prefs roots use different spellings of the same tree.
 pub fn sidebar_folders(
     entries: &[scanner::StlFileInfo],
     roots: &[PathBuf],
@@ -675,7 +759,7 @@ pub fn sidebar_folders(
         .map(|path| {
             let count = entries
                 .iter()
-                .filter(|e| e.path.strip_prefix(&path).is_ok())
+                .filter(|e| entry_under_library_root(&e.path, &path))
                 .count();
             let label = path
                 .file_name()
@@ -1590,6 +1674,100 @@ mod tests {
     }
 
     #[test]
+    fn paths_equal_or_same_target_reflexive() {
+        let p = PathBuf::from("/tmp/modelrack-path-self");
+        assert!(paths_equal_or_same_target(&p, &p));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn entry_under_library_root_follows_symlink_root() {
+        use std::os::unix::fs::symlink;
+
+        let tmp = std::env::temp_dir().join(format!(
+            "modelrack-symlink-root-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let real = tmp.join("real_lib");
+        std::fs::create_dir_all(real.join("sub")).unwrap();
+        let link = tmp.join("link_lib");
+        symlink(&real, &link).unwrap();
+        let stl = real.join("sub").join("a.stl");
+        std::fs::write(&stl, b"solid x\nendsolid x\n").unwrap();
+
+        let entry_path = stl.canonicalize().unwrap();
+        assert!(
+            entry_under_library_root(&entry_path, &link),
+            "entry should count under symlink prefs root {:?}",
+            link
+        );
+        let entries = vec![entry(entry_path.to_str().unwrap(), 1)];
+        let folders = sidebar_folders(&entries, &[link.clone()], &[]);
+        assert_eq!(folders.len(), 1);
+        assert_eq!(folders[0].count, 1, "{folders:?}");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn expand_user_pref_path_expands_tilde_slash() {
+        let Some(home) = std::env::var_os("HOME") else {
+            return;
+        };
+        assert_eq!(
+            expand_user_pref_path(Path::new("~/Documents")),
+            PathBuf::from(&home).join("Documents")
+        );
+        assert_eq!(expand_user_pref_path(Path::new("~")), PathBuf::from(&home));
+    }
+
+    #[test]
+    fn sidebar_folders_two_roots_tilde_and_absolute_both_count() {
+        let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+            return;
+        };
+        let root = home.join(format!(
+            ".modelrack-test-two-libs-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let dl = root.join("Downloads");
+        let three = root.join("3d");
+        std::fs::create_dir_all(&dl).unwrap();
+        std::fs::create_dir_all(&three).unwrap();
+        std::fs::write(dl.join("a.stl"), b"solid x\nendsolid x\n").unwrap();
+        std::fs::write(three.join("b.stl"), b"solid y\nendsolid y\n").unwrap();
+
+        let rel_dl = dl.strip_prefix(&home).unwrap();
+        let tilde_dl = PathBuf::from(format!("~/{}", rel_dl.display()));
+        let entries = vec![
+            entry(dl.join("a.stl").to_str().unwrap(), 1),
+            entry(three.join("b.stl").to_str().unwrap(), 2),
+        ];
+        let roots = vec![tilde_dl, three.clone()];
+        let folders = sidebar_folders(&entries, &roots, &[]);
+        assert_eq!(folders.len(), 2, "{folders:?}");
+        assert!(
+            folders.iter().all(|f| f.count == 1),
+            "expected 1 model per root, got {:?}",
+            folders
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn dedupe_paths_keep_order_drops_non_adjacent_duplicates() {
+        let a = PathBuf::from("/tmp/mr-dedupe-order-a");
+        let b = PathBuf::from("/tmp/mr-dedupe-order-b");
+        let d = dedupe_paths_keep_order(vec![a.clone(), b.clone(), a.clone()]);
+        assert_eq!(d.len(), 2);
+        assert_eq!(d[0], a);
+        assert_eq!(d[1], b);
+    }
+
+    #[test]
     fn app_snapshot_formats_shell_labels() {
         let entries = vec![entry("/tmp/models/a.stl", 1), entry("/tmp/models/b.stl", 2)];
         let prefs = AppPrefs {
@@ -1977,6 +2155,41 @@ mod tests {
         assert_eq!(
             card_label_for_entry(&plain, CardLabelMode::Titled, false),
             "Hex Grip V2"
+        );
+    }
+
+    #[test]
+    fn browser_cards_count_and_slot_indices_match_displayed() {
+        // Regression: grid/masonry layout uses `slot_index` for cell placement; the UI model must
+        // contain one card per displayed row with dense indices (no silent truncation).
+        let prefs = AppPrefs::default();
+        let displayed: Vec<StlFileInfo> = (0u32..250)
+            .map(|i| {
+                let path = format!("/tmp/mr_slot_test/model_{:04}.stl", 249 - i);
+                entry(&path, (i % 255) as u8)
+            })
+            .collect();
+        let cards = browser_cards_for_prefs(&displayed, &prefs);
+        assert_eq!(cards.len(), displayed.len());
+        let mut seen = vec![false; cards.len()];
+        for c in &cards {
+            assert!(
+                c.slot_index < cards.len(),
+                "slot_index {} out of range for len {}",
+                c.slot_index,
+                cards.len()
+            );
+            assert!(
+                !seen[c.slot_index],
+                "duplicate slot_index {}",
+                c.slot_index
+            );
+            seen[c.slot_index] = true;
+        }
+        assert!(
+            seen.iter().all(|&x| x),
+            "expected slot_index to cover every row 0..{}",
+            cards.len().saturating_sub(1)
         );
     }
 

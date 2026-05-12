@@ -1,3 +1,4 @@
+mod db;
 mod fonts;
 mod macos;
 mod scanner;

@@ -768,7 +768,8 @@ pub fn run() -> Result<(), slint::PlatformError> {
             },
             "favorite" => {
                 let allow_sidecar_writes = state.sidecar_writes_enabled;
-                match persist_favorite_toggle(&mut state.entries, &path, allow_sidecar_writes) {
+                let prefs = state.prefs.clone();
+                match persist_favorite_toggle(&prefs, &mut state.entries, &path, allow_sidecar_writes) {
                     Ok(Some(favorite)) if allow_sidecar_writes => {
                         ui.set_status_text(
                             if favorite {
@@ -808,7 +809,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
                     1
                 };
                 let allow_sidecar_writes = state.sidecar_writes_enabled;
+                let prefs = state.prefs.clone();
                 match persist_print_count_delta(
+                    &prefs,
                     &mut state.entries,
                     &path,
                     allow_sidecar_writes,
@@ -937,7 +940,8 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 let selected_path = state.displayed.get(idx).map(|entry| entry.path.clone());
                 if let Some(path) = selected_path {
                     let allow_sidecar_writes = state.sidecar_writes_enabled;
-                    match persist_favorite_toggle(&mut state.entries, &path, allow_sidecar_writes) {
+                    let prefs = state.prefs.clone();
+                    match persist_favorite_toggle(&prefs, &mut state.entries, &path, allow_sidecar_writes) {
                         Ok(Some(_)) if allow_sidecar_writes => {
                             ui.set_status_text("Favorite saved".into())
                         }
@@ -995,7 +999,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
             };
 
             let allow_sidecar_writes = state.sidecar_writes_enabled;
+            let prefs = state.prefs.clone();
             match persist_metadata_fields(
+                &prefs,
                 &mut state.entries,
                 &path,
                 allow_sidecar_writes,
@@ -1031,7 +1037,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
             };
 
             let allow_sidecar_writes = state.sidecar_writes_enabled;
+            let prefs = state.prefs.clone();
             match persist_add_tags(
+                &prefs,
                 &mut state.entries,
                 &path,
                 allow_sidecar_writes,
@@ -1069,7 +1077,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
             };
 
             let allow_sidecar_writes = state.sidecar_writes_enabled;
+            let prefs = state.prefs.clone();
             match persist_add_existing_tag(
+                &prefs,
                 &mut state.entries,
                 &path,
                 allow_sidecar_writes,
@@ -1116,7 +1126,8 @@ pub fn run() -> Result<(), slint::PlatformError> {
             };
 
             let allow_sidecar_writes = state.sidecar_writes_enabled;
-            match persist_remove_tag(&mut state.entries, &path, allow_sidecar_writes, index) {
+            let prefs = state.prefs.clone();
+            match persist_remove_tag(&prefs, &mut state.entries, &path, allow_sidecar_writes, index) {
                 Ok(Some(count)) if allow_sidecar_writes => {
                     ui.set_status_text(format!("Tag removed: {}", count).into())
                 }
@@ -1149,7 +1160,8 @@ pub fn run() -> Result<(), slint::PlatformError> {
             };
 
             let allow_sidecar_writes = state.sidecar_writes_enabled;
-            match persist_print_count_delta(&mut state.entries, &path, allow_sidecar_writes, delta)
+            let prefs = state.prefs.clone();
+            match persist_print_count_delta(&prefs, &mut state.entries, &path, allow_sidecar_writes, delta)
             {
                 Ok(Some(count)) if allow_sidecar_writes => {
                     ui.set_status_text(format!("Print count saved: {}", count).into())
@@ -1184,7 +1196,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 };
 
                 let allow_sidecar_writes = state.sidecar_writes_enabled;
+                let prefs = state.prefs.clone();
                 match persist_add_print_record(
+                    &prefs,
                     &mut state.entries,
                     &path,
                     allow_sidecar_writes,
@@ -1230,7 +1244,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
             };
 
             let allow_sidecar_writes = state.sidecar_writes_enabled;
+            let prefs = state.prefs.clone();
             match persist_remove_print_record(
+                &prefs,
                 &mut state.entries,
                 &path,
                 allow_sidecar_writes,
@@ -1521,7 +1537,7 @@ impl LibraryScanRuntime {
     }
 
     fn request_scan(&mut self, folder: &Path) -> ScanRequest {
-        if self.active_generation.is_some() && self.active_folder.as_deref() == Some(folder) {
+        if self.active_generation.is_some() {
             return ScanRequest::AlreadyRunning;
         }
 
@@ -1550,19 +1566,28 @@ impl LibraryScanRuntime {
             match message {
                 ScanMessage::Progress(progress)
                     if Some(progress.generation) == self.active_generation
-                        && Some(progress.folder.as_path()) == self.active_folder.as_deref() =>
+                        && crate::view_model::scan_message_folder_matches_active(
+                            self.active_folder.as_deref(),
+                            progress.folder.as_path(),
+                        ) =>
                 {
                     latest.progress = Some(progress);
                 }
                 ScanMessage::EntryBatch(batch)
                     if Some(batch.generation) == self.active_generation
-                        && Some(batch.folder.as_path()) == self.active_folder.as_deref() =>
+                        && crate::view_model::scan_message_folder_matches_active(
+                            self.active_folder.as_deref(),
+                            batch.folder.as_path(),
+                        ) =>
                 {
                     latest.entry_batches.push(batch);
                 }
                 ScanMessage::Result(result)
                     if Some(result.generation) == self.active_generation
-                        && Some(result.folder.as_path()) == self.active_folder.as_deref() =>
+                        && crate::view_model::scan_message_folder_matches_active(
+                            self.active_folder.as_deref(),
+                            result.folder.as_path(),
+                        ) =>
                 {
                     self.active_generation = None;
                     self.active_folder = None;
@@ -1748,9 +1773,17 @@ fn choose_library_folder(
 ) {
     ui.set_status_text("Choose a library folder".into());
     if let Some(folder) = rfd::FileDialog::new().pick_folder() {
-        scan_runtime.borrow_mut().invalidate();
-        start_folder_scan(ui, state, scan_runtime, &folder, "Scanning selected folder");
-        set_watch_status(ui, watcher_runtime, &folder);
+        if scan_runtime.borrow().active_generation.is_some() {
+            let mut state_mut = state.borrow_mut();
+            ShellState::merge_library_folder_into_prefs(&mut state_mut.prefs, &folder);
+            state_mut.startup_restore_queue.push_back(folder.clone());
+            ui.set_status_text(format!("Queued {} for scan", folder.display()).into());
+            save_prefs_status(ui, &state_mut);
+        } else {
+            scan_runtime.borrow_mut().invalidate();
+            start_folder_scan(ui, state, scan_runtime, &folder, "Scanning selected folder");
+            set_watch_status(ui, watcher_runtime, &folder);
+        }
     }
 }
 
@@ -2604,6 +2637,7 @@ fn load_app_prefs_from_path(path: &Path) -> io::Result<AppPrefs> {
                     prefs.library_folders.push(folder);
                 }
             }
+            prefs.normalize_path_fields();
             Ok(prefs)
         }
         Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(AppPrefs::default()),
@@ -2840,7 +2874,24 @@ fn copy_text_to_clipboard(text: &str) -> io::Result<()> {
     }
 }
 
+fn try_sync_entry_to_db(prefs: &AppPrefs, entries: &[scanner::StlFileInfo], path: &Path) {
+    let Some(root) = crate::db::library_root_for_model_path(path, &prefs.library_folders) else {
+        return;
+    };
+    let Some(entry) = entries.iter().find(|entry| entry.path == path) else {
+        return;
+    };
+    if let Err(err) = crate::db::upsert_entries_for_library(&root, std::slice::from_ref(entry)) {
+        eprintln!(
+            "Warning: library DB sync failed for {}: {:#}",
+            path.display(),
+            err
+        );
+    }
+}
+
 fn persist_favorite_toggle(
+    prefs: &AppPrefs,
     entries: &mut [scanner::StlFileInfo],
     path: &Path,
     allow_sidecar_writes: bool,
@@ -2858,6 +2909,9 @@ fn persist_favorite_toggle(
         scanner::write_sidecar(path, &meta)?;
     }
     entry.meta = Some(meta.clone());
+    if allow_sidecar_writes {
+        try_sync_entry_to_db(prefs, entries, path);
+    }
     Ok(Some(meta.favorite))
 }
 
@@ -2876,6 +2930,7 @@ fn parse_tag_input(input: &str) -> Vec<String> {
 }
 
 fn persist_metadata_fields(
+    prefs: &AppPrefs,
     entries: &mut [scanner::StlFileInfo],
     path: &Path,
     allow_sidecar_writes: bool,
@@ -2883,7 +2938,7 @@ fn persist_metadata_fields(
     author: &str,
     notes: &str,
 ) -> anyhow::Result<Option<scanner::SidecarMeta>> {
-    update_model_meta(entries, path, allow_sidecar_writes, |meta| {
+    update_model_meta(prefs, entries, path, allow_sidecar_writes, |meta| {
         meta.tags = parse_tag_input(tags);
         meta.author = author.trim().to_string();
         meta.notes = notes.to_string();
@@ -2897,6 +2952,7 @@ enum TagDropOutcome {
 }
 
 fn persist_add_existing_tag(
+    prefs: &AppPrefs,
     entries: &mut [scanner::StlFileInfo],
     path: &Path,
     allow_sidecar_writes: bool,
@@ -2934,6 +2990,9 @@ fn persist_add_existing_tag(
     }
     let count = meta.tags.len();
     entry.meta = Some(meta);
+    if allow_sidecar_writes {
+        try_sync_entry_to_db(prefs, entries, path);
+    }
     Ok(Some(TagDropOutcome::Added {
         tag: tag.to_string(),
         count,
@@ -2941,6 +3000,7 @@ fn persist_add_existing_tag(
 }
 
 fn persist_add_tags(
+    prefs: &AppPrefs,
     entries: &mut [scanner::StlFileInfo],
     path: &Path,
     allow_sidecar_writes: bool,
@@ -2954,7 +3014,7 @@ fn persist_add_tags(
             .map(|entry| entry.meta.as_ref().map_or(0, |meta| meta.tags.len())));
     }
 
-    let updated = update_model_meta(entries, path, allow_sidecar_writes, |meta| {
+    let updated = update_model_meta(prefs, entries, path, allow_sidecar_writes, |meta| {
         for tag in additions {
             if !meta.tags.iter().any(|existing| existing == &tag) {
                 meta.tags.push(tag);
@@ -2965,6 +3025,7 @@ fn persist_add_tags(
 }
 
 fn persist_remove_tag(
+    prefs: &AppPrefs,
     entries: &mut [scanner::StlFileInfo],
     path: &Path,
     allow_sidecar_writes: bool,
@@ -2982,19 +3043,20 @@ fn persist_remove_tag(
         return Ok(None);
     };
 
-    let updated = update_model_meta(entries, path, allow_sidecar_writes, |meta| {
+    let updated = update_model_meta(prefs, entries, path, allow_sidecar_writes, |meta| {
         meta.tags.remove(tag_index);
     })?;
     Ok(updated.map(|meta| meta.tags.len()))
 }
 
 fn persist_print_count_delta(
+    prefs: &AppPrefs,
     entries: &mut [scanner::StlFileInfo],
     path: &Path,
     allow_sidecar_writes: bool,
     delta: i32,
 ) -> anyhow::Result<Option<u32>> {
-    let updated = update_model_meta(entries, path, allow_sidecar_writes, |meta| {
+    let updated = update_model_meta(prefs, entries, path, allow_sidecar_writes, |meta| {
         let next = meta.printed as i64 + delta as i64;
         meta.printed = next.max(0).min(u32::MAX as i64) as u32;
     })?;
@@ -3002,6 +3064,7 @@ fn persist_print_count_delta(
 }
 
 fn persist_add_print_record(
+    prefs: &AppPrefs,
     entries: &mut [scanner::StlFileInfo],
     path: &Path,
     allow_sidecar_writes: bool,
@@ -3014,7 +3077,7 @@ fn persist_add_print_record(
     notes: &str,
     date: &str,
 ) -> anyhow::Result<Option<u32>> {
-    let updated = update_model_meta(entries, path, allow_sidecar_writes, |meta| {
+    let updated = update_model_meta(prefs, entries, path, allow_sidecar_writes, |meta| {
         meta.print_history.push(scanner::PrintRecord {
             date: date.to_string(),
             material: material.trim().to_string(),
@@ -3032,6 +3095,7 @@ fn persist_add_print_record(
 }
 
 fn persist_remove_print_record(
+    prefs: &AppPrefs,
     entries: &mut [scanner::StlFileInfo],
     path: &Path,
     allow_sidecar_writes: bool,
@@ -3046,7 +3110,7 @@ fn persist_remove_print_record(
         return Ok(None);
     };
 
-    let updated = update_model_meta(entries, path, allow_sidecar_writes, |meta| {
+    let updated = update_model_meta(prefs, entries, path, allow_sidecar_writes, |meta| {
         meta.print_history.remove(history_index);
         meta.printed = meta.printed.saturating_sub(1);
     })?;
@@ -3064,6 +3128,7 @@ fn history_storage_index(meta: Option<&scanner::SidecarMeta>, display_index: i32
 }
 
 fn update_model_meta(
+    prefs: &AppPrefs,
     entries: &mut [scanner::StlFileInfo],
     path: &Path,
     allow_sidecar_writes: bool,
@@ -3082,6 +3147,9 @@ fn update_model_meta(
         scanner::write_sidecar(path, &meta)?;
     }
     entry.meta = Some(meta.clone());
+    if allow_sidecar_writes {
+        try_sync_entry_to_db(prefs, entries, path);
+    }
     Ok(Some(meta))
 }
 
@@ -3347,7 +3415,8 @@ impl ShellState {
         Self::with_prefs(prefs)
     }
 
-    fn with_prefs(prefs: AppPrefs) -> Self {
+    fn with_prefs(mut prefs: AppPrefs) -> Self {
+        prefs.normalize_path_fields();
         let entries = demo_entries();
         let catalog = load_printer_profiles();
         let mut prefs = prefs;
@@ -3979,7 +4048,9 @@ impl ShellState {
     fn begin_folder_scan(&mut self, folder: &Path, current: &str) -> AppViewSnapshot {
         self.remove_excluded_folder(folder);
         Self::merge_library_folder_into_prefs(&mut self.prefs, folder);
-        self.entries.retain(|entry| !entry.path.starts_with(folder));
+        self.entries.retain(|entry| {
+            !crate::view_model::entry_under_library_root(&entry.path, folder)
+        });
         self.retain_entries_under_library_roots();
         self.displayed.clear();
         self.current_folder = Some(folder.to_path_buf());
@@ -4021,12 +4092,16 @@ impl ShellState {
         let entries_len_before = self.entries.len();
         let mut updated = false;
         for batch in batches {
-            if self.current_folder.as_deref() != Some(batch.folder.as_path()) {
+            if !crate::view_model::scan_message_folder_matches_active(
+                self.current_folder.as_deref(),
+                batch.folder.as_path(),
+            ) {
                 continue;
             }
             if self.streaming_scan_generation != Some(batch.generation) {
-                self.entries
-                    .retain(|entry| !entry.path.starts_with(batch.folder.as_path()));
+                self.entries.retain(|entry| {
+                    !crate::view_model::entry_under_library_root(&entry.path, &batch.folder)
+                });
                 self.displayed.clear();
                 self.skipped = 0;
                 self.selected_index = None;
@@ -4034,9 +4109,14 @@ impl ShellState {
             }
 
             let batch_had_entries = !batch.entries.is_empty();
-            let mut entries = filter_excluded_entries(batch.entries, &self.prefs.excluded_folders);
+            let entries = filter_excluded_entries(batch.entries, &self.prefs.excluded_folders);
+            if !entries.is_empty() {
+                if let Err(err) = crate::db::upsert_entries_for_library(&batch.folder, &entries) {
+                    eprintln!("Warning: library DB upsert failed: {err:#}");
+                }
+            }
             updated |= batch_had_entries;
-            self.entries.append(&mut entries);
+            self.entries.extend(entries);
         }
 
         if !updated {
@@ -4128,9 +4208,15 @@ impl ShellState {
         skipped: usize,
     ) -> AppViewSnapshot {
         let cleaned = filter_excluded_entries(entries, &self.prefs.excluded_folders);
+        if !cleaned.is_empty() {
+            if let Err(err) = crate::db::upsert_entries_for_library(&folder, &cleaned) {
+                eprintln!("Warning: library DB upsert failed: {err:#}");
+            }
+        }
         Self::merge_library_folder_into_prefs(&mut self.prefs, &folder);
-        self.entries
-            .retain(|entry| !entry.path.starts_with(folder.as_path()));
+        self.entries.retain(|entry| {
+            !crate::view_model::entry_under_library_root(&entry.path, folder.as_path())
+        });
         self.entries.extend(cleaned);
         dedupe_entries_by_path(&mut self.entries);
         self.retain_entries_under_library_roots();
@@ -4148,7 +4234,10 @@ impl ShellState {
     }
 
     fn should_apply_completed_scan(&self, folder: &Path) -> bool {
-        self.sidecar_writes_enabled && self.prefs.library_folders.iter().any(|root| root == folder)
+        self.sidecar_writes_enabled
+            && self.prefs.library_folders.iter().any(|root| {
+                root == folder || crate::view_model::paths_equal_or_same_target(root, folder)
+            })
     }
 
     fn library_roots_for_snapshot(&self) -> &[PathBuf] {
@@ -4161,11 +4250,9 @@ impl ShellState {
 
     fn merge_library_folder_into_prefs(prefs: &mut AppPrefs, folder: &Path) {
         let path = folder.to_path_buf();
-        if !prefs
-            .library_folders
-            .iter()
-            .any(|existing| existing == &path)
-        {
+        if !prefs.library_folders.iter().any(|existing| {
+            existing == &path || crate::view_model::paths_equal_or_same_target(existing, &path)
+        }) {
             prefs.library_folders.push(path);
         }
     }
@@ -4176,8 +4263,11 @@ impl ShellState {
             return;
         }
         let roots = self.prefs.library_folders.clone();
-        self.entries
-            .retain(|e| roots.iter().any(|r| e.path.starts_with(r)));
+        self.entries.retain(|e| {
+            roots
+                .iter()
+                .any(|r| crate::view_model::entry_under_library_root(&e.path, r))
+        });
     }
 
     fn restored_library_scan_queue(&self) -> Vec<PathBuf> {
@@ -4185,10 +4275,10 @@ impl ShellState {
             .prefs
             .library_folders
             .iter()
+            .map(|p| crate::view_model::expand_user_pref_path(p))
             .filter(|path| path.is_dir() && !is_excluded_path(path, &self.prefs.excluded_folders))
-            .cloned()
             .collect();
-        out.dedup();
+        out = crate::view_model::dedupe_paths_keep_order(out);
         if out.is_empty() {
             if let Some(path) = self.prefs.last_folder.clone() {
                 if path.is_dir() && !is_excluded_path(&path, &self.prefs.excluded_folders) {
@@ -6323,6 +6413,29 @@ mod tests {
         }
     }
 
+    fn prefs_with_root(root: &Path) -> AppPrefs {
+        AppPrefs {
+            library_folders: vec![root.to_path_buf()],
+            ..AppPrefs::default()
+        }
+    }
+
+    #[test]
+    fn restored_library_scan_queue_includes_every_configured_root_dir() {
+        let root = temp_path("mr-two-lib-roots");
+        let a = root.join("one");
+        let b = root.join("two");
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        let prefs = AppPrefs {
+            library_folders: vec![a.clone(), b.clone()],
+            ..Default::default()
+        };
+        let state = ShellState::with_prefs(prefs);
+        assert_eq!(state.restored_library_scan_queue(), vec![a, b]);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     #[test]
     fn watcher_relevance_includes_models_and_sidecars_only() {
         assert!(is_refresh_relevant_path(Path::new("part.stl")));
@@ -7072,7 +7185,7 @@ mod tests {
         });
 
         assert_eq!(
-            persist_favorite_toggle(&mut entries, &model, true).unwrap(),
+            persist_favorite_toggle(&prefs_with_root(&root), &mut entries, &model, true).unwrap(),
             Some(true)
         );
 
@@ -7096,7 +7209,7 @@ mod tests {
         let mut entries = vec![test_entry(&model)];
 
         assert_eq!(
-            persist_favorite_toggle(&mut entries, &model, true).unwrap(),
+            persist_favorite_toggle(&prefs_with_root(&root), &mut entries, &model, true).unwrap(),
             Some(true)
         );
 
@@ -7117,7 +7230,7 @@ mod tests {
         let mut entries = vec![test_entry(&model)];
 
         assert_eq!(
-            persist_favorite_toggle(&mut entries, &model, false).unwrap(),
+            persist_favorite_toggle(&AppPrefs::default(), &mut entries, &model, false).unwrap(),
             Some(true)
         );
         assert!(entries[0].meta.as_ref().unwrap().favorite);
@@ -7133,7 +7246,7 @@ mod tests {
         let mut entries = vec![test_entry(&model)];
 
         assert_eq!(
-            persist_favorite_toggle(&mut entries, &model, false).unwrap(),
+            persist_favorite_toggle(&AppPrefs::default(), &mut entries, &model, false).unwrap(),
             Some(true)
         );
         assert!(entries[0].meta.as_ref().unwrap().favorite);
@@ -7142,7 +7255,7 @@ mod tests {
             .exists());
 
         assert_eq!(
-            persist_favorite_toggle(&mut entries, &model, true).unwrap(),
+            persist_favorite_toggle(&prefs_with_root(&root), &mut entries, &model, true).unwrap(),
             Some(false)
         );
         let sidecar = model.with_file_name("existing-demo.stl.modelrack.json");
@@ -7188,7 +7301,7 @@ mod tests {
         });
 
         assert_eq!(
-            persist_add_tags(&mut entries, &model, true, "rack, jig, printer").unwrap(),
+            persist_add_tags(&prefs_with_root(&root), &mut entries, &model, true, "rack, jig, printer").unwrap(),
             Some(3)
         );
 
@@ -7218,7 +7331,7 @@ mod tests {
         });
 
         assert_eq!(
-            persist_add_existing_tag(&mut entries, &model, true, "printer").unwrap(),
+            persist_add_existing_tag(&prefs_with_root(&root), &mut entries, &model, true, "printer").unwrap(),
             Some(TagDropOutcome::Added {
                 tag: "printer".to_string(),
                 count: 2,
@@ -7251,7 +7364,7 @@ mod tests {
         });
 
         assert_eq!(
-            persist_add_existing_tag(&mut entries, &model, true, "printer").unwrap(),
+            persist_add_existing_tag(&prefs_with_root(&root), &mut entries, &model, true, "printer").unwrap(),
             Some(TagDropOutcome::AlreadyPresent {
                 tag: "printer".to_string(),
                 count: 2,
@@ -7281,7 +7394,7 @@ mod tests {
         });
 
         assert_eq!(
-            persist_remove_tag(&mut entries, &model, true, 1).unwrap(),
+            persist_remove_tag(&prefs_with_root(&root), &mut entries, &model, true, 1).unwrap(),
             Some(2)
         );
 
@@ -7300,11 +7413,11 @@ mod tests {
         let mut entries = vec![test_entry(&model)];
 
         assert_eq!(
-            persist_add_tags(&mut entries, &model, false, "demo, tag").unwrap(),
+            persist_add_tags(&AppPrefs::default(), &mut entries, &model, false, "demo, tag").unwrap(),
             Some(2)
         );
         assert_eq!(
-            persist_remove_tag(&mut entries, &model, false, 0).unwrap(),
+            persist_remove_tag(&AppPrefs::default(), &mut entries, &model, false, 0).unwrap(),
             Some(1)
         );
         assert_eq!(entries[0].meta.as_ref().unwrap().tags, vec!["tag"]);
@@ -7317,7 +7430,7 @@ mod tests {
         let model = root.join("missing.stl");
         let mut entries = vec![test_entry(&model)];
 
-        let err = match persist_add_tags(&mut entries, &model, true, "tag") {
+        let err = match persist_add_tags(&prefs_with_root(&root), &mut entries, &model, true, "tag") {
             Ok(_) => panic!("missing real model should be rejected"),
             Err(err) => err,
         };
@@ -7351,6 +7464,7 @@ mod tests {
         });
 
         persist_metadata_fields(
+            &prefs_with_root(&root),
             &mut entries,
             &model,
             true,
@@ -7380,7 +7494,7 @@ mod tests {
         let model = root.join("missing.stl");
         let mut entries = vec![test_entry(&model)];
 
-        persist_metadata_fields(&mut entries, &model, false, "demo, tag", "You", "memo").unwrap();
+        persist_metadata_fields(&AppPrefs::default(), &mut entries, &model, false, "demo, tag", "You", "memo").unwrap();
 
         let meta = entries[0].meta.as_ref().unwrap();
         assert_eq!(meta.tags, vec!["demo", "tag"]);
@@ -7459,11 +7573,11 @@ mod tests {
         let mut entries = vec![test_entry(&model)];
 
         assert_eq!(
-            persist_print_count_delta(&mut entries, &model, true, 2).unwrap(),
+            persist_print_count_delta(&prefs_with_root(&root), &mut entries, &model, true, 2).unwrap(),
             Some(2)
         );
         assert_eq!(
-            persist_print_count_delta(&mut entries, &model, true, -5).unwrap(),
+            persist_print_count_delta(&prefs_with_root(&root), &mut entries, &model, true, -5).unwrap(),
             Some(0)
         );
 
@@ -7492,6 +7606,7 @@ mod tests {
 
         assert_eq!(
             persist_add_print_record(
+                &prefs_with_root(&root),
                 &mut entries,
                 &model,
                 true,
@@ -7567,7 +7682,7 @@ mod tests {
         });
 
         assert_eq!(
-            persist_remove_print_record(&mut entries, &model, true, 0).unwrap(),
+            persist_remove_print_record(&prefs_with_root(&root), &mut entries, &model, true, 0).unwrap(),
             Some(1)
         );
 
@@ -7588,6 +7703,7 @@ mod tests {
         let mut entries = vec![test_entry(&model)];
 
         persist_add_print_record(
+            &AppPrefs::default(),
             &mut entries,
             &model,
             false,
@@ -7613,6 +7729,7 @@ mod tests {
         let mut entries = vec![test_entry(&model)];
 
         let err = match persist_add_print_record(
+            &prefs_with_root(&root),
             &mut entries,
             &model,
             true,
@@ -7665,7 +7782,7 @@ mod tests {
         let mut entries = vec![test_entry(&model)];
 
         let err =
-            match persist_metadata_fields(&mut entries, &model, true, "tag", "author", "notes") {
+            match persist_metadata_fields(&prefs_with_root(&root), &mut entries, &model, true, "tag", "author", "notes") {
                 Ok(_) => panic!("missing real model should be rejected"),
                 Err(err) => err,
             };

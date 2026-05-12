@@ -13,14 +13,11 @@ mod imp {
     static SETTINGS_REQUESTED: AtomicBool = AtomicBool::new(false);
     static OPEN_LIBRARY_REQUESTED: AtomicBool = AtomicBool::new(false);
     static UNDO_REQUESTED: AtomicBool = AtomicBool::new(false);
-    static ICON_INSTALLED: AtomicBool = AtomicBool::new(false);
     static MENU_INSTALLED: AtomicBool = AtomicBool::new(false);
     static MENU_TARGET: OnceLock<usize> = OnceLock::new();
 
     pub fn install_app_icon() {
-        if ICON_INSTALLED.swap(true, Ordering::AcqRel) {
-            return;
-        }
+
 
         let Some(path) = app_icon_path() else {
             return;
