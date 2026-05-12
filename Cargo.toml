@@ -1,6 +1,6 @@
 [package]
 name = "modelrack"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 
 [features]
@@ -10,7 +10,8 @@ edition = "2021"
 cargo-clippy = []
 
 [dependencies]
-slint = { version = "1.16.1", features = ["unstable-fontique-08", "unstable-winit-030"] }
+slint = { version = "1.16.1", default-features = false, features = ["std", "backend-winit", "renderer-software", "accessibility", "compat-1-2", "unstable-fontique-08", "unstable-winit-030"] }
+i-slint-backend-winit = { version = "1.16.1", features = ["renderer-software"] }
 walkdir = "2"
 stl_io = "0.8"
 blake3 = { version = "1", features = ["pure"] }
@@ -26,7 +27,6 @@ unicode-segmentation = "1"
 zip = { version = "6", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-i-slint-backend-winit = { version = "1.16.1", features = ["renderer-software"] }
 objc = "0.2"
 
 [build-dependencies]

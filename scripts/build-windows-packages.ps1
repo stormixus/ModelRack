@@ -27,6 +27,20 @@ cargo build --release --manifest-path $CargoToml
 if (-not (Test-Path $ExeSource)) { throw "missing release exe: $ExeSource" }
 if (-not (Test-Path $Icon)) { throw "missing Windows icon: $Icon" }
 
+function Assert-StaticWindowsRuntime($Path) {
+    if (-not (Test-Path $Path)) { throw "cannot inspect missing executable: $Path" }
+    $Bytes = [System.IO.File]::ReadAllBytes($Path)
+    $Ascii = [System.Text.Encoding]::ASCII.GetString($Bytes)
+    $ForbiddenImports = @("VCRUNTIME", "MSVCP", "api-ms-win-crt", "ucrtbase.dll")
+    foreach ($Import in $ForbiddenImports) {
+        if ($Ascii.IndexOf($Import, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+            throw "release exe imports dynamic MSVC runtime '$Import'; build must use static CRT"
+        }
+    }
+}
+
+Assert-StaticWindowsRuntime $ExeSource
+
 Copy-Item -Force $ExeSource $ExeAsset
 
 $Portable = Join-Path $BuildDir "ModelRack"

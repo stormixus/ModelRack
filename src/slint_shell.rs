@@ -1432,6 +1432,7 @@ fn configure_slint_backend() -> Result<(), slint::PlatformError> {
     use i_slint_backend_winit::winit::platform::macos::WindowAttributesExtMacOS;
 
     let backend = i_slint_backend_winit::Backend::builder()
+        .with_renderer_name("renderer-software")
         .with_default_menu_bar(false)
         .with_window_attributes_hook(|attributes| {
             attributes
@@ -1446,7 +1447,10 @@ fn configure_slint_backend() -> Result<(), slint::PlatformError> {
 
 #[cfg(not(target_os = "macos"))]
 fn configure_slint_backend() -> Result<(), slint::PlatformError> {
-    Ok(())
+    let backend = i_slint_backend_winit::Backend::builder()
+        .with_renderer_name("renderer-software")
+        .build()?;
+    slint::platform::set_platform(Box::new(backend)).map_err(slint::PlatformError::SetPlatformError)
 }
 
 #[derive(Debug)]
