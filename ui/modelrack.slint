@@ -12,6 +12,7 @@ export struct BrowserCard {
     author: string,
     relative-modified: string,
     thumb-key: string,
+    thumb-revision: string,
     thumb-image: image,
     thumb-ready: bool,
     badge: string,
@@ -2934,10 +2935,8 @@ export component ModelRackWindow inherits Window {
                             // tiles missing until resize. List view has no culling; grid/masonry must show
                             // the same logical set. The Flickable clips off-screen content.
                             visible: true;
-                            layout-motion: grid-flick.full-layout-motion
-                                || (target-y + grid-flick.card-h >= grid-flick.viewport-y - 520px
-                                    && target-y <= grid-flick.viewport-y + grid-flick.height + 520px);
-                            streaming-list: scan-progress-percent >= 0;
+                            layout-motion: grid-flick.full-layout-motion;
+                            streaming-list: scan-progress-percent >= 0 && model-cards.length <= 96;
                             card: card;
                             card-index: card.slot-index;
                             selected: card.slot-index == selected-card-index;
@@ -2981,7 +2980,7 @@ export component ModelRackWindow inherits Window {
                             y: card.slot-index * (list-flick.row-h + list-flick.gap);
                             width: list-flick.width;
                             height: list-flick.row-h;
-                            streaming-list: scan-progress-percent >= 0;
+                            streaming-list: scan-progress-percent >= 0 && model-cards.length <= 96;
                             card: card;
                             card-index: card.slot-index;
                             selected: card.slot-index == selected-card-index;

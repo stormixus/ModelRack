@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -5016,7 +5016,12 @@ fn sync_browser_cards(ui: &ModelRackWindow, cards: Vec<BrowserCard>) {
         if prefix_ok {
             for row in 0..old_len {
                 if let Some(new_card) = cards.get(row).cloned() {
-                    model.set_row_data(row, new_card);
+                    if model
+                        .row_data(row)
+                        .is_some_and(|old_card| browser_card_needs_update(&old_card, &new_card))
+                    {
+                        model.set_row_data(row, new_card);
+                    }
                 }
             }
             for row in old_len..cards.len() {
@@ -5039,8 +5044,30 @@ fn sync_browser_cards(ui: &ModelRackWindow, cards: Vec<BrowserCard>) {
     }
 
     for (row, card) in cards.into_iter().enumerate() {
-        model.set_row_data(row, card);
+        if model
+            .row_data(row)
+            .is_some_and(|old_card| browser_card_needs_update(&old_card, &card))
+        {
+            model.set_row_data(row, card);
+        }
     }
+}
+
+fn browser_card_needs_update(old: &BrowserCard, new: &BrowserCard) -> bool {
+    old.stable_key != new.stable_key
+        || old.slot_index != new.slot_index
+        || old.title != new.title
+        || old.subtitle != new.subtitle
+        || old.author != new.author
+        || old.relative_modified != new.relative_modified
+        || old.thumb_key != new.thumb_key
+        || old.thumb_revision != new.thumb_revision
+        || old.thumb_ready != new.thumb_ready
+        || old.badge != new.badge
+        || old.printed_count != new.printed_count
+        || old.favorite != new.favorite
+        || old.printed != new.printed
+        || old.error != new.error
 }
 
 fn detail_parent_label(entry: &scanner::StlFileInfo, state: &ShellState) -> String {
@@ -6398,6 +6425,7 @@ fn browser_card(card: &BrowserCardVm) -> BrowserCard {
         author: card.author.clone().into(),
         relative_modified: card.relative_modified.clone().into(),
         thumb_key: card.thumb_key.clone().into(),
+        thumb_revision: thumbnail_revision(card.thumb_path.as_deref()).into(),
         thumb_image,
         thumb_ready,
         badge: card.badge.clone().into(),
@@ -6412,21 +6440,75 @@ fn load_thumbnail_image(path: Option<&Path>) -> (slint::Image, bool) {
     load_ui_image(path)
 }
 
+#[derive(Clone)]
+struct CachedUiImage {
+    revision: String,
+    image: slint::Image,
+}
+
+thread_local! {
+    static UI_IMAGE_CACHE: RefCell<HashMap<PathBuf, CachedUiImage>> = RefCell::new(HashMap::new());
+}
+
+fn thumbnail_revision(path: Option<&Path>) -> String {
+    path.and_then(thumbnail_revision_for_path)
+        .unwrap_or_default()
+}
+
+fn thumbnail_revision_for_path(path: &Path) -> Option<String> {
+    let metadata = fs::metadata(path).ok()?;
+    let modified = metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok());
+    let (secs, nanos) = modified
+        .map(|duration| (duration.as_secs(), duration.subsec_nanos()))
+        .unwrap_or((0, 0));
+    Some(format!(
+        "{}:{}:{}:{}",
+        path.display(),
+        metadata.len(),
+        secs,
+        nanos
+    ))
+}
+
 fn load_ui_image(path: Option<&Path>) -> (slint::Image, bool) {
     let Some(path) = path else {
         return (slint::Image::default(), false);
     };
-    match slint::Image::load_from_path(path) {
-        Ok(image) => (image, true),
-        Err(err) => {
-            eprintln!(
-                "Warning: failed to load image {}: {:?}",
-                path.display(),
-                err
-            );
-            (slint::Image::default(), false)
+    let Some(revision) = thumbnail_revision_for_path(path) else {
+        return (slint::Image::default(), false);
+    };
+
+    UI_IMAGE_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some(entry) = cache.get(path).filter(|entry| entry.revision == revision) {
+            return (entry.image.clone(), true);
         }
-    }
+
+        match slint::Image::load_from_path(path) {
+            Ok(image) => {
+                cache.insert(
+                    path.to_path_buf(),
+                    CachedUiImage {
+                        revision,
+                        image: image.clone(),
+                    },
+                );
+                (image, true)
+            }
+            Err(err) => {
+                cache.remove(path);
+                eprintln!(
+                    "Warning: failed to load image {}: {:?}",
+                    path.display(),
+                    err
+                );
+                (slint::Image::default(), false)
+            }
+        }
+    })
 }
 
 fn render_detail_preview_image(
@@ -6510,6 +6592,52 @@ mod tests {
             library_folders: vec![root.to_path_buf()],
             ..AppPrefs::default()
         }
+    }
+
+    fn slint_card(stable_key: &str, thumb_revision: &str, thumb_ready: bool) -> BrowserCard {
+        BrowserCard {
+            stable_key: stable_key.into(),
+            slot_index: 0,
+            title: "part.stl".into(),
+            subtitle: "1 KB · 1 triangle".into(),
+            author: "You".into(),
+            relative_modified: "today".into(),
+            thumb_key: "rack".into(),
+            thumb_revision: thumb_revision.into(),
+            thumb_image: slint::Image::default(),
+            thumb_ready,
+            badge: "STL".into(),
+            printed_count: 0,
+            favorite: false,
+            printed: false,
+            error: false,
+        }
+    }
+
+    #[test]
+    fn browser_card_change_detection_skips_identical_cards_but_tracks_thumbnail_revision() {
+        let original = slint_card("/tmp/a.stl", "thumb-a:1:10", true);
+        let identical = slint_card("/tmp/a.stl", "thumb-a:1:10", true);
+        let new_thumbnail = slint_card("/tmp/a.stl", "thumb-a:2:10", true);
+        let new_selection_target = slint_card("/tmp/b.stl", "thumb-b:1:10", true);
+
+        assert!(!browser_card_needs_update(&original, &identical));
+        assert!(browser_card_needs_update(&original, &new_thumbnail));
+        assert!(browser_card_needs_update(&original, &new_selection_target));
+    }
+
+    #[test]
+    fn thumbnails_are_not_viewport_gated_by_slint_card_visibility() {
+        let slint_source = include_str!("../ui/modelrack.slint");
+
+        assert!(
+            !slint_source.contains("media-active"),
+            "viewport-gated thumbnail media leaves scrolled-to cards blank"
+        );
+        assert!(
+            !slint_source.contains("active && thumb-ready"),
+            "cached thumbnails should be renderable whenever their card is displayed"
+        );
     }
 
     #[test]

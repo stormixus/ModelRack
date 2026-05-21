@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use crate::scanner::{MeshData, StlFileInfo};
 
-const CACHE_VERSION: &str = "v9";
+const CACHE_VERSION: &str = "v11";
 const THUMB_SIZE: u32 = 224;
 const MAX_SHADED_RENDER_FACES: usize = 160_000;
 
@@ -55,6 +55,15 @@ fn ensure_thumbnail_in(
 
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
+    }
+
+    if matches!(entry.stl_type, crate::scanner::StlType::ThreeMf) {
+        if let Some(png) = crate::scanner::embedded_three_mf_preview_png(&entry.path) {
+            let tmp_path = path.with_extension("png.tmp");
+            fs::write(&tmp_path, png)?;
+            fs::rename(&tmp_path, &path)?;
+            return Ok(path);
+        }
     }
 
     let pixels = render_thumbnail(entry, mesh, THUMB_SIZE, THUMB_SIZE);
@@ -691,6 +700,7 @@ impl Canvas {
         if area.abs() < 0.001 {
             return false;
         }
+        let screen_area = area.abs() * 0.5;
 
         let mut drew = false;
         for y in min_y..=max_y {
@@ -710,6 +720,46 @@ impl Canvas {
                         interpolate_color(color_a, color_b, color_c, alpha0, alpha1, alpha2);
                     drew |= self.blend_pixel_if_front(x, y, depth, color);
                 }
+            }
+        }
+        if screen_area < 1.25 {
+            let centroid = [
+                (a[0] + b[0] + c[0]) / 3.0,
+                (a[1] + b[1] + c[1]) / 3.0,
+                (a[2] + b[2] + c[2]) / 3.0,
+            ];
+            let color =
+                interpolate_color(color_a, color_b, color_c, 1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0);
+            let radius = if screen_area < 0.35 { 2 } else { 1 };
+            drew |= self.draw_splat_depth(centroid[0], centroid[1], centroid[2], radius, color);
+        }
+        drew
+    }
+
+    fn draw_splat_depth(
+        &mut self,
+        cx: f32,
+        cy: f32,
+        depth: f32,
+        radius: i32,
+        color: [u8; 4],
+    ) -> bool {
+        let mut drew = false;
+        let radius = radius.max(1);
+        let center_x = cx.round() as i32;
+        let center_y = cy.round() as i32;
+        for y in (center_y - radius)..=(center_y + radius) {
+            for x in (center_x - radius)..=(center_x + radius) {
+                let dx = x - center_x;
+                let dy = y - center_y;
+                if dx * dx + dy * dy > radius * radius {
+                    continue;
+                }
+                let mut c = color;
+                if dx != 0 || dy != 0 {
+                    c[3] = (c[3] as f32 * 0.62) as u8;
+                }
+                drew |= self.blend_pixel_if_front(x, y, depth, c);
             }
         }
         drew
@@ -916,6 +966,47 @@ mod tests {
     }
 
     #[test]
+    fn ensure_thumbnail_prefers_embedded_three_mf_preview_png() {
+        let root = temp_dir("embedded-3mf");
+        let input_dir = temp_dir("embedded-3mf-input");
+        fs::create_dir_all(&input_dir).unwrap();
+        let model_path = input_dir.join("plate.3mf");
+        let embedded_png = encode_rgba_png(2, 1, &[255, 0, 0, 255, 0, 255, 0, 255]);
+        let file = fs::File::create(&model_path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file(
+            "Metadata/plate_1.png",
+            zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored),
+        )
+        .unwrap();
+        std::io::Write::write_all(&mut zip, &embedded_png).unwrap();
+        zip.finish().unwrap();
+
+        let entry = StlFileInfo {
+            path: model_path,
+            filename: "plate.3mf".to_string(),
+            size: 42,
+            hash: [41; 32],
+            stl_type: StlType::ThreeMf,
+            triangle_count: None,
+            dimensions: None,
+            three_mf_plate_count: Some(1),
+            modified: None,
+            thumbnail_path: None,
+            meta: Some(SidecarMeta::default()),
+        };
+
+        let path = ensure_thumbnail_in(&entry, None, &root).unwrap();
+        let bytes = fs::read(path).unwrap();
+
+        assert_eq!(bytes, embedded_png);
+
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_dir_all(input_dir);
+    }
+
+    #[test]
     fn render_thumbnail_skips_invalid_vertices_without_losing_valid_faces() {
         let mesh = MeshData {
             vertices: vec![
@@ -1005,7 +1096,7 @@ mod tests {
 
     #[test]
     fn thumbnail_cache_version_reflects_renderer_contract() {
-        assert_eq!(CACHE_VERSION, "v9");
+        assert_eq!(CACHE_VERSION, "v11");
     }
 
     #[test]

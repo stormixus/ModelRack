@@ -14,8 +14,10 @@ const MAX_STL_PREVIEW_BYTES: u64 = 32 * 1024 * 1024;
 /// reports a modest triangle count. Many on-disk files are padded, sparse exports, or carry
 /// non-mesh payload while the facet section stays small enough to load safely.
 const MAX_STL_TRIANGLES_PARSE_OVER_PREVIEW_BYTES_CAP: usize = 180_000;
+const LARGE_STL_PREVIEW_FACE_BUDGET: usize = 160_000;
 const MAX_STL_IO_FALLBACK_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_TEXT_PREVIEW_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_EMBEDDED_3MF_PREVIEW_PNG_BYTES: u64 = 10 * 1024 * 1024;
 #[cfg(not(test))]
 const MAX_3MF_MODEL_XML_BYTES: u64 = 8 * 1024 * 1024;
 #[cfg(test)]
@@ -316,6 +318,62 @@ pub(crate) fn parse_preview_plates(path: &Path) -> Result<Option<Vec<ThreeMfPlat
     parse_three_mf_plates(path)
 }
 
+pub(crate) fn embedded_three_mf_preview_png(path: &Path) -> Option<Vec<u8>> {
+    let metadata = std::fs::metadata(path).ok()?;
+    if metadata.len() > MAX_STL_PARSE_BYTES {
+        return None;
+    }
+
+    let data = std::fs::read(path).ok()?;
+    let mut archive = zip::ZipArchive::new(Cursor::new(data)).ok()?;
+    let mut best = None::<(u8, u64, Vec<u8>)>;
+
+    for index in 0..archive.len() {
+        let mut file = archive.by_index(index).ok()?;
+        let lower = file.name().to_ascii_lowercase();
+        if !lower.starts_with("metadata/") || !lower.ends_with(".png") {
+            continue;
+        }
+        if file.size() == 0 || file.size() > MAX_EMBEDDED_3MF_PREVIEW_PNG_BYTES {
+            continue;
+        }
+
+        let score = embedded_three_mf_preview_score(&lower);
+        if score == 0 {
+            continue;
+        }
+        let should_read = best.as_ref().is_none_or(|(best_score, best_size, _)| {
+            score > *best_score || (score == *best_score && file.size() > *best_size)
+        });
+        if !should_read {
+            continue;
+        }
+
+        let mut png = Vec::with_capacity(file.size() as usize);
+        file.read_to_end(&mut png).ok()?;
+        if png.starts_with(b"\x89PNG\r\n\x1a\n") {
+            best = Some((score, file.size(), png));
+        }
+    }
+
+    best.map(|(_, _, png)| png)
+}
+
+fn embedded_three_mf_preview_score(name: &str) -> u8 {
+    if name.contains("_small") || name.contains("no_light") {
+        return 1;
+    }
+    if name.contains("/plate_") {
+        4
+    } else if name.contains("/top_") {
+        3
+    } else if name.contains("/pick_") {
+        2
+    } else {
+        1
+    }
+}
+
 fn parse_three_mf_file(path: &Path) -> Result<(StlFileInfo, Option<MeshData>)> {
     let metadata = std::fs::metadata(path)
         .with_context(|| format!("Failed to read metadata for {}", path.display()))?;
@@ -390,6 +448,7 @@ fn parse_three_mf_plates_from_archive<R: Read + Seek>(
 ) -> Result<Vec<ThreeMfPlate>> {
     let mut model_texts = HashMap::<String, String>::new();
     let mut model_settings = None::<String>;
+    let mut skipped_model_geometry = false;
 
     for index in 0..archive.len() {
         let mut file = archive.by_index(index)?;
@@ -399,6 +458,9 @@ fn parse_three_mf_plates_from_archive<R: Read + Seek>(
             continue;
         }
         if file.size() > MAX_3MF_MODEL_XML_BYTES {
+            if lower.ends_with(".model") {
+                skipped_model_geometry = true;
+            }
             eprintln!(
                 "Skipping oversized 3MF XML preview data: {} ({} bytes)",
                 name,
@@ -423,6 +485,10 @@ fn parse_three_mf_plates_from_archive<R: Read + Seek>(
                 return Ok(plates);
             }
         }
+    }
+
+    if skipped_model_geometry {
+        return Ok(Vec::new());
     }
 
     Ok(parse_fallback_model_file_plates(&model_texts))
@@ -928,7 +994,7 @@ fn parse_bambu_plate_meshes(
             for object_id in plate.object_ids {
                 let item_transform = build_transforms.get(&object_id).copied().flatten();
                 let Some(components) = component_refs.get(&object_id) else {
-                    continue;
+                    return None;
                 };
                 for component in components {
                     component_count += 1;
@@ -945,7 +1011,7 @@ fn parse_bambu_plate_meshes(
                         parsed
                     };
                     let Some(mesh) = mesh else {
-                        continue;
+                        return None;
                     };
                     let mesh = transformed_mesh(&mesh, component.transform);
                     let mesh = transformed_mesh(&mesh, item_transform);
@@ -1308,6 +1374,13 @@ fn parse_stl_file(path: &Path) -> Result<(StlFileInfo, Option<MeshData>)> {
             parse_binary_stl_fast(&data)
                 .filter(|(_, _, _, mesh)| mesh.is_some())
                 .unwrap_or((StlType::LargeStl, tri_header, None, None))
+        } else if tri_header.is_some() && detect_stl_type(&data) != StlType::Ascii {
+            parse_binary_stl_sampled(&data, LARGE_STL_PREVIEW_FACE_BUDGET).unwrap_or((
+                StlType::LargeStl,
+                tri_header,
+                None,
+                None,
+            ))
         } else {
             (StlType::LargeStl, tri_header, None, None)
         }
@@ -1970,6 +2043,70 @@ fn parse_binary_stl_fast(data: &[u8]) -> Option<ParsedStl> {
     ))
 }
 
+fn parse_binary_stl_sampled(data: &[u8], face_budget: usize) -> Option<ParsedStl> {
+    if data.len() < 84 || face_budget == 0 {
+        return None;
+    }
+
+    let triangle_count = u32::from_le_bytes(data[80..84].try_into().ok()?) as usize;
+    let expected_len = 84usize.checked_add(triangle_count.checked_mul(50)?)?;
+    if expected_len > data.len() || triangle_count == 0 {
+        return None;
+    }
+
+    let stride = triangle_count.div_ceil(face_budget).max(1);
+    let sample_capacity = triangle_count.div_ceil(stride);
+    let mut vertices = Vec::with_capacity(sample_capacity.saturating_mul(3));
+    let mut faces = Vec::with_capacity(sample_capacity);
+    let mut min = [f32::MAX; 3];
+    let mut max = [f32::MIN; 3];
+
+    for triangle_index in 0..triangle_count {
+        let offset = 84usize.checked_add(triangle_index.checked_mul(50)?)?;
+        let vertex_offset = offset.checked_add(12)?;
+        let triangle = [
+            [
+                read_f32_le(data, vertex_offset)?,
+                read_f32_le(data, vertex_offset + 4)?,
+                read_f32_le(data, vertex_offset + 8)?,
+            ],
+            [
+                read_f32_le(data, vertex_offset + 12)?,
+                read_f32_le(data, vertex_offset + 16)?,
+                read_f32_le(data, vertex_offset + 20)?,
+            ],
+            [
+                read_f32_le(data, vertex_offset + 24)?,
+                read_f32_le(data, vertex_offset + 28)?,
+                read_f32_le(data, vertex_offset + 32)?,
+            ],
+        ];
+        if triangle.iter().flatten().any(|value| !value.is_finite()) {
+            return None;
+        }
+        for vertex in triangle {
+            for axis in 0..3 {
+                min[axis] = min[axis].min(vertex[axis]);
+                max[axis] = max[axis].max(vertex[axis]);
+            }
+        }
+
+        if triangle_index % stride == 0 && faces.len() < face_budget {
+            let base = u32::try_from(vertices.len()).ok()?;
+            vertices.extend_from_slice(&triangle);
+            faces.push([base, base + 1, base + 2]);
+        }
+    }
+
+    let mesh = MeshData { vertices, faces }.compacted()?;
+    Some((
+        StlType::LargeStl,
+        Some(triangle_count),
+        Some([max[0] - min[0], max[1] - min[1], max[2] - min[2]]),
+        Some(mesh),
+    ))
+}
+
 fn parse_ascii_stl(data: &[u8]) -> ParsedStl {
     if detect_stl_type(data) != StlType::Ascii {
         return (StlType::Unknown, None, None, None);
@@ -2340,6 +2477,84 @@ mod tests {
     }
 
     #[test]
+    fn bambu_3mf_with_skipped_component_does_not_emit_partial_preview_mesh() {
+        let dir = std::env::temp_dir().join(format!(
+            "modelrack-bambu-skipped-component-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("partial.3mf");
+        let file = std::fs::File::create(&path).unwrap();
+        let mut zip = zip::ZipWriter::new(file);
+
+        zip.start_file(
+            "3D/3dmodel.model",
+            zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored),
+        )
+        .unwrap();
+        std::io::Write::write_all(
+            &mut zip,
+            br#"<model><resources>
+                <object id="10" type="model"><components><component p:path="/3D/Objects/object_big.model" objectid="1"/></components></object>
+                <object id="20" type="model"><components><component p:path="/3D/Objects/object_small.model" objectid="1"/></components></object>
+                </resources><build><item objectid="10"/><item objectid="20"/></build></model>"#,
+        )
+        .unwrap();
+
+        zip.start_file(
+            "3D/Objects/object_big.model",
+            zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored),
+        )
+        .unwrap();
+        let oversized_xml = format!(
+            "<model><resources><object id=\"1\"><mesh>{}</mesh></object></resources></model>",
+            " ".repeat(MAX_3MF_MODEL_XML_BYTES as usize + 1)
+        );
+        std::io::Write::write_all(&mut zip, oversized_xml.as_bytes()).unwrap();
+
+        zip.start_file(
+            "3D/Objects/object_small.model",
+            zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored),
+        )
+        .unwrap();
+        std::io::Write::write_all(
+            &mut zip,
+            br#"<model><resources><object id="1"><mesh><vertices>
+                <vertex x="0" y="0" z="0"/><vertex x="1" y="0" z="0"/><vertex x="0" y="1" z="0"/>
+                </vertices><triangles><triangle v1="0" v2="1" v3="2"/></triangles></mesh></object></resources></model>"#,
+        )
+        .unwrap();
+
+        zip.start_file(
+            "Metadata/model_settings.config",
+            zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored),
+        )
+        .unwrap();
+        std::io::Write::write_all(
+            &mut zip,
+            br#"<config><plate><metadata key="plater_name" value="Plate 1"/>
+                <model_instance><metadata key="object_id" value="10"/></model_instance>
+                <model_instance><metadata key="object_id" value="20"/></model_instance>
+                </plate></config>"#,
+        )
+        .unwrap();
+        zip.finish().unwrap();
+
+        let result = scan_folder(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert_eq!(result.entries.len(), 1);
+        assert!(matches!(result.entries[0].stl_type, StlType::ThreeMf));
+        assert_eq!(result.entries[0].triangle_count, None);
+        assert!(result.meshes.is_empty());
+    }
+
+    #[test]
     fn three_mf_build_items_apply_object_transforms() {
         let xml = r#"<model><resources><object id="7"><mesh><vertices>
             <vertex x="0" y="0" z="0"/><vertex x="1" y="0" z="0"/><vertex x="0" y="1" z="0"/>
@@ -2477,6 +2692,51 @@ mod tests {
         );
         assert_eq!(result.entries[0].triangle_count, Some(1));
         assert_ne!(result.entries[0].stl_type, StlType::LargeStl);
+    }
+
+    #[test]
+    fn oversized_binary_stl_samples_preview_mesh_over_triangle_cap() {
+        let dir = std::env::temp_dir().join(format!(
+            "modelrack-sampled-large-stl-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("dense-but-padded.stl");
+
+        let triangle_count = MAX_STL_TRIANGLES_PARSE_OVER_PREVIEW_BYTES_CAP + 1;
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&[0u8; 80]);
+        buf.extend_from_slice(&(triangle_count as u32).to_le_bytes());
+        for idx in 0..triangle_count {
+            buf.extend_from_slice(&[0u8; 12]);
+            let x = idx as f32 * 0.001;
+            for vertex in [[x, 0.0, 0.0], [x + 0.5, 0.0, 0.0], [x, 1.0, 0.0]] {
+                buf.extend_from_slice(&vertex[0].to_le_bytes());
+                buf.extend_from_slice(&vertex[1].to_le_bytes());
+                buf.extend_from_slice(&vertex[2].to_le_bytes());
+            }
+            buf.extend_from_slice(&0u16.to_le_bytes());
+        }
+        buf.resize((MAX_STL_PREVIEW_BYTES + 4096) as usize, 0);
+        std::fs::write(&path, &buf).unwrap();
+
+        let result = scan_folder(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert_eq!(result.entries.len(), 1);
+        assert_eq!(result.entries[0].triangle_count, Some(triangle_count));
+        assert!(
+            result.entries[0].dimensions.is_some(),
+            "large sampled STL should still report dimensions"
+        );
+        assert_eq!(
+            result.meshes.len(),
+            1,
+            "sample mesh should render a preview"
+        );
+        assert!(result.meshes[0].faces.len() < triangle_count);
+        assert!(result.meshes[0].faces.len() > 1_000);
     }
 
     #[test]
