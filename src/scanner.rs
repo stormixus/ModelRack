@@ -8,7 +8,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 use walkdir::WalkDir;
 
-const MAX_STL_PARSE_BYTES: u64 = 100 * 1024 * 1024;
+const MAX_STL_PARSE_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_STL_PREVIEW_BYTES: u64 = 32 * 1024 * 1024;
 /// When a binary STL exceeds [`MAX_STL_PREVIEW_BYTES`], we still parse geometry if the header
 /// reports a modest triangle count. Many on-disk files are padded, sparse exports, or carry
