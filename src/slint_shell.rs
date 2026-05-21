@@ -6456,21 +6456,60 @@ fn thumbnail_revision(path: Option<&Path>) -> String {
 }
 
 fn thumbnail_revision_for_path(path: &Path) -> Option<String> {
-    let metadata = fs::metadata(path).ok()?;
-    let modified = metadata
-        .modified()
-        .ok()
-        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok());
-    let (secs, nanos) = modified
-        .map(|duration| (duration.as_secs(), duration.subsec_nanos()))
-        .unwrap_or((0, 0));
-    Some(format!(
-        "{}:{}:{}:{}",
-        path.display(),
-        metadata.len(),
-        secs,
-        nanos
-    ))
+    #[cfg(not(test))]
+    {
+        thread_local! {
+            static REVISION_CACHE: RefCell<HashMap<PathBuf, (String, Instant)>> = RefCell::new(HashMap::new());
+        }
+
+        let now = Instant::now();
+        if let Some((revision, cached_time)) = REVISION_CACHE.with(|cache| cache.borrow().get(path).cloned()) {
+            if now.duration_since(cached_time) < Duration::from_secs(2) {
+                return Some(revision);
+            }
+        }
+
+        let metadata = fs::metadata(path).ok()?;
+        let modified = metadata
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok());
+        let (secs, nanos) = modified
+            .map(|duration| (duration.as_secs(), duration.subsec_nanos()))
+            .unwrap_or((0, 0));
+        let revision = format!(
+            "{}:{}:{}:{}",
+            path.display(),
+            metadata.len(),
+            secs,
+            nanos
+        );
+
+        REVISION_CACHE.with(|cache| {
+            cache.borrow_mut().insert(path.to_path_buf(), (revision.clone(), now));
+        });
+
+        Some(revision)
+    }
+
+    #[cfg(test)]
+    {
+        let metadata = fs::metadata(path).ok()?;
+        let modified = metadata
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok());
+        let (secs, nanos) = modified
+            .map(|duration| (duration.as_secs(), duration.subsec_nanos()))
+            .unwrap_or((0, 0));
+        Some(format!(
+            "{}:{}:{}:{}",
+            path.display(),
+            metadata.len(),
+            secs,
+            nanos
+        ))
+    }
 }
 
 fn load_ui_image(path: Option<&Path>) -> (slint::Image, bool) {
