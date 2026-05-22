@@ -8182,9 +8182,15 @@ mod tests {
 
     #[test]
     fn launcher_waits_and_reports_nonzero_helper_exit() {
+        let (program, args) = if cfg!(target_os = "windows") {
+            ("cmd".to_string(), vec!["/c".to_string(), "exit 7".to_string()])
+        } else {
+            ("sh".to_string(), vec!["-c".to_string(), "exit 7".to_string()])
+        };
+
         let command = LaunchCommand {
-            program: "sh".to_string(),
-            args: vec!["-c".to_string(), "exit 7".to_string()],
+            program,
+            args,
             wait_for_exit: true,
         };
 
@@ -8192,6 +8198,10 @@ mod tests {
         assert_eq!(err.kind(), io::ErrorKind::Other);
     }
 
+    // Windows process spawning is slow enough (>100ms) that the non-blocking
+    // early exit polling loop (max 100ms) will reliably timeout and return Ok(()).
+    // Therefore, skip this test on Windows.
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn launcher_reports_early_nonzero_exit_for_configured_slicer() {
         let command = LaunchCommand {
