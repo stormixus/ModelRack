@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <clipPath id="squircle">
+      <path d="M248 72H776C873.202 72 952 150.798 952 248V776C952 873.202 873.202 952 776 952H248C150.798 952 72 873.202 72 776V248C72 150.798 150.798 72 248 72Z"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#squircle)">
+    <rect width="1024" height="1024" fill="#FFFFFF"/>
+    <path d="M248 72H776C873.202 72 952 150.798 952 248V776C952 873.202 873.202 952 776 952H248C150.798 952 72 873.202 72 776V248C72 150.798 150.798 72 248 72Z" fill="none" stroke="#E5E5EA" stroke-width="4"/>
+    
+    <!-- Shelf line -->
+    <line x1="220" y1="690" x2="804" y2="690" stroke="#2C2C2E" stroke-width="26" stroke-linecap="round"/>
+    
+    <!-- Cube outer hexagon -->
+    <polygon points="512,230 711.1858428704209,345.0 711.1858428704209,575.0 512,690 312.8141571295791,575.0 312.8141571295791,345.0" fill="none" stroke="#2C2C2E" stroke-width="26" stroke-linejoin="round" stroke-linecap="round"/>
+    
+    <!-- Cube inner Y and inverted-Y wireframe lines -->
+    <line x1="512" y1="460" x2="512" y2="690" stroke="#2C2C2E" stroke-width="26" stroke-linecap="round"/>
+    <line x1="512" y1="460" x2="711.1858428704209" y2="345.0" stroke="#2C2C2E" stroke-width="26" stroke-linecap="round"/>
+    <line x1="512" y1="460" x2="312.8141571295791" y2="345.0" stroke="#2C2C2E" stroke-width="26" stroke-linecap="round"/>
+    <line x1="512" y1="460" x2="512" y2="230" stroke="#2C2C2E" stroke-width="26" stroke-linecap="round"/>
+    <line x1="512" y1="460" x2="711.1858428704209" y2="575.0" stroke="#2C2C2E" stroke-width="26" stroke-linecap="round"/>
+    <line x1="512" y1="460" x2="312.8141571295791" y2="575.0" stroke="#2C2C2E" stroke-width="26" stroke-linecap="round"/>
+  </g>
+</svg>

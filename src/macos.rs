@@ -10,14 +10,39 @@ mod imp {
     use objc::runtime::{Class, Object, Sel};
     use objc::{class, msg_send, sel, sel_impl};
 
+    static ABOUT_REQUESTED: AtomicBool = AtomicBool::new(false);
     static SETTINGS_REQUESTED: AtomicBool = AtomicBool::new(false);
     static OPEN_LIBRARY_REQUESTED: AtomicBool = AtomicBool::new(false);
     static UNDO_REQUESTED: AtomicBool = AtomicBool::new(false);
     static MENU_INSTALLED: AtomicBool = AtomicBool::new(false);
     static MENU_TARGET: OnceLock<usize> = OnceLock::new();
 
+    use std::sync::Mutex;
+
+    static CURRENT_THEME: OnceLock<Mutex<String>> = OnceLock::new();
+
+    fn get_current_theme() -> String {
+        CURRENT_THEME
+            .get_or_init(|| Mutex::new("dark".to_string()))
+            .lock()
+            .unwrap()
+            .clone()
+    }
+
+    pub fn set_app_icon_theme(theme: &str) {
+        {
+            let mut lock = CURRENT_THEME
+                .get_or_init(|| Mutex::new("dark".to_string()))
+                .lock()
+                .unwrap();
+            *lock = theme.to_string();
+        }
+        install_app_icon();
+    }
+
     pub fn install_app_icon() {
-        let Some(path) = app_icon_path() else {
+        let theme = get_current_theme();
+        let Some(path) = app_icon_path(&theme) else {
             return;
         };
         let path = path.to_string_lossy();
@@ -57,8 +82,8 @@ mod imp {
                 app_menu,
                 "About ModelRack",
                 "",
-                sel!(orderFrontStandardAboutPanel:),
-                std::ptr::null_mut(),
+                sel!(openModelRackAbout:),
+                target,
             );
             add_separator(app_menu);
 
@@ -208,12 +233,13 @@ mod imp {
         }
     }
 
-    fn app_icon_path() -> Option<PathBuf> {
+    fn app_icon_path(theme: &str) -> Option<PathBuf> {
+        let filename = if theme == "light" { "AppIcon_Light.icns" } else { "AppIcon.icns" };
         let bundled = std::env::current_exe()
             .ok()
             .and_then(|exe| {
                 let contents = exe.parent()?.parent()?;
-                Some(contents.join("Resources").join("AppIcon.icns"))
+                Some(contents.join("Resources").join(filename))
             })
             .filter(|path| path.exists());
         if bundled.is_some() {
@@ -222,8 +248,12 @@ mod imp {
 
         let source = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("assets")
-            .join("AppIcon.icns");
+            .join(filename);
         source.exists().then_some(source)
+    }
+
+    pub fn take_about_request() -> bool {
+        ABOUT_REQUESTED.swap(false, Ordering::AcqRel)
     }
 
     pub fn take_settings_request() -> bool {
@@ -432,6 +462,10 @@ mod imp {
         let mut decl = ClassDecl::new("ModelRackMenuTarget", superclass).unwrap();
         unsafe {
             decl.add_method(
+                sel!(openModelRackAbout:),
+                open_modelrack_about as extern "C" fn(&Object, Sel, *mut Object),
+            );
+            decl.add_method(
                 sel!(openModelRackSettings:),
                 open_modelrack_settings as extern "C" fn(&Object, Sel, *mut Object),
             );
@@ -462,6 +496,10 @@ mod imp {
             );
         }
         decl.register()
+    }
+
+    extern "C" fn open_modelrack_about(_this: &Object, _cmd: Sel, _sender: *mut Object) {
+        ABOUT_REQUESTED.store(true, Ordering::Release);
     }
 
     extern "C" fn open_modelrack_settings(_this: &Object, _cmd: Sel, _sender: *mut Object) {
@@ -522,8 +560,9 @@ mod imp {
 #[cfg(target_os = "macos")]
 pub use imp::{
     configure_native_window_chrome, fullscreen_window, hide_window, install_app_icon,
-    install_app_menu, minimize_window, show_windows, take_open_library_request,
-    take_settings_request, take_undo_request,
+    install_app_menu, minimize_window, show_windows, take_about_request,
+    take_open_library_request, take_settings_request, take_undo_request,
+    set_app_icon_theme,
 };
 
 #[cfg(not(target_os = "macos"))]
@@ -531,6 +570,14 @@ pub fn install_app_menu() {}
 
 #[cfg(not(target_os = "macos"))]
 pub fn install_app_icon() {}
+
+#[cfg(not(target_os = "macos"))]
+pub fn set_app_icon_theme(_theme: &str) {}
+
+#[cfg(not(target_os = "macos"))]
+pub fn take_about_request() -> bool {
+    false
+}
 
 #[cfg(not(target_os = "macos"))]
 pub fn take_settings_request() -> bool {

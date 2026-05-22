@@ -9,18 +9,27 @@ const CACHE_VERSION: &str = "v11";
 const THUMB_SIZE: u32 = 224;
 const MAX_SHADED_RENDER_FACES: usize = 160_000;
 
-pub fn ensure_thumbnail(entry: &StlFileInfo, mesh: Option<&MeshData>) -> io::Result<PathBuf> {
+pub fn ensure_thumbnail(
+    entry: &StlFileInfo,
+    mesh: Option<&MeshData>,
+    use_embedded_3mf: bool,
+) -> io::Result<PathBuf> {
     let root = platform_cache_root().join("thumbnails").join(CACHE_VERSION);
-    ensure_thumbnail_in(entry, mesh, &root)
+    ensure_thumbnail_in(entry, mesh, use_embedded_3mf, &root)
 }
 
 /// Returns the on-disk thumbnail path when it already exists, without rendering.
 /// Used to keep large folder scans responsive; callers can still invoke
 /// [`ensure_thumbnail`] when opening a model or warming the cache.
-pub fn thumbnail_path_if_cached(entry: &StlFileInfo) -> Option<PathBuf> {
+pub fn thumbnail_path_if_cached(entry: &StlFileInfo, use_embedded_3mf: bool) -> Option<PathBuf> {
     let root = platform_cache_root().join("thumbnails").join(CACHE_VERSION);
-    let path = thumbnail_path_in(entry, &root);
+    let path = thumbnail_path_in(entry, use_embedded_3mf, &root);
     path.is_file().then_some(path)
+}
+
+pub fn thumbnail_path_for_flags(entry: &StlFileInfo, use_embedded_3mf: bool) -> PathBuf {
+    let root = platform_cache_root().join("thumbnails").join(CACHE_VERSION);
+    thumbnail_path_in(entry, use_embedded_3mf, &root)
 }
 
 /// Invalidate the on-disk thumbnail cache for the current renderer version.
@@ -46,9 +55,10 @@ fn clear_in(root: &Path) -> io::Result<()> {
 fn ensure_thumbnail_in(
     entry: &StlFileInfo,
     mesh: Option<&MeshData>,
+    use_embedded_3mf: bool,
     root: &Path,
 ) -> io::Result<PathBuf> {
-    let path = thumbnail_path_in(entry, root);
+    let path = thumbnail_path_in(entry, use_embedded_3mf, root);
     if path.is_file() {
         return Ok(path);
     }
@@ -57,7 +67,7 @@ fn ensure_thumbnail_in(
         fs::create_dir_all(parent)?;
     }
 
-    if matches!(entry.stl_type, crate::scanner::StlType::ThreeMf) {
+    if use_embedded_3mf && matches!(entry.stl_type, crate::scanner::StlType::ThreeMf) {
         if let Some(png) = crate::scanner::embedded_three_mf_preview_png(&entry.path) {
             let tmp_path = path.with_extension("png.tmp");
             fs::write(&tmp_path, png)?;
@@ -74,8 +84,13 @@ fn ensure_thumbnail_in(
     Ok(path)
 }
 
-fn thumbnail_path_in(entry: &StlFileInfo, root: &Path) -> PathBuf {
-    root.join(format!("{}-{}.png", hash_hex(&entry.hash), CACHE_VERSION))
+fn thumbnail_path_in(entry: &StlFileInfo, use_embedded_3mf: bool, root: &Path) -> PathBuf {
+    let suffix = if matches!(entry.stl_type, crate::scanner::StlType::ThreeMf) && !use_embedded_3mf {
+        "-no_embed"
+    } else {
+        ""
+    };
+    root.join(format!("{}-{}{}.png", hash_hex(&entry.hash), CACHE_VERSION, suffix))
 }
 
 fn platform_cache_root() -> PathBuf {
@@ -938,8 +953,8 @@ mod tests {
     #[test]
     fn thumbnail_paths_are_hash_addressed() {
         let root = temp_dir("path");
-        let first = thumbnail_path_in(&entry(1), &root);
-        let second = thumbnail_path_in(&entry(2), &root);
+        let first = thumbnail_path_in(&entry(1), true, &root);
+        let second = thumbnail_path_in(&entry(2), true, &root);
 
         assert_ne!(first, second);
         assert!(first.ends_with(format!("{}-{}.png", hash_hex(&[1; 32]), CACHE_VERSION)));
@@ -950,14 +965,14 @@ mod tests {
         let root = temp_dir("reuse");
         let entry = entry(9);
 
-        let first = ensure_thumbnail_in(&entry, None, &root).unwrap();
+        let first = ensure_thumbnail_in(&entry, None, true, &root).unwrap();
         let first_meta = fs::metadata(&first).unwrap().modified().unwrap();
         let data = fs::read(&first).unwrap();
         assert!(data.starts_with(b"\x89PNG\r\n\x1a\n"));
         assert!(data.windows(4).any(|chunk| chunk == b"IHDR"));
         assert!(data.windows(4).any(|chunk| chunk == b"IDAT"));
 
-        let second = ensure_thumbnail_in(&entry, None, &root).unwrap();
+        let second = ensure_thumbnail_in(&entry, None, true, &root).unwrap();
         let second_meta = fs::metadata(&second).unwrap().modified().unwrap();
         assert_eq!(first, second);
         assert_eq!(first_meta, second_meta);
@@ -997,10 +1012,16 @@ mod tests {
             meta: Some(SidecarMeta::default()),
         };
 
-        let path = ensure_thumbnail_in(&entry, None, &root).unwrap();
+        let path = ensure_thumbnail_in(&entry, None, true, &root).unwrap();
         let bytes = fs::read(path).unwrap();
 
         assert_eq!(bytes, embedded_png);
+
+        // Verify that false use_embedded_3mf falls back to rendering (no embed png) and writes -no_embed suffix
+        let no_embed_path = ensure_thumbnail_in(&entry, None, false, &root).unwrap();
+        assert!(no_embed_path.to_string_lossy().contains("-no_embed.png"));
+        let no_embed_bytes = fs::read(&no_embed_path).unwrap();
+        assert_ne!(no_embed_bytes, embedded_png); // Should be the rendered mesh instead of red 2x1 PNG
 
         let _ = fs::remove_dir_all(root);
         let _ = fs::remove_dir_all(input_dir);
@@ -1104,7 +1125,7 @@ mod tests {
         let root = temp_dir("clear");
         let entry = entry(31);
 
-        let path = ensure_thumbnail_in(&entry, None, &root).unwrap();
+        let path = ensure_thumbnail_in(&entry, None, true, &root).unwrap();
         assert!(path.exists());
 
         clear_in(&root).expect("first clear succeeds");
@@ -1114,7 +1135,7 @@ mod tests {
         clear_in(&root).expect("clearing a missing cache is OK");
 
         // Subsequent regeneration works as before.
-        let regenerated = ensure_thumbnail_in(&entry, None, &root).unwrap();
+        let regenerated = ensure_thumbnail_in(&entry, None, true, &root).unwrap();
         assert_eq!(path, regenerated);
         assert!(regenerated.exists());
 

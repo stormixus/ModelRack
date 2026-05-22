@@ -96,6 +96,7 @@ pub enum ScanEvent {
     },
     Entry {
         info: Box<StlFileInfo>,
+        #[allow(dead_code)]
         mesh: Option<MeshData>,
     },
     Done {
@@ -255,6 +256,33 @@ pub fn scan_folder_stream(path: &Path, tx: crossbeam_channel::Sender<ScanEvent>)
                 }
                 Err(err) => {
                     eprintln!("Parse error for {}: {}", file_path.display(), err);
+                    
+                    let fallback_info = metadata_only_file(&file_path, StlType::Unknown).unwrap_or_else(|_| {
+                        let filename = file_path
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("unknown")
+                            .to_string();
+                        StlFileInfo {
+                            path: file_path.clone(),
+                            filename,
+                            size: 0,
+                            hash: [0; 32],
+                            stl_type: StlType::Unknown,
+                            triangle_count: None,
+                            dimensions: None,
+                            three_mf_plate_count: None,
+                            modified: None,
+                            thumbnail_path: None,
+                            meta: None,
+                        }
+                    });
+
+                    let _ = tx.send(ScanEvent::Entry {
+                        info: Box::new(fallback_info),
+                        mesh: None,
+                    });
+
                     parse_errors.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     let _ = tx.send(ScanEvent::Progress {
                         scanned: current_scanned,
@@ -1349,7 +1377,7 @@ pub(crate) fn mesh_volume_cm3(mesh: &MeshData) -> Option<f32> {
     (volume_cm3.is_finite() && volume_cm3 > 0.0001).then_some(volume_cm3)
 }
 
-fn parse_stl_file(path: &Path) -> Result<(StlFileInfo, Option<MeshData>)> {
+pub(crate) fn parse_stl_file(path: &Path) -> Result<(StlFileInfo, Option<MeshData>)> {
     let metadata = std::fs::metadata(path)
         .with_context(|| format!("Failed to read metadata for {}", path.display()))?;
 
@@ -2998,5 +3026,60 @@ mod tests {
 
         assert_eq!(result.entries.len(), 1);
         assert_eq!(result.skipped, 0);
+    }
+
+    #[test]
+    fn damaged_file_scan_does_not_drop_and_emits_unknown() {
+        let dir = std::env::temp_dir().join(format!(
+            "modelrack-damaged-scan-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir(&dir).unwrap();
+
+        let path = dir.join("damaged.stl");
+        std::fs::write(&path, b"corrupted non-stl header and data").unwrap();
+
+        let result = scan_folder(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert_eq!(result.entries.len(), 1);
+        assert_eq!(result.entries[0].filename, "damaged.stl");
+        assert!(matches!(result.entries[0].stl_type, StlType::Unknown));
+        assert_eq!(result.entries[0].size, 33);
+        assert!(result.meshes.is_empty());
+        assert_eq!(result.skipped, 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unreadable_file_scan_fallback_to_metadata_only() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!(
+            "modelrack-unreadable-scan-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir(&dir).unwrap();
+
+        let path = dir.join("unreadable.stl");
+        std::fs::write(&path, b"some data").unwrap();
+
+        let mut perms = std::fs::metadata(&path).unwrap().permissions();
+        perms.set_mode(0o000);
+        std::fs::set_permissions(&path, perms).unwrap();
+
+        let result = scan_folder(&dir);
+
+        let mut perms_restore = std::fs::metadata(&path).unwrap().permissions();
+        perms_restore.set_mode(0o644);
+        let _ = std::fs::set_permissions(&path, perms_restore);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert_eq!(result.entries.len(), 1);
+        assert_eq!(result.entries[0].filename, "unreadable.stl");
+        assert!(matches!(result.entries[0].stl_type, StlType::Unknown));
+        assert_eq!(result.skipped, 1);
     }
 }

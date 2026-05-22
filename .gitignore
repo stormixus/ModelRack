@@ -14,3 +14,8 @@
 # Keep the repository root clean; README is the public entry point.
 /*.md
 !/README.md
+
+# Local logs and config directories
+modelrack.nohup.log
+.antigravitycli/
+

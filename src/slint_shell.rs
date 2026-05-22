@@ -33,12 +33,7 @@ const LIBRARY_WATCH_DEBOUNCE: Duration = Duration::from_millis(750);
 const LIBRARY_WATCH_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const SCAN_ENTRY_BATCH_SIZE: usize = 8;
 const SCAN_ENTRY_BATCH_INTERVAL: Duration = Duration::from_millis(120);
-/// After this many models are queued during a single folder scan, new models
-/// skip inline PNG generation and rely on disk cache hits only until the count
-/// drops (never during the same scan) or the user opens a file (detail path
-/// still calls `ensure_thumbnail`). Keeps huge libraries from rendering hundreds
-/// of meshes on the scan thread.
-const SCAN_INLINE_THUMBNAIL_MAX_LIBRARY_ENTRIES: usize = 100_000;
+
 const PREVIEW_ORBIT_FRAME_INTERVAL: Duration = Duration::from_millis(16);
 const PREVIEW_ORBIT_SETTLE_DELAY: Duration = Duration::from_millis(120);
 
@@ -50,6 +45,10 @@ pub fn run() -> Result<(), slint::PlatformError> {
 
     let ui = ModelRackWindow::new()?;
     let state = Rc::new(RefCell::new(ShellState::load()));
+
+    WEAK_UI.with(|w| *w.borrow_mut() = Some(ui.as_weak()));
+    SHELL_STATE.with(|s| *s.borrow_mut() = Some(state.clone()));
+
     let watcher_runtime = Rc::new(RefCell::new(LibraryWatcherRuntime::new()));
     let scan_runtime = Rc::new(RefCell::new(LibraryScanRuntime::new()));
     let snapshot = state.borrow_mut().snapshot_idle();
@@ -72,6 +71,39 @@ pub fn run() -> Result<(), slint::PlatformError> {
             "Restoring last library",
         );
     }
+
+    let x_state = state.clone();
+    ui.on_calculate_masonry_x(move |slot_idx, cols, card_w, gap| {
+        let mut state = x_state.borrow_mut();
+        state.update_masonry_cache(cols as usize, card_w, gap);
+        if let Some(ref cache) = state.masonry_cache {
+            cache.xs.get(slot_idx as usize).copied().unwrap_or(0.0)
+        } else {
+            0.0
+        }
+    });
+
+    let y_state = state.clone();
+    ui.on_calculate_masonry_y(move |slot_idx, cols, card_w, gap| {
+        let mut state = y_state.borrow_mut();
+        state.update_masonry_cache(cols as usize, card_w, gap);
+        if let Some(ref cache) = state.masonry_cache {
+            cache.ys.get(slot_idx as usize).copied().unwrap_or(0.0)
+        } else {
+            0.0
+        }
+    });
+
+    let h_state = state.clone();
+    ui.on_calculate_masonry_viewport_height(move |cols, card_w, gap| {
+        let mut state = h_state.borrow_mut();
+        state.update_masonry_cache(cols as usize, card_w, gap);
+        if let Some(ref cache) = state.masonry_cache {
+            cache.viewport_height
+        } else {
+            0.0
+        }
+    });
 
     let weak = ui.as_weak();
     let open_state = state.clone();
@@ -106,12 +138,26 @@ pub fn run() -> Result<(), slint::PlatformError> {
             let snapshot = {
                 let mut state = search_state.borrow_mut();
                 state.search_query = query.to_string();
+                state.displayed_card_limit = 100;
                 state.selected_index = None;
                 state.snapshot_done()
             };
             apply_snapshot(&ui, &snapshot);
             apply_detail_rc(&ui, &search_state);
             apply_settings(&ui, &search_state.borrow());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let load_more_state = state.clone();
+    ui.on_load_more_cards(move || {
+        if let Some(ui) = weak.upgrade() {
+            let snapshot = {
+                let mut state = load_more_state.borrow_mut();
+                state.displayed_card_limit = state.displayed_card_limit.saturating_add(100);
+                state.snapshot_done()
+            };
+            apply_snapshot(&ui, &snapshot);
         }
     });
 
@@ -183,6 +229,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 let mut state = sort_state.borrow_mut();
                 state.sort_ascending = !state.sort_ascending;
                 state.prefs.sort_ascending = state.sort_ascending;
+                state.displayed_card_limit = 100;
                 state.selected_index = None;
                 state.snapshot_done()
             };
@@ -376,6 +423,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
             let snapshot = {
                 let mut state = settings_state.borrow_mut();
                 state.choose_sort(sort.as_str());
+                state.displayed_card_limit = 100;
                 state.selected_index = None;
                 state.snapshot_done()
             };
@@ -423,6 +471,22 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 state.choose_thumbnail_aa(aa.as_str());
                 ui.set_status_text("Thumbnail anti-aliasing preference updated".into());
             }
+            apply_settings(&ui, &settings_state.borrow());
+            save_prefs_status(&ui, &settings_state.borrow());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let settings_state = state.clone();
+    ui.on_toggle_settings_use_embedded_3mf_preview(move |on| {
+        if let Some(ui) = weak.upgrade() {
+            let snapshot = {
+                let mut state = settings_state.borrow_mut();
+                state.set_use_embedded_3mf_preview(on);
+                state.snapshot_done()
+            };
+            apply_snapshot(&ui, &snapshot);
+            apply_detail_rc(&ui, &settings_state);
             apply_settings(&ui, &settings_state.borrow());
             save_prefs_status(&ui, &settings_state.borrow());
         }
@@ -887,13 +951,35 @@ pub fn run() -> Result<(), slint::PlatformError> {
             let Some(ui) = weak.upgrade() else {
                 return;
             };
-            let Some((delta_x, delta_y)) = orbit_frame_pending.borrow_mut().take() else {
-                orbit_frame_timer_for_callback.stop();
-                return;
-            };
+            let pending_opt = orbit_frame_pending.borrow_mut().take();
             let mut state = orbit_state.borrow_mut();
-            state.orbit_preview(delta_x, delta_y);
-            apply_detail_with_quality(&ui, &mut state, DetailPreviewQuality::Interactive);
+            
+            let is_dragging = pending_opt.is_some();
+            if let Some((delta_x, delta_y)) = pending_opt {
+                state.orbit_preview(delta_x, delta_y);
+            }
+            
+            let diff_yaw = state.target_orbit_yaw - state.preview_orbit_yaw;
+            let diff_pitch = state.target_orbit_pitch - state.preview_orbit_pitch;
+            
+            let mut quality = DetailPreviewQuality::Interactive;
+            
+            if diff_yaw.abs() < 0.001 && diff_pitch.abs() < 0.001 {
+                state.preview_orbit_yaw = state.target_orbit_yaw;
+                state.preview_orbit_pitch = state.target_orbit_pitch;
+                if !is_dragging {
+                    orbit_frame_timer_for_callback.stop();
+                }
+            } else {
+                state.preview_orbit_yaw += diff_yaw * 0.20;
+                state.preview_orbit_pitch += diff_pitch * 0.20;
+                
+                if is_dragging {
+                    quality = DetailPreviewQuality::Dragging;
+                }
+            }
+            
+            apply_detail_with_quality(&ui, &mut state, quality);
         },
     );
 
@@ -905,7 +991,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
     let orbit_settle_timer_for_callback = orbit_settle_timer.clone();
     ui.on_preview_orbit(move |delta_x, delta_y| {
         orbit_pending.borrow_mut().push(delta_x, delta_y);
-        orbit_frame_timer_for_orbit.restart();
+        if !orbit_frame_timer_for_orbit.running() {
+            orbit_frame_timer_for_orbit.restart();
+        }
         let weak = weak.clone();
         let orbit_state = orbit_state.clone();
         let orbit_settle_pending = orbit_settle_pending.clone();
@@ -1388,6 +1476,16 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 return;
             };
 
+            if crate::macos::take_about_request() {
+                {
+                    let mut state = menu_state.borrow_mut();
+                    state.settings_open = true;
+                    state.settings_tab = "about".to_string();
+                }
+                apply_settings(&ui, &menu_state.borrow());
+                ui.set_status_text("About ModelRack opened from the macOS menu bar".into());
+            }
+
             if crate::macos::take_settings_request() {
                 {
                     let mut state = menu_state.borrow_mut();
@@ -1443,7 +1541,6 @@ fn configure_slint_backend() -> Result<(), slint::PlatformError> {
     use i_slint_backend_winit::winit::platform::macos::WindowAttributesExtMacOS;
 
     let backend = i_slint_backend_winit::Backend::builder()
-        .with_renderer_name("renderer-software")
         .with_default_menu_bar(false)
         .with_window_attributes_hook(|attributes| {
             attributes
@@ -1459,7 +1556,6 @@ fn configure_slint_backend() -> Result<(), slint::PlatformError> {
 #[cfg(not(target_os = "macos"))]
 fn configure_slint_backend() -> Result<(), slint::PlatformError> {
     let backend = i_slint_backend_winit::Backend::builder()
-        .with_renderer_name("renderer-software")
         .build()?;
     slint::platform::set_platform(Box::new(backend)).map_err(slint::PlatformError::SetPlatformError)
 }
@@ -2307,13 +2403,26 @@ fn apply_detail_with_quality(
             ui.set_selected_thumb_key(crate::view_model::thumbnail_key(&entry.filename).into());
             let yaw = state.preview_orbit_yaw;
             let pitch = state.preview_orbit_pitch;
+            let use_embedded_3mf = state.prefs.use_embedded_3mf_preview;
             let preview = state.selected_preview(&entry);
-            let (thumb_image, thumb_ready) = preview
-                .as_ref()
-                .map(|preview| {
-                    render_detail_preview_image(&entry, &preview.mesh, yaw, pitch, quality)
-                })
-                .unwrap_or_else(|| load_thumbnail_image(entry.thumbnail_path.as_deref()));
+
+            let show_embedded_now = matches!(entry.stl_type, scanner::StlType::ThreeMf)
+                && use_embedded_3mf
+                && yaw == 0.0
+                && pitch == 0.0;
+
+            let (thumb_image, thumb_ready) = if show_embedded_now {
+                load_thumbnail_image(entry.thumbnail_path.as_deref(), &entry.path, use_embedded_3mf)
+            } else {
+                preview
+                    .as_ref()
+                    .map(|preview| {
+                        render_detail_preview_image(&entry, &preview.mesh, yaw, pitch, quality)
+                    })
+                    .unwrap_or_else(|| {
+                        load_thumbnail_image(entry.thumbnail_path.as_deref(), &entry.path, use_embedded_3mf)
+                    })
+            };
             ui.set_selected_thumb_image(thumb_image);
             ui.set_selected_thumb_ready(thumb_ready);
             ui.set_detail_name(entry.filename.clone().into());
@@ -3360,6 +3469,7 @@ struct LibraryUndo {
 enum DetailPreviewQuality {
     High,
     Interactive,
+    Dragging,
 }
 
 #[derive(Default)]
@@ -3383,11 +3493,25 @@ impl OrbitAccumulator {
     }
 }
 
+#[derive(Clone, Debug)]
+struct MasonryLayoutCache {
+    cols: usize,
+    card_w: f32,
+    gap: f32,
+    cards_count: usize,
+    displayed_hash: u64,
+    xs: Vec<f32>,
+    ys: Vec<f32>,
+    viewport_height: f32,
+}
+
 struct ShellState {
     entries: Vec<scanner::StlFileInfo>,
     displayed: Vec<scanner::StlFileInfo>,
     current_folder: Option<PathBuf>,
     prefs: AppPrefs,
+    displayed_card_limit: usize,
+
     /// Scan roots waiting for the current scan to finish, used by startup restore,
     /// refresh-all, and folders added while a scan is already running.
     pending_scan_queue: VecDeque<PathBuf>,
@@ -3402,6 +3526,8 @@ struct ShellState {
     selected_index: Option<usize>,
     preview_orbit_yaw: f32,
     preview_orbit_pitch: f32,
+    target_orbit_yaw: f32,
+    target_orbit_pitch: f32,
     preview_mesh: Option<(PathBuf, scanner::MeshData)>,
     preview_plates: Option<(PathBuf, Vec<scanner::ThreeMfPlate>)>,
     preview_plate_index: Option<usize>,
@@ -3413,6 +3539,7 @@ struct ShellState {
     estimate_printer_key: String,
     sidecar_writes_enabled: bool,
     streaming_scan_generation: Option<u64>,
+    masonry_cache: Option<MasonryLayoutCache>,
 }
 
 struct PreviewSelection {
@@ -3470,6 +3597,85 @@ impl Default for ShellState {
 }
 
 impl ShellState {
+    fn update_masonry_cache(&mut self, cols: usize, card_w: f32, gap: f32) {
+        let cards_count = std::cmp::min(self.displayed.len(), self.displayed_card_limit);
+        
+        use std::hash::Hasher;
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        for entry in &self.displayed[..cards_count] {
+            use std::hash::Hash;
+            entry.path.hash(&mut hasher);
+        }
+        let displayed_hash = hasher.finish();
+
+        if let Some(ref cache) = self.masonry_cache {
+            if cache.cols == cols
+                && (cache.card_w - card_w).abs() < 0.01
+                && (cache.gap - gap).abs() < 0.01
+                && cache.cards_count == cards_count
+                && cache.displayed_hash == displayed_hash
+            {
+                return;
+            }
+        }
+        
+        let sliced_len = cards_count;
+        let slice = &self.displayed[..sliced_len];
+        
+        let cols = if cols == 0 { 1 } else { cols };
+        let mut col_heights = vec![0.0f32; cols];
+        let mut xs = vec![0.0f32; sliced_len];
+        let mut ys = vec![0.0f32; sliced_len];
+        
+        for slot_idx in 0..sliced_len {
+            let entry = &slice[slot_idx];
+            let aspect_ratio_type = {
+                use std::collections::hash_map::DefaultHasher;
+                use std::hash::{Hash, Hasher};
+                let mut hasher = DefaultHasher::new();
+                entry.path.hash(&mut hasher);
+                let hash_val = hasher.finish();
+                (hash_val % 4) as i32
+            };
+            
+            let aspect_ratio = match aspect_ratio_type {
+                0 => 0.85,
+                1 => 1.00,
+                2 => 1.15,
+                _ => 1.30,
+            };
+            
+            let card_h = card_w * aspect_ratio + 62.0;
+            
+            let mut min_col = 0;
+            let mut min_height = col_heights[0];
+            for col in 1..cols {
+                if col_heights[col] < min_height {
+                    min_col = col;
+                    min_height = col_heights[col];
+                }
+            }
+            
+            xs[slot_idx] = min_col as f32 * (card_w + gap);
+            ys[slot_idx] = min_height;
+            
+            col_heights[min_col] = min_height + card_h + gap;
+        }
+        
+        let viewport_height = col_heights.into_iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap_or(0.0);
+        
+        self.masonry_cache = Some(MasonryLayoutCache {
+            cols,
+            card_w,
+            gap,
+            cards_count,
+            displayed_hash,
+            xs,
+            ys,
+            viewport_height,
+        });
+    }
+
     fn load() -> Self {
         Self::load_from_path(&app_prefs_path())
     }
@@ -3511,6 +3717,8 @@ impl ShellState {
             selected_index: Some(0),
             preview_orbit_yaw: -0.62,
             preview_orbit_pitch: -0.48,
+            target_orbit_yaw: -0.62,
+            target_orbit_pitch: -0.48,
             preview_mesh: None,
             preview_plates: None,
             preview_plate_index: Some(0),
@@ -3520,6 +3728,8 @@ impl ShellState {
             estimate_printer_key,
             sidecar_writes_enabled: false,
             streaming_scan_generation: None,
+            displayed_card_limit: 100,
+            masonry_cache: None,
         }
     }
 }
@@ -3573,7 +3783,7 @@ fn demo_entry(root: &Path, index: usize, model: DemoModel) -> scanner::StlFileIn
         }),
         thumbnail_path: None,
     };
-    entry.thumbnail_path = crate::thumbnail_cache::ensure_thumbnail(&entry, None).ok();
+    entry.thumbnail_path = crate::thumbnail_cache::ensure_thumbnail(&entry, None, true).ok();
     entry
 }
 
@@ -4091,6 +4301,7 @@ impl ShellState {
             &status,
             &self.prefs,
             query,
+            self.displayed_card_limit,
         )
     }
 
@@ -4110,6 +4321,7 @@ impl ShellState {
             &ScanStatus::Idle,
             &self.prefs,
             query,
+            self.displayed_card_limit,
         )
     }
 
@@ -4120,6 +4332,7 @@ impl ShellState {
             .retain(|entry| !crate::view_model::entry_under_library_root(&entry.path, folder));
         self.retain_entries_under_library_roots();
         self.displayed.clear();
+        self.displayed_card_limit = 100;
         self.current_folder = Some(folder.to_path_buf());
         self.prefs.last_folder = Some(folder.to_path_buf());
         self.skipped = 0;
@@ -4144,6 +4357,7 @@ impl ShellState {
             },
             &self.prefs,
             query,
+            self.displayed_card_limit,
         )
     }
 
@@ -4265,6 +4479,7 @@ impl ShellState {
             &status,
             &self.prefs,
             query_for_snapshot,
+            self.displayed_card_limit,
         ))
     }
 
@@ -4587,6 +4802,10 @@ impl ShellState {
         .to_string();
     }
 
+    fn set_use_embedded_3mf_preview(&mut self, on: bool) {
+        self.prefs.use_embedded_3mf_preview = on;
+    }
+
     fn choose_card_label_mode(&mut self, mode: &str) {
         self.prefs.card_label_mode = view_model::CardLabelMode::from_str(mode)
             .as_str()
@@ -4636,6 +4855,8 @@ impl ShellState {
     fn reset_preview_orbit(&mut self) {
         self.preview_orbit_yaw = -0.62;
         self.preview_orbit_pitch = -0.48;
+        self.target_orbit_yaw = -0.62;
+        self.target_orbit_pitch = -0.48;
     }
 
     fn reset_preview_plate(&mut self) {
@@ -4806,8 +5027,8 @@ impl ShellState {
     }
 
     fn orbit_preview(&mut self, delta_x: f32, delta_y: f32) {
-        self.preview_orbit_yaw += delta_x * 0.012;
-        self.preview_orbit_pitch = (self.preview_orbit_pitch + delta_y * 0.010).clamp(-1.25, 1.25);
+        self.target_orbit_yaw += delta_x * 0.012;
+        self.target_orbit_pitch = (self.target_orbit_pitch + delta_y * 0.010).clamp(-1.25, 1.25);
     }
 
     fn selected_preview(&mut self, entry: &scanner::StlFileInfo) -> Option<PreviewSelection> {
@@ -4934,6 +5155,14 @@ impl ShellState {
 }
 
 fn apply_snapshot(ui: &ModelRackWindow, snapshot: &AppViewSnapshot) {
+    let start_all = std::time::Instant::now();
+    
+    ui.set_loading_more(false);
+    
+    CURRENT_METRICS.with(|metrics| {
+        *metrics.borrow_mut() = ProfileMetrics::default();
+    });
+
     ui.set_app_title(strings::APP_TITLE.into());
     ui.set_app_version(format!("v{}", env!("CARGO_PKG_VERSION")).into());
     ui.set_library_label(snapshot.library_label.clone().into());
@@ -4958,12 +5187,20 @@ fn apply_snapshot(ui: &ModelRackWindow, snapshot: &AppViewSnapshot) {
     ui.set_ready_count(snapshot.sidebar.ready as i32);
     ui.set_errors_count(snapshot.sidebar.errors as i32);
     ui.set_active_filter_key(snapshot.active_filter_key.clone().into());
+    ui.set_total_matching_cards(snapshot.browser.displayed as i32);
+    
+    let start_cards = std::time::Instant::now();
     let cards = snapshot
         .cards
         .iter()
-        .map(browser_card)
+        .map(|card| browser_card(card, snapshot.use_embedded_3mf_preview))
         .collect::<Vec<BrowserCard>>();
+    let cards_duration = start_cards.elapsed();
+    
+    let start_sync = std::time::Instant::now();
     sync_browser_cards(ui, cards);
+    let sync_duration = start_sync.elapsed();
+    
     let folders = snapshot
         .folders
         .iter()
@@ -4992,11 +5229,29 @@ fn apply_snapshot(ui: &ModelRackWindow, snapshot: &AppViewSnapshot) {
         })
         .collect::<Vec<SidebarItem>>();
     ui.set_tag_items(slint::ModelRc::new(slint::VecModel::from(tags)));
+
+    let duration_all = start_all.elapsed();
+
+    if is_profile_enabled() {
+        let metrics = CURRENT_METRICS.with(|m| *m.borrow());
+        eprintln!(
+            "[PROFILE] apply_snapshot: processed {} cards in {:.2?} (sync_browser_cards: {:.2?}, browser_card map: {:.2?}), \
+             cache: {} hits, {} misses (disk read: {:.2?})",
+            snapshot.cards.len(),
+            duration_all,
+            sync_duration,
+            cards_duration,
+            metrics.cache_hits,
+            metrics.cache_misses,
+            metrics.disk_load_duration
+        );
+    }
 }
 
 fn browser_count_label(displayed: usize, total: usize, language: &str) -> String {
     browser_count_label_for_language(displayed, total, language)
 }
+
 
 fn sync_browser_cards(ui: &ModelRackWindow, cards: Vec<BrowserCard>) {
     let current = ui.get_model_cards();
@@ -5067,6 +5322,7 @@ fn sync_browser_cards(ui: &ModelRackWindow, cards: Vec<BrowserCard>) {
 fn browser_card_needs_update(old: &BrowserCard, new: &BrowserCard) -> bool {
     old.stable_key != new.stable_key
         || old.slot_index != new.slot_index
+        || old.aspect_ratio_type != new.aspect_ratio_type
         || old.title != new.title
         || old.subtitle != new.subtitle
         || old.author != new.author
@@ -5145,6 +5401,7 @@ fn apply_filter_key(ui: &ModelRackWindow, state: &Rc<RefCell<ShellState>>, key: 
         if let Some(filter) = smart_filter_from_key(key) {
             state.filter = filter;
         }
+        state.displayed_card_limit = 100;
         state.selected_index = None;
         state.snapshot_done()
     };
@@ -5189,6 +5446,7 @@ fn apply_settings(ui: &ModelRackWindow, state: &ShellState) {
     ui.set_settings_thumbnail_style(state.prefs.thumbnail_style.clone().into());
     ui.set_settings_thumbnail_lighting(state.prefs.thumbnail_lighting.clone().into());
     ui.set_settings_thumbnail_aa(state.prefs.thumbnail_aa.clone().into());
+    ui.set_settings_use_embedded_3mf_preview(state.prefs.use_embedded_3mf_preview);
     ui.set_settings_card_label_key(
         CardLabelMode::from_str(&state.prefs.card_label_mode)
             .as_str()
@@ -5347,6 +5605,7 @@ fn apply_theme(ui: &ModelRackWindow, theme: &str, accent: &str) {
     globals.set_accent_dim(rgba(palette.r, palette.g, palette.b, 0x2e));
     globals.set_accent_line(rgba(palette.r, palette.g, palette.b, 0x59));
     globals.set_accent_dark(rgb(palette.dark_r, palette.dark_g, palette.dark_b));
+    crate::macos::set_app_icon_theme(theme);
 }
 
 fn rgb(r: u8, g: u8, b: u8) -> Color {
@@ -6343,15 +6602,9 @@ fn scan_folder_entries(
                     current,
                 }));
             }
-            scanner::ScanEvent::Entry { mut info, mesh } => {
+            scanner::ScanEvent::Entry { mut info, mesh: _ } => {
                 let filename_for_status = info.filename.clone();
-                info.thumbnail_path = crate::thumbnail_cache::thumbnail_path_if_cached(&info);
-                if info.thumbnail_path.is_none()
-                    && entries.len() < SCAN_INLINE_THUMBNAIL_MAX_LIBRARY_ENTRIES
-                {
-                    info.thumbnail_path =
-                        crate::thumbnail_cache::ensure_thumbnail(&info, mesh.as_ref()).ok();
-                }
+                info.thumbnail_path = crate::thumbnail_cache::thumbnail_path_if_cached(&info, true);
                 entries.push((*info).clone());
                 batch.push(*info);
                 if batch.len() >= SCAN_ENTRY_BATCH_SIZE
@@ -6426,8 +6679,12 @@ fn is_supported_model_path(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-fn browser_card(card: &BrowserCardVm) -> BrowserCard {
-    let (thumb_image, thumb_ready) = load_thumbnail_image(card.thumb_path.as_deref());
+fn browser_card(card: &BrowserCardVm, use_embedded_3mf: bool) -> BrowserCard {
+    let (thumb_image, thumb_ready) = load_thumbnail_image(
+        card.thumb_path.as_deref(),
+        Path::new(card.stable_key.as_str()),
+        use_embedded_3mf,
+    );
     BrowserCard {
         stable_key: card.stable_key.clone().into(),
         slot_index: card.slot_index as i32,
@@ -6444,11 +6701,73 @@ fn browser_card(card: &BrowserCardVm) -> BrowserCard {
         favorite: card.favorite,
         printed: card.printed,
         error: card.error,
+        aspect_ratio_type: card.aspect_ratio_type,
     }
 }
 
-fn load_thumbnail_image(path: Option<&Path>) -> (slint::Image, bool) {
-    load_ui_image(path)
+fn load_thumbnail_image(
+    thumb_path: Option<&Path>,
+    model_path: &Path,
+    use_embedded_3mf: bool,
+) -> (slint::Image, bool) {
+    let revision = if let Some(path) = thumb_path {
+        thumbnail_revision(Some(path))
+    } else {
+        let modified_time = std::fs::metadata(model_path)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        format!("{}-{}", model_path.display(), modified_time)
+    };
+
+    UI_IMAGE_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some(entry) = cache.get(model_path).filter(|entry| entry.revision == revision) {
+            if entry.loading {
+                return (slint::Image::default(), false);
+            }
+            if entry.failed {
+                if entry.last_attempt.elapsed() < std::time::Duration::from_secs(2) {
+                    CURRENT_METRICS.with(|metrics| {
+                        metrics.borrow_mut().cache_hits += 1;
+                    });
+                    return (slint::Image::default(), false);
+                }
+            } else {
+                CURRENT_METRICS.with(|metrics| {
+                    metrics.borrow_mut().cache_hits += 1;
+                });
+                return (entry.image.clone(), true);
+            }
+        }
+
+        CURRENT_METRICS.with(|metrics| {
+            metrics.borrow_mut().cache_misses += 1;
+        });
+
+        cache.insert(
+            model_path.to_path_buf(),
+            CachedUiImage {
+                revision: revision.clone(),
+                image: slint::Image::default(),
+                failed: false,
+                loading: true,
+                last_attempt: std::time::Instant::now(),
+            },
+        );
+
+        let tx = get_image_loader_sender();
+        let _ = tx.send(ImageLoadRequest::Thumbnail {
+            model_path: model_path.to_path_buf(),
+            thumb_path: thumb_path.map(|p| p.to_path_buf()),
+            revision,
+            use_embedded_3mf,
+        });
+
+        (slint::Image::default(), false)
+    })
 }
 
 #[derive(Clone)]
@@ -6456,11 +6775,177 @@ struct CachedUiImage {
     revision: String,
     image: slint::Image,
     failed: bool,
+    loading: bool,
     last_attempt: std::time::Instant,
+}
+
+enum ImageLoadRequest {
+    UiImage {
+        path: PathBuf,
+        revision: String,
+    },
+    Thumbnail {
+        model_path: PathBuf,
+        thumb_path: Option<PathBuf>,
+        revision: String,
+        use_embedded_3mf: bool,
+    },
+}
+
+static IMAGE_LOAD_SENDER: OnceLock<std::sync::mpsc::Sender<ImageLoadRequest>> = OnceLock::new();
+
+fn get_image_loader_sender() -> std::sync::mpsc::Sender<ImageLoadRequest> {
+    IMAGE_LOAD_SENDER.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::channel::<ImageLoadRequest>();
+        std::thread::spawn(move || {
+            while let Ok(req) = rx.recv() {
+                let (cache_key, revision, pixel_buffer_result) = match req {
+                    ImageLoadRequest::UiImage { path, revision } => {
+                        let bytes_result = std::fs::read(&path);
+                        let buffer_res = bytes_result
+                            .map_err(|e| e.to_string())
+                            .and_then(|bytes| {
+                                image::load_from_memory(&bytes)
+                                    .map_err(|e| e.to_string())
+                            })
+                            .map(|img| {
+                                use image::GenericImageView;
+                                let (width, height) = img.dimensions();
+                                let rgba = img.to_rgba8();
+                                
+                                slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
+                                    rgba.as_raw(),
+                                    width,
+                                    height,
+                                )
+                            });
+                        (path, revision, buffer_res)
+                    }
+                    ImageLoadRequest::Thumbnail { model_path, thumb_path, revision, use_embedded_3mf } => {
+                        let buffer_res = (|| -> Result<slint::SharedPixelBuffer<slint::Rgba8Pixel>, String> {
+                            let actual_thumb_path = if let Some(ref path) = thumb_path {
+                                path.clone()
+                            } else {
+                                let (info, mesh) = crate::scanner::parse_stl_file(&model_path)
+                                    .map_err(|e| format!("Failed to parse model file {}: {}", model_path.display(), e))?;
+                                
+                                crate::thumbnail_cache::ensure_thumbnail(&info, mesh.as_ref(), use_embedded_3mf)
+                                    .map_err(|e| format!("Failed to render and save thumbnail for {}: {}", model_path.display(), e))?
+                            };
+
+                            let bytes = std::fs::read(&actual_thumb_path)
+                                .map_err(|e| format!("Failed to read thumbnail PNG {}: {}", actual_thumb_path.display(), e))?;
+
+                            let img = image::load_from_memory(&bytes)
+                                .map_err(|e| format!("Failed to decode PNG {}: {}", actual_thumb_path.display(), e))?;
+                            
+                            use image::GenericImageView;
+                            let (width, height) = img.dimensions();
+                            let rgba = img.to_rgba8();
+                            
+                            Ok(slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
+                                rgba.as_raw(),
+                                width,
+                                height,
+                            ))
+                        })();
+                        (model_path, revision, buffer_res)
+                    }
+                };
+
+                let _ = slint::invoke_from_event_loop(move || {
+                    let img_result = pixel_buffer_result
+                        .map(|buffer| slint::Image::from_rgba8(buffer));
+
+                    UI_IMAGE_CACHE.with(|cache| {
+                        let mut cache = cache.borrow_mut();
+                        match img_result {
+                            Ok(image) => {
+                                cache.insert(
+                                    cache_key,
+                                    CachedUiImage {
+                                        revision,
+                                        image,
+                                        failed: false,
+                                        loading: false,
+                                        last_attempt: std::time::Instant::now(),
+                                    },
+                                );
+                            }
+                            Err(err) => {
+                                log::warn!("Async image/thumbnail load failed: {}", err);
+                                cache.insert(
+                                    cache_key,
+                                    CachedUiImage {
+                                        revision,
+                                        image: slint::Image::default(),
+                                        failed: true,
+                                        loading: false,
+                                        last_attempt: std::time::Instant::now(),
+                                    },
+                                );
+                            }
+                        }
+                    });
+
+                    thread_local! {
+                        static REFRESH_PENDING: RefCell<bool> = RefCell::new(false);
+                    }
+                    
+                    let should_refresh = REFRESH_PENDING.with(|pending| {
+                        if !*pending.borrow() {
+                            *pending.borrow_mut() = true;
+                            true
+                        } else {
+                            false
+                        }
+                    });
+
+                    if should_refresh {
+                        let _ = slint::invoke_from_event_loop(|| {
+                            REFRESH_PENDING.with(|pending| {
+                                *pending.borrow_mut() = false;
+                            });
+                            WEAK_UI.with(|weak_ui| {
+                                if let Some(weak) = weak_ui.borrow().as_ref() {
+                                    if let Some(ui) = weak.upgrade() {
+                                        SHELL_STATE.with(|state| {
+                                            if let Some(state_rc) = state.borrow().as_ref() {
+                                                let snapshot = state_rc.borrow_mut().snapshot_done();
+                                                apply_snapshot(&ui, &snapshot);
+                                            }
+                                        });
+                                    }
+                                }
+                            });
+                        });
+                    }
+                });
+            }
+        });
+        tx
+    }).clone()
+}
+
+#[derive(Default, Clone, Copy)]
+struct ProfileMetrics {
+    cache_hits: usize,
+    cache_misses: usize,
+    disk_load_duration: std::time::Duration,
+}
+
+use std::sync::OnceLock;
+
+fn is_profile_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var("MODELRACK_PROFILE").is_ok() || cfg!(debug_assertions))
 }
 
 thread_local! {
     static UI_IMAGE_CACHE: RefCell<HashMap<PathBuf, CachedUiImage>> = RefCell::new(HashMap::new());
+    static CURRENT_METRICS: RefCell<ProfileMetrics> = RefCell::new(ProfileMetrics::default());
+    static WEAK_UI: RefCell<Option<slint::Weak<ModelRackWindow>>> = RefCell::new(None);
+    static SHELL_STATE: RefCell<Option<Rc<RefCell<ShellState>>>> = RefCell::new(None);
 }
 
 fn thumbnail_revision(path: Option<&Path>) -> String {
@@ -6483,46 +6968,46 @@ fn load_ui_image(path: Option<&Path>) -> (slint::Image, bool) {
     UI_IMAGE_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
         if let Some(entry) = cache.get(path).filter(|entry| entry.revision == revision) {
+            if entry.loading {
+                return (slint::Image::default(), false);
+            }
             if entry.failed {
                 if entry.last_attempt.elapsed() < std::time::Duration::from_secs(2) {
+                    CURRENT_METRICS.with(|metrics| {
+                        metrics.borrow_mut().cache_hits += 1;
+                    });
                     return (slint::Image::default(), false);
                 }
             } else {
+                CURRENT_METRICS.with(|metrics| {
+                    metrics.borrow_mut().cache_hits += 1;
+                });
                 return (entry.image.clone(), true);
             }
         }
 
-        match slint::Image::load_from_path(path) {
-            Ok(image) => {
-                cache.insert(
-                    path.to_path_buf(),
-                    CachedUiImage {
-                        revision,
-                        image: image.clone(),
-                        failed: false,
-                        last_attempt: std::time::Instant::now(),
-                    },
-                );
-                (image, true)
-            }
-            Err(err) => {
-                cache.insert(
-                    path.to_path_buf(),
-                    CachedUiImage {
-                        revision,
-                        image: slint::Image::default(),
-                        failed: true,
-                        last_attempt: std::time::Instant::now(),
-                    },
-                );
-                eprintln!(
-                    "Warning: failed to load image {}: {:?}",
-                    path.display(),
-                    err
-                );
-                (slint::Image::default(), false)
-            }
-        }
+        CURRENT_METRICS.with(|metrics| {
+            metrics.borrow_mut().cache_misses += 1;
+        });
+
+        cache.insert(
+            path.to_path_buf(),
+            CachedUiImage {
+                revision: revision.clone(),
+                image: slint::Image::default(),
+                failed: false,
+                loading: true,
+                last_attempt: std::time::Instant::now(),
+            },
+        );
+
+        let tx = get_image_loader_sender();
+        let _ = tx.send(ImageLoadRequest::UiImage {
+            path: path.to_path_buf(),
+            revision,
+        });
+
+        (slint::Image::default(), false)
     })
 }
 
@@ -6535,7 +7020,8 @@ fn render_detail_preview_image(
 ) -> (slint::Image, bool) {
     let (width, height, face_budget) = match quality {
         DetailPreviewQuality::High => (640, 498, 80_000),
-        DetailPreviewQuality::Interactive => (360, 280, 18_000),
+        DetailPreviewQuality::Interactive => (360, 280, 25_000),
+        DetailPreviewQuality::Dragging => (240, 185, 12_000),
     };
     let pixels = crate::thumbnail_cache::render_preview_rgba_with_face_budget(
         entry,
@@ -6626,6 +7112,7 @@ mod tests {
             favorite: false,
             printed: false,
             error: false,
+            aspect_ratio_type: 1,
         }
     }
 
@@ -7181,6 +7668,7 @@ mod tests {
             library_folders: vec![root.join("models")],
             excluded_folders: vec![root.join("models/archived")],
             collapsed_folders: vec![root.join("models/nested")],
+            use_embedded_3mf_preview: true,
         };
 
         save_app_prefs_to_path(&path, &prefs).unwrap();
@@ -8220,6 +8708,8 @@ mod tests {
         assert_eq!(browser_count_label(9, 36, "en"), "9 of 36 items");
         assert_eq!(browser_count_label(36, 36, "ko"), "36개 항목");
         assert_eq!(browser_count_label(9, 36, "ko"), "9 / 36개 항목");
+        assert_eq!(browser_count_label(36, 36, "ja"), "36 件");
+        assert_eq!(browser_count_label(9, 36, "ja"), "9 / 36 件");
     }
 
     #[cfg(target_os = "macos")]

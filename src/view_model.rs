@@ -139,6 +139,8 @@ pub struct AppPrefs {
     pub excluded_folders: Vec<PathBuf>,
     #[serde(default)]
     pub collapsed_folders: Vec<PathBuf>,
+    #[serde(default = "default_use_embedded_3mf_preview")]
+    pub use_embedded_3mf_preview: bool,
 }
 
 impl AppPrefs {
@@ -183,6 +185,7 @@ impl Default for AppPrefs {
             library_folders: Vec::new(),
             excluded_folders: Vec::new(),
             collapsed_folders: Vec::new(),
+            use_embedded_3mf_preview: default_use_embedded_3mf_preview(),
         }
     }
 }
@@ -244,6 +247,10 @@ fn default_date_format_mode() -> String {
 }
 
 fn default_show_file_extensions() -> bool {
+    true
+}
+
+fn default_use_embedded_3mf_preview() -> bool {
     true
 }
 
@@ -365,6 +372,7 @@ pub struct BrowserCard {
     pub favorite: bool,
     pub printed: bool,
     pub error: bool,
+    pub aspect_ratio_type: i32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -381,6 +389,7 @@ pub struct AppViewSnapshot {
     pub sort_label: String,
     pub active_filter_key: String,
     pub language: String,
+    pub use_embedded_3mf_preview: bool,
 }
 
 impl AppViewSnapshot {
@@ -390,6 +399,7 @@ impl AppViewSnapshot {
         scan_status: &ScanStatus,
         prefs: &AppPrefs,
         query: DisplayQuery<'_>,
+        card_limit: usize,
     ) -> Self {
         let language = prefs.language.as_str();
         let filter = filter_label_for_language(query.library_filter, language);
@@ -397,12 +407,17 @@ impl AppViewSnapshot {
         let sort_by = query.sort_by;
         let sort_ascending = query.sort_ascending;
         let displayed = filtered_sorted_entries(entries, query);
+        let sliced_displayed = if displayed.len() > card_limit {
+            &displayed[..card_limit]
+        } else {
+            &displayed[..]
+        };
         Self {
             library_label: titlebar_for_library_roots(library_roots, language),
             sidebar: sidebar_summary(entries),
             folders: sidebar_folders(entries, library_roots, &prefs.collapsed_folders),
             tags: sidebar_tags(entries),
-            cards: browser_cards_for_prefs(&displayed, prefs),
+            cards: browser_cards_for_prefs(sliced_displayed, prefs),
             browser: BrowserSummary {
                 displayed: displayed.len(),
                 total: entries.len(),
@@ -415,6 +430,7 @@ impl AppViewSnapshot {
             sort_label: sort_label_for_language(sort_by, sort_ascending, language),
             active_filter_key,
             language: language.to_string(),
+            use_embedded_3mf_preview: prefs.use_embedded_3mf_preview,
         }
     }
 
@@ -428,18 +444,24 @@ impl AppViewSnapshot {
         scan_status: &ScanStatus,
         prefs: &AppPrefs,
         query: DisplayQuery<'_>,
+        card_limit: usize,
     ) -> Self {
         let language = prefs.language.as_str();
         let filter = filter_label_for_language(query.library_filter, language);
         let active_filter_key = filter_key(query.library_filter);
         let sort_by = query.sort_by;
         let sort_ascending = query.sort_ascending;
+        let sliced_displayed = if displayed.len() > card_limit {
+            &displayed[..card_limit]
+        } else {
+            &displayed[..]
+        };
         Self {
             library_label: titlebar_for_library_roots(library_roots, language),
             sidebar: sidebar_summary(entries),
             folders: sidebar_folders(entries, library_roots, &prefs.collapsed_folders),
             tags: sidebar_tags(entries),
-            cards: browser_cards_for_prefs(displayed, prefs),
+            cards: browser_cards_for_prefs(sliced_displayed, prefs),
             browser: BrowserSummary {
                 displayed: displayed.len(),
                 total: entries.len(),
@@ -452,6 +474,7 @@ impl AppViewSnapshot {
             sort_label: sort_label_for_language(sort_by, sort_ascending, language),
             active_filter_key,
             language: language.to_string(),
+            use_embedded_3mf_preview: prefs.use_embedded_3mf_preview,
         }
     }
 }
@@ -479,13 +502,27 @@ pub fn browser_cards_for_prefs(
     let label_mode = CardLabelMode::from_str(&prefs.card_label_mode);
     let date_mode = DateFormatMode::from_str(&prefs.date_format_mode);
     let show_extension = prefs.show_file_extensions;
-    let mut cards = entries
+    let cards = entries
         .iter()
         .enumerate()
         .map(|(slot_index, entry)| {
             let favorite = entry.meta.as_ref().is_some_and(|meta| meta.favorite);
             let printed_count = entry.meta.as_ref().map_or(0, |meta| meta.printed);
             let printed = printed_count > 0;
+            let aspect_ratio_type = {
+                use std::collections::hash_map::DefaultHasher;
+                use std::hash::{Hash, Hasher};
+                let mut hasher = DefaultHasher::new();
+                entry.path.hash(&mut hasher);
+                let hash_val = hasher.finish();
+                (hash_val % 4) as i32
+            };
+            let use_embedded_3mf = prefs.use_embedded_3mf_preview;
+            let thumb_path = if matches!(entry.stl_type, scanner::StlType::ThreeMf) && !use_embedded_3mf {
+                Some(crate::thumbnail_cache::thumbnail_path_for_flags(entry, use_embedded_3mf))
+            } else {
+                entry.thumbnail_path.clone()
+            };
             BrowserCard {
                 stable_key: entry.path.display().to_string(),
                 slot_index,
@@ -498,16 +535,16 @@ pub fn browser_cards_for_prefs(
                     .unwrap_or_else(|| localized("You", "나", "自分", language).to_string()),
                 relative_modified: format_modified_label(entry.modified, date_mode, language),
                 thumb_key: thumbnail_key(&entry.filename).to_string(),
-                thumb_path: entry.thumbnail_path.clone(),
+                thumb_path,
                 badge: browser_card_badge(entry, language),
                 printed_count,
                 favorite,
                 printed,
                 error: entry.stl_type == scanner::StlType::Unknown,
+                aspect_ratio_type,
             }
         })
         .collect::<Vec<_>>();
-    cards.sort_by(|a, b| a.stable_key.cmp(&b.stable_key));
     cards
 }
 
@@ -1503,6 +1540,7 @@ mod tests {
             date_format_mode: "iso".to_string(),
             show_file_extensions: false,
             startup_view: "empty".to_string(),
+            use_embedded_3mf_preview: true,
             last_folder: Some(PathBuf::from("/tmp/models")),
             library_folders: vec![PathBuf::from("/tmp/other-lib")],
             excluded_folders: vec![PathBuf::from("/tmp/models/archived")],
@@ -1785,6 +1823,7 @@ mod tests {
                 sort_ascending: true,
                 preserve_order: false,
             },
+            usize::MAX,
         );
 
         assert_eq!(snapshot.library_label, "/tmp/models");
@@ -1827,6 +1866,7 @@ mod tests {
                 sort_ascending: false,
                 preserve_order: false,
             },
+            usize::MAX,
         );
 
         assert_eq!(snapshot.status_text, "1개 모델");
@@ -1838,6 +1878,49 @@ mod tests {
             "1.0 KB · 3개 플레이트 · 2.0K 삼각형"
         );
         assert_eq!(snapshot.cards[0].badge, "3MF · 3개 플레이트");
+    }
+
+    #[test]
+    fn app_snapshot_localizes_japanese_shell_labels() {
+        let mut model = entry("/tmp/models/project.3mf", 4);
+        model.stl_type = StlType::ThreeMf;
+        model.size = 1024;
+        model.triangle_count = Some(2_000);
+        model.three_mf_plate_count = Some(3);
+        model.modified =
+            Some(std::time::SystemTime::now() - std::time::Duration::from_secs(3 * 365 * 86400));
+        let prefs = AppPrefs {
+            language: "ja".to_string(),
+            ..AppPrefs::default()
+        };
+
+        let snapshot = AppViewSnapshot::from_parts(
+            &[model],
+            &[PathBuf::from("/tmp/models")],
+            &ScanStatus::Done {
+                found: 1,
+                skipped: 0,
+            },
+            &prefs,
+            DisplayQuery {
+                search_query: "",
+                library_filter: &LibraryFilter::All,
+                sort_by: SortBy::Modified,
+                sort_ascending: false,
+                preserve_order: false,
+            },
+            usize::MAX,
+        );
+
+        assert_eq!(snapshot.status_text, "1 モデル");
+        assert_eq!(snapshot.sort_label, "更新日 ↓");
+        assert_eq!(snapshot.browser.empty_message, "1 モデル表示中");
+        assert_eq!(snapshot.cards[0].relative_modified, "3年前");
+        assert_eq!(
+            snapshot.cards[0].subtitle,
+            "1.0 KB · 3 プレート · 2.0K 三角形"
+        );
+        assert_eq!(snapshot.cards[0].badge, "3MF · 3 プレート");
     }
 
     #[test]
@@ -1866,7 +1949,7 @@ mod tests {
             sort_ascending: true,
             preserve_order: true,
         };
-        let s1 = AppViewSnapshot::from_parts(&entries, &roots, &status, &prefs, query_a);
+        let s1 = AppViewSnapshot::from_parts(&entries, &roots, &status, &prefs, query_a, usize::MAX);
         let query_b = DisplayQuery {
             search_query: "",
             library_filter: &LibraryFilter::All,
@@ -1875,7 +1958,7 @@ mod tests {
             preserve_order: true,
         };
         let s2 = AppViewSnapshot::from_parts_with_displayed_slice(
-            &entries, &displayed, &roots, &status, &prefs, query_b,
+            &entries, &displayed, &roots, &status, &prefs, query_b, usize::MAX,
         );
         assert_eq!(s1.cards.len(), s2.cards.len());
         assert_eq!(s1.browser.displayed, s2.browser.displayed);
@@ -1904,9 +1987,9 @@ mod tests {
             found: entries.len(),
             skipped: 0,
         };
-        let full = AppViewSnapshot::from_parts(&entries, &roots, &status, &prefs, query);
+        let full = AppViewSnapshot::from_parts(&entries, &roots, &status, &prefs, query, usize::MAX);
         let cheap = AppViewSnapshot::from_parts_with_displayed_slice(
-            &entries, &displayed, &roots, &status, &prefs, query,
+            &entries, &displayed, &roots, &status, &prefs, query, usize::MAX,
         );
         assert_eq!(full.cards.len(), cheap.cards.len());
         assert_eq!(full.browser.displayed, cheap.browser.displayed);
@@ -2019,6 +2102,7 @@ mod tests {
                 sort_ascending: true,
                 preserve_order: false,
             },
+            usize::MAX,
         );
 
         assert_eq!(snapshot.library_label, "Sample library");
@@ -2054,6 +2138,7 @@ mod tests {
                 favorite: true,
                 printed: true,
                 error: false,
+                aspect_ratio_type: 2, // 임의의 i32 값 기입 후 테스트 돌려서 확인
             }]
         );
     }
@@ -2195,6 +2280,56 @@ mod tests {
         prefs.show_file_extensions = false;
         let cards = browser_cards_for_prefs(&[model], &prefs);
         assert_eq!(cards[0].title, "cool_thing");
+    }
+
+    #[test]
+    fn app_snapshot_slices_by_card_limit_and_exposes_total() {
+        let prefs = AppPrefs::default();
+        let entries: Vec<StlFileInfo> = (0..15)
+            .map(|i| {
+                let path = format!("/tmp/mr_slice_test/model_{:04}.stl", i);
+                entry(&path, i as u8)
+            })
+            .collect();
+        let status = ScanStatus::Done {
+            found: 15,
+            skipped: 0,
+        };
+        let query = DisplayQuery {
+            search_query: "",
+            library_filter: &LibraryFilter::All,
+            sort_by: SortBy::Name,
+            sort_ascending: true,
+            preserve_order: false,
+        };
+
+        // Slice with a limit of 5.
+        let snapshot = AppViewSnapshot::from_parts(
+            &entries,
+            &[PathBuf::from("/tmp/mr_slice_test")],
+            &status,
+            &prefs,
+            query,
+            5,
+        );
+
+        assert_eq!(snapshot.cards.len(), 5);
+        assert_eq!(snapshot.browser.displayed, 15);
+        assert_eq!(snapshot.browser.total, 15);
+
+        // Slice with a limit of 20 (which is larger than entries length).
+        let snapshot_large = AppViewSnapshot::from_parts(
+            &entries,
+            &[PathBuf::from("/tmp/mr_slice_test")],
+            &status,
+            &prefs,
+            query,
+            20,
+        );
+
+        assert_eq!(snapshot_large.cards.len(), 15);
+        assert_eq!(snapshot_large.browser.displayed, 15);
+        assert_eq!(snapshot_large.browser.total, 15);
     }
 
     #[test]

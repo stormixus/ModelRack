@@ -47,6 +47,7 @@ rm -rf "$APP"
 mkdir -p "$MACOS" "$RESOURCES"
 cp "$BIN" "$MACOS/modelrack"
 cp "$ROOT/assets/AppIcon.icns" "$RESOURCES/AppIcon.icns"
+cp "$ROOT/assets/AppIcon_Light.icns" "$RESOURCES/AppIcon_Light.icns"
 
 cat > "$CONTENTS/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

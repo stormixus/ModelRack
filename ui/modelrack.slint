@@ -20,6 +20,7 @@ export struct BrowserCard {
     favorite: bool,
     printed: bool,
     error: bool,
+    aspect-ratio-type: int,
 }
 
 export struct SidebarItem {
@@ -880,8 +881,13 @@ component ModelCard inherits Rectangle {
     in property <bool> layout-motion: true;
     in property <bool> streaming-list: false;
     in property <int> card-index;
+    in property <bool> is-masonry: false;
     callback clicked(int);
     callback context-requested(int, length, length);
+
+    property <float> aspect-ratio: card.aspect-ratio-type == 0 ? 0.85 :
+                                   card.aspect-ratio-type == 1 ? 1.00 :
+                                   card.aspect-ratio-type == 2 ? 1.15 : 1.30;
 
     property <float> list-appear-opacity;
     property <length> list-appear-y;
@@ -927,9 +933,13 @@ component ModelCard inherits Rectangle {
         background: transparent;
 
         VerticalLayout {
+            spacing: 0px;
+            padding: 0px;
             // Thumbnail area
             Rectangle {
-                height: root.width;
+                height: root.is-masonry
+                    ? root.width * root.aspect-ratio
+                    : root.width;
                 background: Theme.bg-0;
                 border-radius: Theme.radius-card;
 
@@ -1725,7 +1735,7 @@ component TrafficLightButton inherits Rectangle {
 // ─── Main window ─────────────────────────────────────────
 
 export component ModelRackWindow inherits Window {
-    icon: @image-url("../assets/AppIcon.iconset/icon_128x128.png");
+    icon: settings-theme-key == "light" ? @image-url("../assets/AppIcon_Light.iconset/icon_128x128.png") : @image-url("../assets/AppIcon.iconset/icon_128x128.png");
 
     // Core properties
     in property <string> app-title: "ModelRack";
@@ -1758,6 +1768,9 @@ export component ModelRackWindow inherits Window {
     in property <[SidebarItem]> folder-items;
     in property <[SidebarItem]> tag-items;
     in property <string> active-filter-key: "all";
+    in property <int> total-matching-cards: 0;
+    in property <int> displayed-card-limit: 100;
+    in-out property <bool> loading-more: false;
 
     // Detail panel
     in property <bool> has-selection: false;
@@ -1801,6 +1814,8 @@ export component ModelRackWindow inherits Window {
     in property <string> settings-tab: "general";
     in property <string> settings-language-key: "en";
     in property <string> settings-language-label: "English";
+    property <string> tr-use-embedded-3mf-preview: settings-language-key == "ko" ? "내장 플레이트 미리보기 사용" : settings-language-key == "ja" ? "内蔵プレートプレビューを使用" : "Use embedded plate previews";
+    property <string> tr-use-embedded-3mf-preview-hint: settings-language-key == "ko" ? "3MF 파일의 슬라이서 베드 캡처를 썸네일과 인스펙터에 우선 적용" : settings-language-key == "ja" ? "3MFファイルの内蔵プレートスナップショットを使用" : "Use the printer bed snapshot embedded inside 3MF files";
     property <string> tr-library-heading: settings-language-key == "ko" ? "라이브러리" : settings-language-key == "ja" ? "ライブラリ" : "LIBRARY";
     property <string> tr-all-models: settings-language-key == "ko" ? "전체 모델" : settings-language-key == "ja" ? "すべてのモデル" : "All Models";
     property <string> tr-recent: settings-language-key == "ko" ? "최근" : settings-language-key == "ja" ? "最近" : "Recent";
@@ -1811,6 +1826,7 @@ export component ModelRackWindow inherits Window {
     property <string> tr-parse-errors: settings-language-key == "ko" ? "파싱 오류" : settings-language-key == "ja" ? "解析エラー" : "Parse Errors";
     property <string> tr-folders-heading: settings-language-key == "ko" ? "폴더" : settings-language-key == "ja" ? "フォルダ" : "FOLDERS";
     property <string> tr-tags-heading: settings-language-key == "ko" ? "태그" : settings-language-key == "ja" ? "タグ" : "TAGS";
+    property <string> tr-load-more: settings-language-key == "ko" ? "더 보기" : settings-language-key == "ja" ? "さらに読み込む" : "Load More";
     property <string> tr-open-in-slicer: settings-language-key == "ko" ? "슬라이서에서 열기" : settings-language-key == "ja" ? "スライサーで開く" : "Open in Slicer";
     property <string> tr-open-with-prefix: settings-language-key == "ko" ? "" : settings-language-key == "ja" ? "" : "Open in ";
     property <string> tr-open-with-suffix: settings-language-key == "ko" ? "에서 열기" : settings-language-key == "ja" ? "で開く" : "";
@@ -2017,6 +2033,7 @@ export component ModelRackWindow inherits Window {
     in property <string> settings-card-label-key: "filename";
     in property <string> settings-date-format-key: "auto";
     in property <bool> settings-show-file-extensions: true;
+    in property <bool> settings-use-embedded-3mf-preview: true;
     in property <string> settings-startup-key: "last";
     property <bool> sidebar-context-open: false;
     property <string> sidebar-context-key;
@@ -2078,6 +2095,7 @@ export component ModelRackWindow inherits Window {
     callback choose-settings-card-label(string);
     callback choose-settings-date-format(string);
     callback toggle-settings-show-file-extensions(bool);
+    callback toggle-settings-use-embedded-3mf-preview(bool);
     callback choose-settings-startup(string);
     callback regenerate-thumbnails();
     callback clear-thumbnail-cache();
@@ -2106,8 +2124,12 @@ export component ModelRackWindow inherits Window {
     callback toggle-favorite();
     callback rename-model(string) -> bool;
     callback save-metadata(string, string, string);
+    pure callback calculate-masonry-x(int, int, length, length) -> length;
+    pure callback calculate-masonry-y(int, int, length, length) -> length;
+    pure callback calculate-masonry-viewport-height(int, length, length) -> length;
     callback add-tags(string);
     callback remove-tag(int);
+    callback load-more-cards();
     callback adjust-printed-count(int);
     callback add-print-record(string, string, string, string, string, string, string);
     callback remove-print-record(int);
@@ -2919,17 +2941,31 @@ export component ModelRackWindow inherits Window {
                         property <bool> full-layout-motion: model-cards.length <= 96;
                         property <int> cols: max(1, floor((self.width + gap) / (target-card-w + gap)));
                         property <int> rows: ceil(model-cards.length / max(1, cols));
-                        property <length> card-h: view-mode-label == "Masonry" ? card-w + 94px : card-w + 62px;
+                        property <length> card-h: view-mode-label == "Masonry" ? card-w * 1.30 + 70px : card-w + 62px;
 
-                        viewport-height: rows * card-h + max(0, rows - 1) * gap;
+                        viewport-height: view-mode-label == "Masonry"
+                            ? root.calculate-masonry-viewport-height(cols, card-w, gap)
+                            : rows * card-h + max(0, rows - 1) * gap;
                         animate card-w { duration: full-layout-motion ? 260ms : 120ms; easing: ease-in-out; }
 
+                        changed viewport-y => {
+                            if (-self.viewport-y >= self.viewport-height - self.height - 200px && model-cards.length < total-matching-cards && !root.loading-more) {
+                                root.loading-more = true;
+                                root.load-more-cards();
+                            }
+                        }
+
                         for card[index] in model-cards: model-card := ModelCard {
-                            property <length> target-y: floor(card.slot-index / cols) * (grid-flick.card-h + grid-flick.gap);
-                            x: mod(card.slot-index, cols) * (card-w + gap);
+                            property <length> target-y: view-mode-label == "Masonry"
+                                ? root.calculate-masonry-y(index, cols, card-w, gap)
+                                : floor(index / cols) * (grid-flick.card-h + grid-flick.gap);
+                            x: view-mode-label == "Masonry"
+                                ? root.calculate-masonry-x(index, cols, card-w, gap)
+                                : mod(index, cols) * (card-w + gap);
                             y: target-y;
                             width: card-w;
-                            height: grid-flick.card-h;
+                            height: view-mode-label == "Masonry" ? card-w * (card.aspect-ratio-type == 0 ? 0.85 : card.aspect-ratio-type == 1 ? 1.00 : card.aspect-ratio-type == 2 ? 1.15 : 1.30) + 62px : grid-flick.card-h;
+                            is-masonry: view-mode-label == "Masonry";
                             // Do not cull with `visible: false` here: in Slint, non-visible elements do not
                             // take layout space, which breaks absolutely-positioned grid cells and can leave
                             // tiles missing until resize. List view has no culling; grid/masonry must show
@@ -2975,9 +3011,16 @@ export component ModelRackWindow inherits Window {
 
                         viewport-height: model-cards.length * (row-h + gap);
 
+                        changed viewport-y => {
+                            if (-self.viewport-y >= self.viewport-height - self.height - 200px && model-cards.length < total-matching-cards && !root.loading-more) {
+                                root.loading-more = true;
+                                root.load-more-cards();
+                            }
+                        }
+
                         for card[index] in model-cards: model-row := ModelListRow {
                             x: 0;
-                            y: card.slot-index * (list-flick.row-h + list-flick.gap);
+                            y: index * (list-flick.row-h + list-flick.gap);
                             width: list-flick.width;
                             height: list-flick.row-h;
                             streaming-list: scan-progress-percent >= 0 && model-cards.length <= 96;
@@ -4413,7 +4456,7 @@ export component ModelRackWindow inherits Window {
                             y: 4px;
                             width: 44px;
                             height: 44px;
-                            source: @image-url("../assets/AppIcon.iconset/icon_128x128.png");
+                            source: root.settings-theme-key == "light" ? @image-url("../assets/AppIcon_Light.iconset/icon_128x128.png") : @image-url("../assets/AppIcon.iconset/icon_128x128.png");
                             image-fit: contain;
                         }
 
@@ -4640,6 +4683,13 @@ export component ModelRackWindow inherits Window {
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
                             Text { x: 0; y: 18px; width: 180px; text: tr-anti-aliasing; color: Theme.fg-1; font-size: Theme.font-body; }
                             SettingsSegment { x: 196px; y: 12px; button-width: 72px; a-label: tr-off; a-key: "off"; b-label: "2×"; b-key: "msaa2x"; c-label: "4×"; c-key: "msaa4x"; d-label: "8×"; d-key: "msaa8x"; selected-key: settings-thumbnail-aa; activated(key) => { choose-settings-thumbnail-aa(key); } }
+                        }
+                        if settings-tab == "thumbnails": Rectangle {
+                            height: 58px;
+                            Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
+                            Text { x: 0; y: 13px; width: 180px; text: tr-use-embedded-3mf-preview; color: Theme.fg-1; font-size: Theme.font-body; }
+                            Text { x: 0; y: 31px; width: 180px; text: tr-use-embedded-3mf-preview-hint; color: Theme.fg-3; font-size: Theme.font-meta; }
+                            SettingsToggle { x: 196px; y: 19px; on: settings-use-embedded-3mf-preview; toggled(value) => { toggle-settings-use-embedded-3mf-preview(value); } }
                         }
                         if settings-tab == "thumbnails": Rectangle {
                             height: 64px;
@@ -4911,14 +4961,159 @@ export component ModelRackWindow inherits Window {
 
                         if settings-tab == "about": Rectangle {
                             height: 430px;
-                            Image { x: (parent.width - 96px) / 2; y: 22px; width: 96px; height: 96px; source: @image-url("../assets/AppIcon.iconset/icon_128x128.png"); image-fit: contain; }
-                            Text { x: 0; y: 132px; width: parent.width; text: "ModelRack"; color: Theme.fg-0; font-size: 22px; font-weight: 600; horizontal-alignment: center; }
-                            Text { x: 0; y: 163px; width: parent.width; text: tr-about-subtitle; color: Theme.fg-2; font-size: Theme.font-body; horizontal-alignment: center; }
-                            Rectangle { x: 120px; y: 205px; width: parent.width - 240px; height: 116px; background: Theme.bg-2; border-color: Theme.line; border-width: 1px; border-radius: 8px; Text { x: 18px; y: 17px; text: tr-version; color: Theme.fg-2; font-size: 12px; } Text { x: parent.width - self.width - 18px; y: 17px; text: app-version; color: Theme.fg-0; font-family: "JetBrains Mono"; font-size: 12px; } Text { x: 18px; y: 45px; text: tr-build; color: Theme.fg-2; font-size: 12px; } Text { x: parent.width - self.width - 18px; y: 45px; text: "2026.05.10"; color: Theme.fg-0; font-family: "JetBrains Mono"; font-size: 12px; } Text { x: 18px; y: 73px; text: tr-stack; color: Theme.fg-2; font-size: 12px; } Text { x: parent.width - self.width - 18px; y: 73px; text: "Rust + Slint"; color: Theme.fg-0; font-family: "JetBrains Mono"; font-size: 12px; } }
-                            Rectangle { x: 120px; y: 336px; width: parent.width - 240px; height: 70px; background: Theme.bg-2; border-color: Theme.line; border-width: 1px; border-radius: 8px;
-                                Text { x: 18px; y: 13px; text: tr-updates; color: Theme.fg-0; font-size: Theme.font-body; font-weight: 600; }
-                                Text { x: 18px; y: 34px; width: parent.width - 164px; text: settings-update-status; color: Theme.fg-2; font-family: "JetBrains Mono"; font-size: 10.5px; overflow: elide; }
-                                SettingsActionButton { x: parent.width - 134px; y: 21px; button-width: 116px; label: tr-check; icon: @image-url("../assets/icons/refresh.svg"); activated => { check-updates(); } }
+
+                            // 1. Soft Glowing Halo Background behind the logo
+                            Rectangle {
+                                x: (parent.width - 160px) / 2;
+                                y: -6px;
+                                width: 160px;
+                                height: 160px;
+                                border-radius: 80px;
+                                background: icon-touch.has-hover ? Theme.accent : Theme.accent-dim;
+                                opacity: icon-touch.has-hover ? 0.35 : 0.2;
+                                animate background { duration: 300ms; }
+                                animate opacity { duration: 300ms; }
+                            }
+                            Rectangle {
+                                x: (parent.width - 130px) / 2;
+                                y: 9px;
+                                width: 130px;
+                                height: 130px;
+                                border-radius: 65px;
+                                background: icon-touch.has-hover ? Theme.accent : Theme.accent-dim;
+                                opacity: icon-touch.has-hover ? 0.6 : 0.4;
+                                animate background { duration: 300ms; }
+                                animate opacity { duration: 300ms; }
+                            }
+
+                            // 2. Premium Glassmorphic Ring Container for AppIcon
+                            Rectangle {
+                                x: (parent.width - 100px) / 2;
+                                y: 24px;
+                                width: 100px;
+                                height: 100px;
+                                border-radius: 50px;
+                                background: icon-touch.has-hover ? #1e222aef : #1e222a7f;
+                                border-color: icon-touch.has-hover ? Theme.accent : Theme.accent-line;
+                                border-width: 1.5px;
+
+                                animate background { duration: 200ms; }
+                                animate border-color { duration: 200ms; }
+
+                                icon-touch := TouchArea {}
+
+                                Image {
+                                    x: 12px;
+                                    y: 12px;
+                                    width: 76px;
+                                    height: 76px;
+                                    source: root.settings-theme-key == "light" ? @image-url("../assets/AppIcon_Light.iconset/icon_128x128.png") : @image-url("../assets/AppIcon.iconset/icon_128x128.png");
+                                    image-fit: contain;
+                                }
+                            }
+
+                            // 3. App Title & Subtitle styled with proper hierarchy and tech spacing
+                            Text {
+                                x: 0;
+                                y: 140px;
+                                width: parent.width;
+                                text: "ModelRack";
+                                color: Theme.fg-0;
+                                font-size: 24px;
+                                font-weight: 800;
+                                horizontal-alignment: center;
+                                letter-spacing: 0.5px;
+                            }
+
+                            Text {
+                                x: 0;
+                                y: 172px;
+                                width: parent.width;
+                                text: tr-about-subtitle;
+                                color: Theme.accent;
+                                font-size: 12px;
+                                font-weight: 500;
+                                horizontal-alignment: center;
+                                letter-spacing: 0.2px;
+                            }
+
+                            // 4. Unified Premium Dashboard Glass Card
+                            Rectangle {
+                                x: 20px;
+                                y: 208px;
+                                width: parent.width - 40px;
+                                height: 196px;
+                                background: @linear-gradient(135deg, Theme.bg-2 0%, Theme.bg-0 100%);
+                                border-color: card-touch.has-hover ? Theme.accent-line : Theme.line-2;
+                                border-width: 1px;
+                                border-radius: 12px;
+
+                                animate border-color { duration: 250ms; }
+
+                                card-touch := TouchArea {}
+
+                                // Inner divider line
+                                Rectangle {
+                                    x: 16px;
+                                    y: 92px;
+                                    width: parent.width - 32px;
+                                    height: 1px;
+                                    background: Theme.line;
+                                }
+
+                                // Specs Grid - column coordinates dynamically calculated based on width
+                                Text { x: 20px; y: 18px; text: tr-version; color: Theme.fg-2; font-size: 11px; font-weight: 600; letter-spacing: 0.2px; }
+                                Text { x: 20px; y: 38px; text: app-version; color: Theme.fg-0; font-family: "JetBrains Mono"; font-size: 12px; font-weight: 600; }
+
+                                Text { x: 150px; y: 18px; text: tr-build; color: Theme.fg-2; font-size: 11px; font-weight: 600; letter-spacing: 0.2px; }
+                                Text { x: 150px; y: 38px; text: "2026.05.22"; color: Theme.fg-0; font-family: "JetBrains Mono"; font-size: 12px; font-weight: 600; }
+
+                                Text { x: 280px; y: 18px; text: tr-stack; color: Theme.fg-2; font-size: 11px; font-weight: 600; letter-spacing: 0.2px; }
+                                Text { x: 280px; y: 38px; text: "Rust + Slint"; color: Theme.fg-0; font-family: "JetBrains Mono"; font-size: 12px; font-weight: 600; }
+
+                                // Glowing active tech badge
+                                Rectangle {
+                                    x: parent.width - 136px;
+                                    y: 22px;
+                                    width: 116px;
+                                    height: 24px;
+                                    background: badge-touch.has-hover ? Theme.accent : Theme.accent-dim;
+                                    border-color: badge-touch.has-hover ? Theme.accent : Theme.accent-line;
+                                    border-width: 1px;
+                                    border-radius: 12px;
+
+                                    animate background { duration: 150ms; }
+                                    animate border-color { duration: 150ms; }
+
+                                    badge-touch := TouchArea {}
+
+                                    Text {
+                                        x: 0;
+                                        y: 0;
+                                        width: parent.width;
+                                        height: parent.height;
+                                        text: "Desktop Engine";
+                                        color: badge-touch.has-hover ? #0e2a32 : Theme.accent;
+                                        font-size: 10px;
+                                        font-weight: 700;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                        letter-spacing: 0.3px;
+                                    }
+                                }
+
+                                // Updates Section
+                                Text { x: 20px; y: 108px; text: tr-updates; color: Theme.fg-0; font-size: Theme.font-title; font-weight: 700; }
+                                Text { x: 20px; y: 134px; width: parent.width - 170px; text: settings-update-status; color: Theme.fg-2; font-family: "JetBrains Mono"; font-size: 10.5px; overflow: elide; }
+
+                                SettingsActionButton {
+                                    x: parent.width - 136px;
+                                    y: 116px;
+                                    button-width: 116px;
+                                    label: tr-check;
+                                    icon: @image-url("../assets/icons/refresh.svg");
+                                    activated => { check-updates(); }
+                                }
                             }
                         }
                     }

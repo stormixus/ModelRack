@@ -3,14 +3,19 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SVG="$ROOT/assets/AppIcon.svg"
-ICONSET="$ROOT/assets/AppIcon.iconset"
+OUT_NAME="${2:-AppIcon.icns}"
+ICONSET="$ROOT/assets/${OUT_NAME%.icns}.iconset"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-qlmanage -r cache >/dev/null 2>&1 || true
-cp "$SVG" "$WORK/AppIcon.svg"
-qlmanage -t -s 1024 -o "$WORK" "$WORK/AppIcon.svg" >/dev/null
-SRC="$WORK/AppIcon.svg.png"
+if [ "${1:-}" != "" ]; then
+  SRC="$1"
+else
+  qlmanage -r cache >/dev/null 2>&1 || true
+  cp "$SVG" "$WORK/AppIcon.svg"
+  qlmanage -t -s 1024 -o "$WORK" "$WORK/AppIcon.svg" >/dev/null
+  SRC="$WORK/AppIcon.svg.png"
+fi
 MASKED="$WORK/AppIcon.masked.png"
 
 python3 - "$SRC" "$MASKED" <<'PY'
@@ -166,5 +171,5 @@ sips -z 256 256 "$SRC" --out "$ICONSET/icon_256x256.png" >/dev/null
 sips -z 512 512 "$SRC" --out "$ICONSET/icon_256x256@2x.png" >/dev/null
 sips -z 512 512 "$SRC" --out "$ICONSET/icon_512x512.png" >/dev/null
 cp "$SRC" "$ICONSET/icon_512x512@2x.png"
-iconutil -c icns "$ICONSET" -o "$ROOT/assets/AppIcon.icns"
-printf 'Generated %s and %s\n' "$ICONSET" "$ROOT/assets/AppIcon.icns"
+iconutil -c icns "$ICONSET" -o "$ROOT/assets/$OUT_NAME"
+printf 'Generated %s and %s\n' "$ICONSET" "$ROOT/assets/$OUT_NAME"
