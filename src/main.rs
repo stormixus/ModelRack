@@ -59,8 +59,9 @@ fn spawn_stderr_filter() {
             for line_res in reader.lines() {
                 if let Ok(line) = line_res {
                     // Filter out the noisy ICU4X segmentation error message
-                    if line.contains("No segmentation model for language") 
-                        || line.contains("No segmentation model for language: ja") {
+                    if line.contains("No segmentation model for language")
+                        || line.contains("No segmentation model for language: ja")
+                    {
                         continue;
                     }
                     let _ = writeln!(original_stderr, "{}", line);

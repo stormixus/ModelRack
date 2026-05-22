@@ -234,7 +234,11 @@ mod imp {
     }
 
     fn app_icon_path(theme: &str) -> Option<PathBuf> {
-        let filename = if theme == "light" { "AppIcon_Light.icns" } else { "AppIcon.icns" };
+        let filename = if theme == "light" {
+            "AppIcon_Light.icns"
+        } else {
+            "AppIcon.icns"
+        };
         let bundled = std::env::current_exe()
             .ok()
             .and_then(|exe| {
@@ -560,9 +564,8 @@ mod imp {
 #[cfg(target_os = "macos")]
 pub use imp::{
     configure_native_window_chrome, fullscreen_window, hide_window, install_app_icon,
-    install_app_menu, minimize_window, show_windows, take_about_request,
+    install_app_menu, minimize_window, set_app_icon_theme, show_windows, take_about_request,
     take_open_library_request, take_settings_request, take_undo_request,
-    set_app_icon_theme,
 };
 
 #[cfg(not(target_os = "macos"))]

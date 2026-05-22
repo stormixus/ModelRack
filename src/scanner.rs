@@ -256,27 +256,28 @@ pub fn scan_folder_stream(path: &Path, tx: crossbeam_channel::Sender<ScanEvent>)
                 }
                 Err(err) => {
                     eprintln!("Parse error for {}: {}", file_path.display(), err);
-                    
-                    let fallback_info = metadata_only_file(&file_path, StlType::Unknown).unwrap_or_else(|_| {
-                        let filename = file_path
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .unwrap_or("unknown")
-                            .to_string();
-                        StlFileInfo {
-                            path: file_path.clone(),
-                            filename,
-                            size: 0,
-                            hash: [0; 32],
-                            stl_type: StlType::Unknown,
-                            triangle_count: None,
-                            dimensions: None,
-                            three_mf_plate_count: None,
-                            modified: None,
-                            thumbnail_path: None,
-                            meta: None,
-                        }
-                    });
+
+                    let fallback_info = metadata_only_file(&file_path, StlType::Unknown)
+                        .unwrap_or_else(|_| {
+                            let filename = file_path
+                                .file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or("unknown")
+                                .to_string();
+                            StlFileInfo {
+                                path: file_path.clone(),
+                                filename,
+                                size: 0,
+                                hash: [0; 32],
+                                stl_type: StlType::Unknown,
+                                triangle_count: None,
+                                dimensions: None,
+                                three_mf_plate_count: None,
+                                modified: None,
+                                thumbnail_path: None,
+                                meta: None,
+                            }
+                        });
 
                     let _ = tx.send(ScanEvent::Entry {
                         info: Box::new(fallback_info),

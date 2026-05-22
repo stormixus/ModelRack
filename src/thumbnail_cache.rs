@@ -85,12 +85,18 @@ fn ensure_thumbnail_in(
 }
 
 fn thumbnail_path_in(entry: &StlFileInfo, use_embedded_3mf: bool, root: &Path) -> PathBuf {
-    let suffix = if matches!(entry.stl_type, crate::scanner::StlType::ThreeMf) && !use_embedded_3mf {
+    let suffix = if matches!(entry.stl_type, crate::scanner::StlType::ThreeMf) && !use_embedded_3mf
+    {
         "-no_embed"
     } else {
         ""
     };
-    root.join(format!("{}-{}{}.png", hash_hex(&entry.hash), CACHE_VERSION, suffix))
+    root.join(format!(
+        "{}-{}{}.png",
+        hash_hex(&entry.hash),
+        CACHE_VERSION,
+        suffix
+    ))
 }
 
 fn platform_cache_root() -> PathBuf {

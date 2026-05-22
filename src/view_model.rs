@@ -518,11 +518,15 @@ pub fn browser_cards_for_prefs(
                 (hash_val % 4) as i32
             };
             let use_embedded_3mf = prefs.use_embedded_3mf_preview;
-            let thumb_path = if matches!(entry.stl_type, scanner::StlType::ThreeMf) && !use_embedded_3mf {
-                Some(crate::thumbnail_cache::thumbnail_path_for_flags(entry, use_embedded_3mf))
-            } else {
-                entry.thumbnail_path.clone()
-            };
+            let thumb_path =
+                if matches!(entry.stl_type, scanner::StlType::ThreeMf) && !use_embedded_3mf {
+                    Some(crate::thumbnail_cache::thumbnail_path_for_flags(
+                        entry,
+                        use_embedded_3mf,
+                    ))
+                } else {
+                    entry.thumbnail_path.clone()
+                };
             BrowserCard {
                 stable_key: entry.path.display().to_string(),
                 slot_index,
@@ -1949,7 +1953,8 @@ mod tests {
             sort_ascending: true,
             preserve_order: true,
         };
-        let s1 = AppViewSnapshot::from_parts(&entries, &roots, &status, &prefs, query_a, usize::MAX);
+        let s1 =
+            AppViewSnapshot::from_parts(&entries, &roots, &status, &prefs, query_a, usize::MAX);
         let query_b = DisplayQuery {
             search_query: "",
             library_filter: &LibraryFilter::All,
@@ -1958,7 +1963,13 @@ mod tests {
             preserve_order: true,
         };
         let s2 = AppViewSnapshot::from_parts_with_displayed_slice(
-            &entries, &displayed, &roots, &status, &prefs, query_b, usize::MAX,
+            &entries,
+            &displayed,
+            &roots,
+            &status,
+            &prefs,
+            query_b,
+            usize::MAX,
         );
         assert_eq!(s1.cards.len(), s2.cards.len());
         assert_eq!(s1.browser.displayed, s2.browser.displayed);
@@ -1987,9 +1998,16 @@ mod tests {
             found: entries.len(),
             skipped: 0,
         };
-        let full = AppViewSnapshot::from_parts(&entries, &roots, &status, &prefs, query, usize::MAX);
+        let full =
+            AppViewSnapshot::from_parts(&entries, &roots, &status, &prefs, query, usize::MAX);
         let cheap = AppViewSnapshot::from_parts_with_displayed_slice(
-            &entries, &displayed, &roots, &status, &prefs, query, usize::MAX,
+            &entries,
+            &displayed,
+            &roots,
+            &status,
+            &prefs,
+            query,
+            usize::MAX,
         );
         assert_eq!(full.cards.len(), cheap.cards.len());
         assert_eq!(full.browser.displayed, cheap.browser.displayed);

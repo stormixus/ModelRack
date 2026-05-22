@@ -953,17 +953,17 @@ pub fn run() -> Result<(), slint::PlatformError> {
             };
             let pending_opt = orbit_frame_pending.borrow_mut().take();
             let mut state = orbit_state.borrow_mut();
-            
+
             let is_dragging = pending_opt.is_some();
             if let Some((delta_x, delta_y)) = pending_opt {
                 state.orbit_preview(delta_x, delta_y);
             }
-            
+
             let diff_yaw = state.target_orbit_yaw - state.preview_orbit_yaw;
             let diff_pitch = state.target_orbit_pitch - state.preview_orbit_pitch;
-            
+
             let mut quality = DetailPreviewQuality::Interactive;
-            
+
             if diff_yaw.abs() < 0.001 && diff_pitch.abs() < 0.001 {
                 state.preview_orbit_yaw = state.target_orbit_yaw;
                 state.preview_orbit_pitch = state.target_orbit_pitch;
@@ -973,12 +973,12 @@ pub fn run() -> Result<(), slint::PlatformError> {
             } else {
                 state.preview_orbit_yaw += diff_yaw * 0.20;
                 state.preview_orbit_pitch += diff_pitch * 0.20;
-                
+
                 if is_dragging {
                     quality = DetailPreviewQuality::Dragging;
                 }
             }
-            
+
             apply_detail_with_quality(&ui, &mut state, quality);
         },
     );
@@ -1555,8 +1555,7 @@ fn configure_slint_backend() -> Result<(), slint::PlatformError> {
 
 #[cfg(not(target_os = "macos"))]
 fn configure_slint_backend() -> Result<(), slint::PlatformError> {
-    let backend = i_slint_backend_winit::Backend::builder()
-        .build()?;
+    let backend = i_slint_backend_winit::Backend::builder().build()?;
     slint::platform::set_platform(Box::new(backend)).map_err(slint::PlatformError::SetPlatformError)
 }
 
@@ -2412,7 +2411,11 @@ fn apply_detail_with_quality(
                 && pitch == 0.0;
 
             let (thumb_image, thumb_ready) = if show_embedded_now {
-                load_thumbnail_image(entry.thumbnail_path.as_deref(), &entry.path, use_embedded_3mf)
+                load_thumbnail_image(
+                    entry.thumbnail_path.as_deref(),
+                    &entry.path,
+                    use_embedded_3mf,
+                )
             } else {
                 preview
                     .as_ref()
@@ -2420,7 +2423,11 @@ fn apply_detail_with_quality(
                         render_detail_preview_image(&entry, &preview.mesh, yaw, pitch, quality)
                     })
                     .unwrap_or_else(|| {
-                        load_thumbnail_image(entry.thumbnail_path.as_deref(), &entry.path, use_embedded_3mf)
+                        load_thumbnail_image(
+                            entry.thumbnail_path.as_deref(),
+                            &entry.path,
+                            use_embedded_3mf,
+                        )
                     })
             };
             ui.set_selected_thumb_image(thumb_image);
@@ -3599,7 +3606,7 @@ impl Default for ShellState {
 impl ShellState {
     fn update_masonry_cache(&mut self, cols: usize, card_w: f32, gap: f32) {
         let cards_count = std::cmp::min(self.displayed.len(), self.displayed_card_limit);
-        
+
         use std::hash::Hasher;
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         for entry in &self.displayed[..cards_count] {
@@ -3618,15 +3625,15 @@ impl ShellState {
                 return;
             }
         }
-        
+
         let sliced_len = cards_count;
         let slice = &self.displayed[..sliced_len];
-        
+
         let cols = if cols == 0 { 1 } else { cols };
         let mut col_heights = vec![0.0f32; cols];
         let mut xs = vec![0.0f32; sliced_len];
         let mut ys = vec![0.0f32; sliced_len];
-        
+
         for slot_idx in 0..sliced_len {
             let entry = &slice[slot_idx];
             let aspect_ratio_type = {
@@ -3637,16 +3644,16 @@ impl ShellState {
                 let hash_val = hasher.finish();
                 (hash_val % 4) as i32
             };
-            
+
             let aspect_ratio = match aspect_ratio_type {
                 0 => 0.85,
                 1 => 1.00,
                 2 => 1.15,
                 _ => 1.30,
             };
-            
+
             let card_h = card_w * aspect_ratio + 62.0;
-            
+
             let mut min_col = 0;
             let mut min_height = col_heights[0];
             for col in 1..cols {
@@ -3655,15 +3662,18 @@ impl ShellState {
                     min_height = col_heights[col];
                 }
             }
-            
+
             xs[slot_idx] = min_col as f32 * (card_w + gap);
             ys[slot_idx] = min_height;
-            
+
             col_heights[min_col] = min_height + card_h + gap;
         }
-        
-        let viewport_height = col_heights.into_iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap_or(0.0);
-        
+
+        let viewport_height = col_heights
+            .into_iter()
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap_or(0.0);
+
         self.masonry_cache = Some(MasonryLayoutCache {
             cols,
             card_w,
@@ -5156,9 +5166,9 @@ impl ShellState {
 
 fn apply_snapshot(ui: &ModelRackWindow, snapshot: &AppViewSnapshot) {
     let start_all = std::time::Instant::now();
-    
+
     ui.set_loading_more(false);
-    
+
     CURRENT_METRICS.with(|metrics| {
         *metrics.borrow_mut() = ProfileMetrics::default();
     });
@@ -5188,7 +5198,7 @@ fn apply_snapshot(ui: &ModelRackWindow, snapshot: &AppViewSnapshot) {
     ui.set_errors_count(snapshot.sidebar.errors as i32);
     ui.set_active_filter_key(snapshot.active_filter_key.clone().into());
     ui.set_total_matching_cards(snapshot.browser.displayed as i32);
-    
+
     let start_cards = std::time::Instant::now();
     let cards = snapshot
         .cards
@@ -5196,11 +5206,11 @@ fn apply_snapshot(ui: &ModelRackWindow, snapshot: &AppViewSnapshot) {
         .map(|card| browser_card(card, snapshot.use_embedded_3mf_preview))
         .collect::<Vec<BrowserCard>>();
     let cards_duration = start_cards.elapsed();
-    
+
     let start_sync = std::time::Instant::now();
     sync_browser_cards(ui, cards);
     let sync_duration = start_sync.elapsed();
-    
+
     let folders = snapshot
         .folders
         .iter()
@@ -5251,7 +5261,6 @@ fn apply_snapshot(ui: &ModelRackWindow, snapshot: &AppViewSnapshot) {
 fn browser_count_label(displayed: usize, total: usize, language: &str) -> String {
     browser_count_label_for_language(displayed, total, language)
 }
-
 
 fn sync_browser_cards(ui: &ModelRackWindow, cards: Vec<BrowserCard>) {
     let current = ui.get_model_cards();
@@ -6724,7 +6733,10 @@ fn load_thumbnail_image(
 
     UI_IMAGE_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
-        if let Some(entry) = cache.get(model_path).filter(|entry| entry.revision == revision) {
+        if let Some(entry) = cache
+            .get(model_path)
+            .filter(|entry| entry.revision == revision)
+        {
             if entry.loading {
                 return (slint::Image::default(), false);
             }
@@ -6812,7 +6824,7 @@ fn get_image_loader_sender() -> std::sync::mpsc::Sender<ImageLoadRequest> {
                                 use image::GenericImageView;
                                 let (width, height) = img.dimensions();
                                 let rgba = img.to_rgba8();
-                                
+
                                 slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
                                     rgba.as_raw(),
                                     width,
@@ -6828,7 +6840,7 @@ fn get_image_loader_sender() -> std::sync::mpsc::Sender<ImageLoadRequest> {
                             } else {
                                 let (info, mesh) = crate::scanner::parse_stl_file(&model_path)
                                     .map_err(|e| format!("Failed to parse model file {}: {}", model_path.display(), e))?;
-                                
+
                                 crate::thumbnail_cache::ensure_thumbnail(&info, mesh.as_ref(), use_embedded_3mf)
                                     .map_err(|e| format!("Failed to render and save thumbnail for {}: {}", model_path.display(), e))?
                             };
@@ -6838,11 +6850,11 @@ fn get_image_loader_sender() -> std::sync::mpsc::Sender<ImageLoadRequest> {
 
                             let img = image::load_from_memory(&bytes)
                                 .map_err(|e| format!("Failed to decode PNG {}: {}", actual_thumb_path.display(), e))?;
-                            
+
                             use image::GenericImageView;
                             let (width, height) = img.dimensions();
                             let rgba = img.to_rgba8();
-                            
+
                             Ok(slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
                                 rgba.as_raw(),
                                 width,
@@ -6891,7 +6903,7 @@ fn get_image_loader_sender() -> std::sync::mpsc::Sender<ImageLoadRequest> {
                     thread_local! {
                         static REFRESH_PENDING: RefCell<bool> = RefCell::new(false);
                     }
-                    
+
                     let should_refresh = REFRESH_PENDING.with(|pending| {
                         if !*pending.borrow() {
                             *pending.borrow_mut() = true;
@@ -8671,9 +8683,15 @@ mod tests {
     #[test]
     fn launcher_waits_and_reports_nonzero_helper_exit() {
         let (program, args) = if cfg!(target_os = "windows") {
-            ("cmd".to_string(), vec!["/c".to_string(), "exit 7".to_string()])
+            (
+                "cmd".to_string(),
+                vec!["/c".to_string(), "exit 7".to_string()],
+            )
         } else {
-            ("sh".to_string(), vec!["-c".to_string(), "exit 7".to_string()])
+            (
+                "sh".to_string(),
+                vec!["-c".to_string(), "exit 7".to_string()],
+            )
         };
 
         let command = LaunchCommand {
