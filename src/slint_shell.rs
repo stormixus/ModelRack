@@ -38,7 +38,7 @@ const SCAN_ENTRY_BATCH_INTERVAL: Duration = Duration::from_millis(120);
 /// drops (never during the same scan) or the user opens a file (detail path
 /// still calls `ensure_thumbnail`). Keeps huge libraries from rendering hundreds
 /// of meshes on the scan thread.
-const SCAN_INLINE_THUMBNAIL_MAX_LIBRARY_ENTRIES: usize = 512;
+const SCAN_INLINE_THUMBNAIL_MAX_LIBRARY_ENTRIES: usize = 100_000;
 const PREVIEW_ORBIT_FRAME_INTERVAL: Duration = Duration::from_millis(16);
 const PREVIEW_ORBIT_SETTLE_DELAY: Duration = Duration::from_millis(120);
 
@@ -488,6 +488,8 @@ pub fn run() -> Result<(), slint::PlatformError> {
 
     let weak = ui.as_weak();
     let settings_state = state.clone();
+    let settings_scan = scan_runtime.clone();
+    let settings_watcher = watcher_runtime.clone();
     ui.on_regenerate_thumbnails(move || {
         if let Some(ui) = weak.upgrade() {
             let language = ui.get_settings_language_key().to_string();
@@ -497,7 +499,15 @@ pub fn run() -> Result<(), slint::PlatformError> {
             };
             match crate::thumbnail_cache::clear_all() {
                 Ok(()) => {
+                    UI_IMAGE_CACHE.with(|cache| cache.borrow_mut().clear());
                     ui.set_status_text(regenerate_thumbnails_status(&language, count, true).into());
+                    request_library_folder_scans(
+                        &ui,
+                        &settings_state,
+                        &settings_scan,
+                        &settings_watcher,
+                        "Regenerating thumbnails · 썸네일 재생성 중",
+                    );
                 }
                 Err(err) => {
                     ui.set_status_text(format!("Could not clear thumbnail cache: {}", err).into());
@@ -512,6 +522,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
             let language = ui.get_settings_language_key().to_string();
             match crate::thumbnail_cache::clear_all() {
                 Ok(()) => {
+                    UI_IMAGE_CACHE.with(|cache| cache.borrow_mut().clear());
                     ui.set_status_text(clear_cache_status(&language).into());
                 }
                 Err(err) => {
@@ -6444,6 +6455,8 @@ fn load_thumbnail_image(path: Option<&Path>) -> (slint::Image, bool) {
 struct CachedUiImage {
     revision: String,
     image: slint::Image,
+    failed: bool,
+    last_attempt: std::time::Instant,
 }
 
 thread_local! {
@@ -6456,60 +6469,7 @@ fn thumbnail_revision(path: Option<&Path>) -> String {
 }
 
 fn thumbnail_revision_for_path(path: &Path) -> Option<String> {
-    #[cfg(not(test))]
-    {
-        thread_local! {
-            static REVISION_CACHE: RefCell<HashMap<PathBuf, (String, Instant)>> = RefCell::new(HashMap::new());
-        }
-
-        let now = Instant::now();
-        if let Some((revision, cached_time)) = REVISION_CACHE.with(|cache| cache.borrow().get(path).cloned()) {
-            if now.duration_since(cached_time) < Duration::from_secs(2) {
-                return Some(revision);
-            }
-        }
-
-        let metadata = fs::metadata(path).ok()?;
-        let modified = metadata
-            .modified()
-            .ok()
-            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok());
-        let (secs, nanos) = modified
-            .map(|duration| (duration.as_secs(), duration.subsec_nanos()))
-            .unwrap_or((0, 0));
-        let revision = format!(
-            "{}:{}:{}:{}",
-            path.display(),
-            metadata.len(),
-            secs,
-            nanos
-        );
-
-        REVISION_CACHE.with(|cache| {
-            cache.borrow_mut().insert(path.to_path_buf(), (revision.clone(), now));
-        });
-
-        Some(revision)
-    }
-
-    #[cfg(test)]
-    {
-        let metadata = fs::metadata(path).ok()?;
-        let modified = metadata
-            .modified()
-            .ok()
-            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok());
-        let (secs, nanos) = modified
-            .map(|duration| (duration.as_secs(), duration.subsec_nanos()))
-            .unwrap_or((0, 0));
-        Some(format!(
-            "{}:{}:{}:{}",
-            path.display(),
-            metadata.len(),
-            secs,
-            nanos
-        ))
-    }
+    Some(path.to_string_lossy().into_owned())
 }
 
 fn load_ui_image(path: Option<&Path>) -> (slint::Image, bool) {
@@ -6523,7 +6483,13 @@ fn load_ui_image(path: Option<&Path>) -> (slint::Image, bool) {
     UI_IMAGE_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
         if let Some(entry) = cache.get(path).filter(|entry| entry.revision == revision) {
-            return (entry.image.clone(), true);
+            if entry.failed {
+                if entry.last_attempt.elapsed() < std::time::Duration::from_secs(2) {
+                    return (slint::Image::default(), false);
+                }
+            } else {
+                return (entry.image.clone(), true);
+            }
         }
 
         match slint::Image::load_from_path(path) {
@@ -6533,12 +6499,22 @@ fn load_ui_image(path: Option<&Path>) -> (slint::Image, bool) {
                     CachedUiImage {
                         revision,
                         image: image.clone(),
+                        failed: false,
+                        last_attempt: std::time::Instant::now(),
                     },
                 );
                 (image, true)
             }
             Err(err) => {
-                cache.remove(path);
+                cache.insert(
+                    path.to_path_buf(),
+                    CachedUiImage {
+                        revision,
+                        image: slint::Image::default(),
+                        failed: true,
+                        last_attempt: std::time::Instant::now(),
+                    },
+                );
                 eprintln!(
                     "Warning: failed to load image {}: {:?}",
                     path.display(),

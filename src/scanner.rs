@@ -8,7 +8,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 use walkdir::WalkDir;
 
-const MAX_STL_PARSE_BYTES: u64 = 512 * 1024 * 1024;
+const MAX_STL_PARSE_BYTES: u64 = 2048 * 1024 * 1024;
 const MAX_STL_PREVIEW_BYTES: u64 = 32 * 1024 * 1024;
 /// When a binary STL exceeds [`MAX_STL_PREVIEW_BYTES`], we still parse geometry if the header
 /// reports a modest triangle count. Many on-disk files are padded, sparse exports, or carry
@@ -2061,7 +2061,11 @@ fn parse_binary_stl_sampled(data: &[u8], face_budget: usize) -> Option<ParsedStl
     let mut min = [f32::MAX; 3];
     let mut max = [f32::MIN; 3];
 
-    for triangle_index in 0..triangle_count {
+    for sample_index in 0..sample_capacity {
+        let triangle_index = sample_index * stride;
+        if triangle_index >= triangle_count {
+            break;
+        }
         let offset = 84usize.checked_add(triangle_index.checked_mul(50)?)?;
         let vertex_offset = offset.checked_add(12)?;
         let triangle = [
@@ -2091,7 +2095,7 @@ fn parse_binary_stl_sampled(data: &[u8], face_budget: usize) -> Option<ParsedStl
             }
         }
 
-        if triangle_index % stride == 0 && faces.len() < face_budget {
+        if faces.len() < face_budget {
             let base = u32::try_from(vertices.len()).ok()?;
             vertices.extend_from_slice(&triangle);
             faces.push([base, base + 1, base + 2]);
