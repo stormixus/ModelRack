@@ -70,6 +70,9 @@ export struct PrinterProfileChoice {
     detail: string,
     selected: bool,
     defaulted: bool,
+    maker: string,
+    icon-image: image,
+    icon-ready: bool,
 }
 
 export struct ChoiceRow {
@@ -753,6 +756,36 @@ component PlateDropdown inherits Rectangle {
     }
 }
 
+// Printer Settings → maker column: simple letter-in-circle marks (bundled SVGs are
+// original geometric artwork in brand-associated colors — not OEM logos, which
+// we avoid here for trademark safety).
+component PrinterMakerMark inherits Rectangle {
+    in property <string> maker-key;
+    in-out property <length> icon-size: 22px;
+    width: icon-size;
+    height: icon-size;
+    clip: true;
+
+    Image {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        image-fit: contain;
+        source:
+            maker-key == "Bambu" ? @image-url("../assets/makers/badge-bambu.svg") :
+            maker-key == "Prusa" ? @image-url("../assets/makers/badge-prusa.svg") :
+            maker-key == "Creality" ? @image-url("../assets/makers/badge-creality.svg") :
+            maker-key == "Anycubic" ? @image-url("../assets/makers/badge-anycubic.svg") :
+            maker-key == "Elegoo" ? @image-url("../assets/makers/badge-elegoo.svg") :
+            maker-key == "FlashForge" ? @image-url("../assets/makers/badge-flashforge.svg") :
+            maker-key == "Snapmaker" ? @image-url("../assets/makers/badge-snapmaker.svg") :
+            maker-key == "Sovol" ? @image-url("../assets/makers/badge-sovol.svg") :
+            maker-key == "Voron" ? @image-url("../assets/makers/badge-voron.svg") :
+            @image-url("../assets/makers/badge-default.svg");
+    }
+}
+
 component EstimatePrinterDropdown inherits Rectangle {
     in property <[PrinterProfileChoice]> printers;
     in property <string> current-label;
@@ -836,10 +869,25 @@ component EstimatePrinterDropdown inherits Rectangle {
                 background: printer.selected ? Theme.accent-dim : printer-row-touch.has-hover ? Theme.bg-4 : transparent;
                 border-radius: 5px;
 
-                Text {
+                if printer.icon-ready: Image {
                     x: 8px;
+                    y: (parent.height - 18px) / 2;
+                    width: 18px;
+                    height: 18px;
+                    image-fit: contain;
+                    source: printer.icon-image;
+                }
+                if !printer.icon-ready: PrinterMakerMark {
+                    x: 8px;
+                    y: (parent.height - 18px) / 2;
+                    icon-size: 18px;
+                    maker-key: printer.maker;
+                }
+
+                Text {
+                    x: 32px;
                     y: 5px;
-                    width: parent.width - 32px;
+                    width: parent.width - 56px;
                     text: printer.label;
                     color: printer.selected ? Theme.fg-0 : Theme.fg-1;
                     font-size: Theme.font-body;
@@ -848,9 +896,9 @@ component EstimatePrinterDropdown inherits Rectangle {
                 }
 
                 Text {
-                    x: 8px;
+                    x: 32px;
                     y: 20px;
-                    width: parent.width - 32px;
+                    width: parent.width - 56px;
                     text: printer.detail;
                     color: Theme.fg-3;
                     font-family: "JetBrains Mono";
@@ -1255,34 +1303,6 @@ component SettingsOptionButton inherits Rectangle {
     }
 }
 
-// Printer Settings → maker column: simple letter-in-circle marks (bundled SVGs are
-// original geometric artwork in brand-associated colors — not OEM logos, which
-// we avoid here for trademark safety).
-component PrinterMakerMark inherits Rectangle {
-    in property <string> maker-key;
-    width: 22px;
-    height: 22px;
-    clip: true;
-
-    Image {
-        x: 0;
-        y: 0;
-        width: parent.width;
-        height: parent.height;
-        image-fit: contain;
-        source:
-            maker-key == "Bambu" ? @image-url("../assets/makers/badge-bambu.svg") :
-            maker-key == "Prusa" ? @image-url("../assets/makers/badge-prusa.svg") :
-            maker-key == "Creality" ? @image-url("../assets/makers/badge-creality.svg") :
-            maker-key == "Anycubic" ? @image-url("../assets/makers/badge-anycubic.svg") :
-            maker-key == "Elegoo" ? @image-url("../assets/makers/badge-elegoo.svg") :
-            maker-key == "FlashForge" ? @image-url("../assets/makers/badge-flashforge.svg") :
-            maker-key == "Snapmaker" ? @image-url("../assets/makers/badge-snapmaker.svg") :
-            maker-key == "Sovol" ? @image-url("../assets/makers/badge-sovol.svg") :
-            maker-key == "Voron" ? @image-url("../assets/makers/badge-voron.svg") :
-            @image-url("../assets/makers/badge-default.svg");
-    }
-}
 
 component SettingsMakerOptionRow inherits Rectangle {
     in property <string> label;
@@ -1808,6 +1828,8 @@ export component ModelRackWindow inherits Window {
     in property <[PrinterProfileChoice]> detail-estimate-printers;
     in property <bool> detail-bed-fit;
     in property <bool> detail-fav;
+    in-out property <bool> detail-estimate-multicolor: false;
+    in property <string> detail-estimate-poop;
 
     // Settings
     in property <bool> settings-open;
@@ -2108,6 +2130,7 @@ export component ModelRackWindow inherits Window {
     callback toggle-settings-printer(string);
     callback choose-settings-default-printer(string);
     callback choose-estimate-printer(string);
+    callback toggle-estimate-multicolor();
     callback apply-search(string);
     callback choose-view-mode(string);
     callback choose-density(string);
@@ -3708,6 +3731,47 @@ export component ModelRackWindow inherits Window {
                                     }
                                 }
                             }
+                            if detail-estimate-time != "": Rectangle {
+                                height: 26px;
+                                
+                                Text {
+                                    x: 0px;
+                                    y: (parent.height - self.height) / 2;
+                                    text: settings-language-key == "ko" ? "멀티컬러 출력 시간 보정" : settings-language-key == "ja" ? "マルチカラー補正" : "Multi-color overhead";
+                                    color: Theme.fg-1;
+                                    font-size: 11px;
+                                    font-weight: 500;
+                                }
+
+                                // Toggle Switch track
+                                Rectangle {
+                                    x: parent.width - 36px;
+                                    y: (parent.height - 18px) / 2;
+                                    width: 36px;
+                                    height: 18px;
+                                    background: detail-estimate-multicolor ? Theme.accent : Theme.bg-4;
+                                    border-radius: 9px;
+                                    border-color: detail-estimate-multicolor ? Theme.accent : Theme.line;
+                                    border-width: 1px;
+
+                                    // Switch handle
+                                    Rectangle {
+                                        x: detail-estimate-multicolor ? 19px : 1px;
+                                        y: 1px;
+                                        width: 14px;
+                                        height: 14px;
+                                        background: detail-estimate-multicolor ? #0e2a32 : Theme.fg-3;
+                                        border-radius: 7px;
+                                        animate x { duration: 120ms; easing: ease-in-out; }
+                                    }
+
+                                    TouchArea {
+                                        clicked => {
+                                            toggle-estimate-multicolor();
+                                        }
+                                    }
+                                }
+                            }
                             if detail-estimate-time != "": HorizontalLayout {
                                 spacing: 8px;
                                 height: 60px;
@@ -3735,7 +3799,20 @@ export component ModelRackWindow inherits Window {
                                     VerticalLayout {
                                         padding: 8px;
                                         Text { text: tr-filament; color: Theme.fg-2; font-size: Theme.font-overline; }
-                                        Text { text: detail-estimate-grams; color: Theme.fg-0; font-size: 16px; font-weight: 600; }
+                                        HorizontalLayout {
+                                            spacing: 4px;
+                                            alignment: start;
+                                            Text { text: detail-estimate-grams; color: Theme.fg-0; font-size: 16px; font-weight: 600; }
+                                            if detail-estimate-multicolor && detail-estimate-poop != "": Text {
+                                                text: settings-language-key == "ko" ? "(똥:" + detail-estimate-poop + ")" : 
+                                                      settings-language-key == "ja" ? "(パージ:" + detail-estimate-poop + ")" : 
+                                                      "(poop:" + detail-estimate-poop + ")";
+                                                color: #FF9800;
+                                                font-size: 10px;
+                                                font-weight: 600;
+                                                y: 4px;
+                                            }
+                                        }
                                     }
                                 }
                                 Rectangle {
@@ -4848,8 +4925,22 @@ export component ModelRackWindow inherits Window {
                                 border-radius: 6px;
 
                                 Rectangle { x: 8px; y: 12px; width: 20px; height: 20px; background: printer.selected ? Theme.accent : Theme.bg-3; border-color: printer.selected ? Theme.accent : Theme.line; border-width: 1px; border-radius: 5px; Text { x: 0; y: 1px; width: parent.width; height: parent.height; text: printer.selected ? "✓" : ""; color: #0e2a32; font-size: 12px; font-weight: 700; horizontal-alignment: center; } }
-                                Text { x: 36px; y: 7px; width: parent.width - 220px; text: printer.label; color: Theme.fg-0; font-size: Theme.font-body; font-weight: 600; overflow: elide; }
-                                Text { x: 36px; y: 24px; width: parent.width - 220px; text: printer.detail; color: Theme.fg-2; font-family: "JetBrains Mono"; font-size: Theme.font-overline; overflow: elide; }
+                                 if printer.icon-ready: Image {
+                                     x: 36px;
+                                     y: 11px;
+                                     width: 22px;
+                                     height: 22px;
+                                     image-fit: contain;
+                                     source: printer.icon-image;
+                                 }
+                                 if !printer.icon-ready: PrinterMakerMark {
+                                     x: 36px;
+                                     y: 11px;
+                                     icon-size: 22px;
+                                     maker-key: printer.maker;
+                                 }
+                                 Text { x: 66px; y: 7px; width: parent.width - 280px; text: printer.label; color: Theme.fg-0; font-size: Theme.font-body; font-weight: 600; overflow: elide; }
+                                 Text { x: 66px; y: 24px; width: parent.width - 280px; text: printer.detail; color: Theme.fg-2; font-family: "JetBrains Mono"; font-size: Theme.font-overline; overflow: elide; }
                                 Rectangle { x: parent.width - 208px; y: 10px; width: 96px; height: 24px; background: printer.defaulted ? Theme.bg-4 : set-default-touch.has-hover ? Theme.bg-4 : Theme.bg-3; border-color: printer.defaulted ? Theme.accent-line : Theme.line; border-width: 1px; border-radius: 5px; Text { x: 0; y: 5px; width: parent.width; text: printer.defaulted ? tr-default : tr-set-default; color: printer.defaulted ? Theme.fg-0 : Theme.fg-1; font-size: 11px; font-weight: 600; horizontal-alignment: center; } set-default-touch := TouchArea { clicked => { choose-settings-default-printer(printer.key); } } }
                                 Rectangle { x: parent.width - 104px; y: 10px; width: 96px; height: 24px; background: remove-printer-touch.has-hover ? Theme.bg-4 : Theme.bg-3; border-color: Theme.line; border-width: 1px; border-radius: 5px; Text { x: 0; y: 5px; width: parent.width; text: tr-remove; color: Theme.fg-1; font-size: 11px; font-weight: 600; horizontal-alignment: center; } remove-printer-touch := TouchArea { clicked => { toggle-settings-printer(printer.key); } } }
                             }

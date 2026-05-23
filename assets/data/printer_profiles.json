@@ -1460,6 +1460,62 @@
       "process_label": "0.40 Draft"
     },
     {
+      "key": "creality-hi-combo-0.2",
+      "label": "Creality Hi Combo · 0.2mm · 0.10 High Detail",
+      "printer_label": "Creality Hi Combo",
+      "nozzle_diameter_mm": 0.2,
+      "build_volume": [
+        260,
+        260,
+        300
+      ],
+      "layer_height_mm": 0.08,
+      "grams_per_minute": 0.42,
+      "process_label": "0.10 High Detail"
+    },
+    {
+      "key": "creality-hi-combo-0.4",
+      "label": "Creality Hi Combo · 0.4mm · 0.20 Speed",
+      "printer_label": "Creality Hi Combo",
+      "nozzle_diameter_mm": 0.4,
+      "build_volume": [
+        260,
+        260,
+        300
+      ],
+      "layer_height_mm": 0.2,
+      "grams_per_minute": 0.9,
+      "process_label": "0.20 Speed"
+    },
+    {
+      "key": "creality-hi-combo-0.6",
+      "label": "Creality Hi Combo · 0.6mm · 0.29 Standard",
+      "printer_label": "Creality Hi Combo",
+      "nozzle_diameter_mm": 0.6,
+      "build_volume": [
+        260,
+        260,
+        300
+      ],
+      "layer_height_mm": 0.29,
+      "grams_per_minute": 1.15,
+      "process_label": "0.29 Standard"
+    },
+    {
+      "key": "creality-hi-combo-0.8",
+      "label": "Creality Hi Combo · 0.8mm · 0.40 Draft",
+      "printer_label": "Creality Hi Combo",
+      "nozzle_diameter_mm": 0.8,
+      "build_volume": [
+        260,
+        260,
+        300
+      ],
+      "layer_height_mm": 0.38,
+      "grams_per_minute": 1.45,
+      "process_label": "0.40 Draft"
+    },
+    {
       "key": "anycubic-kobra3-0.2",
       "label": "Anycubic Kobra 3 · 0.2mm · 0.20 Speed",
       "printer_label": "Anycubic Kobra 3",

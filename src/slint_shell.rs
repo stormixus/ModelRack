@@ -790,6 +790,18 @@ pub fn run() -> Result<(), slint::PlatformError> {
     });
 
     let weak = ui.as_weak();
+    let multicolor_state = state.clone();
+    ui.on_toggle_estimate_multicolor(move || {
+        if let Some(ui) = weak.upgrade() {
+            let mut state = multicolor_state.borrow_mut();
+            state.prefs.estimate_multicolor = !state.prefs.estimate_multicolor;
+            save_prefs_status(&ui, &state);
+            ui.set_detail_estimate_multicolor(state.prefs.estimate_multicolor);
+            apply_detail(&ui, &mut state);
+        }
+    });
+
+    let weak = ui.as_weak();
     let select_state = state.clone();
     ui.on_select_model(move |index| {
         if let Some(ui) = weak.upgrade() {
@@ -2669,8 +2681,45 @@ fn apply_detail_with_quality(
                 let catalog = load_printer_profiles();
                 let profile = state.selected_estimate_profile(&catalog);
                 let selected_volume_cm3 = preview.as_ref().and_then(|preview| preview.volume_cm3);
-                let estimate =
+                let mut estimate =
                     estimate_print_for_dimensions([x, y, z], selected_volume_cm3, &profile);
+
+                let is_multicolor = state.prefs.estimate_multicolor;
+                ui.set_detail_estimate_multicolor(is_multicolor);
+
+                if is_multicolor {
+                    let layers = (z / profile.layer_height_mm).ceil().max(1.0);
+                    let swaps = (layers * 1.5).round() as u32;
+                    let extra_minutes = ((swaps as f32 * 50.0) / 60.0).round() as u32;
+                    let poop_grams = swaps as f32 * 0.25;
+
+                    let part_volume_cm3 = selected_volume_cm3
+                        .filter(|volume| volume.is_finite() && *volume > 0.0)
+                        .unwrap_or(x.max(0.0) * y.max(0.0) * z.max(0.0) / 1000.0 * 0.12);
+                    let grams = part_volume_cm3 * 1.24 * 1.08;
+                    let original_minutes =
+                        (grams / profile.grams_per_minute).max(6.0).ceil() as u32;
+                    let total_minutes = original_minutes + extra_minutes;
+                    let hours = total_minutes / 60;
+                    let mins = total_minutes % 60;
+
+                    let time_label = if hours > 0 {
+                        format!("{}h {}m", hours, mins)
+                    } else {
+                        format!("{}m", mins)
+                    };
+                    estimate.time_label = time_label;
+
+                    let poop_formatted = if poop_grams.fract() == 0.0 {
+                        format!("{:.0}g", poop_grams)
+                    } else {
+                        format!("{:.1}g", poop_grams)
+                    };
+                    ui.set_detail_estimate_poop(poop_formatted.into());
+                } else {
+                    ui.set_detail_estimate_poop("".into());
+                }
+
                 ui.set_detail_estimate_time(estimate.time_label.into());
                 ui.set_detail_estimate_grams(estimate.grams_label.into());
                 ui.set_detail_estimate_layers(estimate.layers_label.into());
@@ -2712,6 +2761,7 @@ fn clear_print_estimate(ui: &ModelRackWindow) {
     ui.set_detail_estimate_time("".into());
     ui.set_detail_estimate_grams("".into());
     ui.set_detail_estimate_layers("".into());
+    ui.set_detail_estimate_poop("".into());
     ui.set_detail_estimate_printer_label("".into());
     ui.set_detail_estimate_printer_detail("".into());
     ui.set_detail_estimate_has_printer_choices(false);
@@ -6045,6 +6095,15 @@ fn settings_printer_status(prefs: &AppPrefs, catalog: &[PrinterProfile]) -> Stri
     }
 }
 
+fn printer_model_key(profile: &PrinterProfile) -> String {
+    profile
+        .printer_label
+        .to_lowercase()
+        .replace(" ", "-")
+        .replace(".", "-")
+        .replace("/", "-")
+}
+
 fn settings_printer_choices(
     prefs: &AppPrefs,
     catalog: &[PrinterProfile],
@@ -6054,12 +6113,31 @@ fn settings_printer_choices(
     let mut rows: Vec<PrinterProfileChoice> = Vec::new();
     for key in &prefs.active_printer_keys {
         if let Some(profile) = printer_profile(catalog, key) {
+            let model_key = printer_model_key(profile);
+            let icon_path =
+                std::path::Path::new("assets/printers").join(format!("{}.png", model_key));
+            let (icon_image, icon_ready) = if icon_path.exists() {
+                load_ui_image(Some(&icon_path))
+            } else {
+                let maker = printer_maker_label(profile).to_lowercase();
+                let generic_path =
+                    std::path::Path::new("assets/printers").join(format!("generic-{}.png", maker));
+                if generic_path.exists() {
+                    load_ui_image(Some(&generic_path))
+                } else {
+                    (slint::Image::default(), false)
+                }
+            };
+
             rows.push(PrinterProfileChoice {
                 key: profile.key.clone().into(),
                 label: profile.label.clone().into(),
                 detail: printer_detail(profile).into(),
                 selected: true,
                 defaulted: default_key == profile.key,
+                maker: printer_maker_label(profile).into(),
+                icon_image,
+                icon_ready,
             });
         }
     }
@@ -6074,12 +6152,34 @@ fn estimate_printer_choices(
     let default_key = default_printer_key_for_prefs(prefs, catalog);
     active_printer_profiles(prefs, catalog)
         .iter()
-        .map(|profile| PrinterProfileChoice {
-            key: profile.key.clone().into(),
-            label: profile.label.clone().into(),
-            detail: printer_detail(profile).into(),
-            selected: profile.key == selected_key,
-            defaulted: default_key == profile.key,
+        .map(|profile| {
+            let model_key = printer_model_key(profile);
+            let icon_path =
+                std::path::Path::new("assets/printers").join(format!("{}.png", model_key));
+            let (icon_image, icon_ready) = if icon_path.exists() {
+                load_ui_image(Some(&icon_path))
+            } else {
+                let maker = printer_maker_label(profile).to_lowercase();
+                let generic_path =
+                    std::path::Path::new("assets/printers").join(format!("generic-{}.png", maker));
+                if generic_path.exists() {
+                    load_ui_image(Some(&generic_path))
+                } else {
+                    (slint::Image::default(), false)
+                }
+            };
+
+            PrinterProfileChoice {
+                key: profile.key.clone().into(),
+                label: profile.label.clone().into(),
+                detail: printer_detail(profile).into(),
+                selected: profile.key == selected_key,
+                defaulted: default_key == profile.key,
+                maker: printer_maker_label(profile).into(),
+                icon_image,
+
+                icon_ready,
+            }
         })
         .collect()
 }
@@ -7681,6 +7781,7 @@ mod tests {
             excluded_folders: vec![root.join("models/archived")],
             collapsed_folders: vec![root.join("models/nested")],
             use_embedded_3mf_preview: true,
+            estimate_multicolor: false,
         };
 
         save_app_prefs_to_path(&path, &prefs).unwrap();
@@ -7878,6 +7979,23 @@ mod tests {
         assert!(bambu_estimate.bed_fit);
         assert!(!prusa_estimate.bed_fit);
         assert_ne!(bambu_estimate.time_label, prusa_estimate.time_label);
+    }
+
+    #[test]
+    fn print_estimate_multicolor_overhead_and_poop() {
+        let catalog = load_printer_profiles();
+        let dimensions = [100.0, 100.0, 100.0]; // Z = 100.0mm
+        let bambu = printer_profile(&catalog, "bambu-p1s-0.4").unwrap(); // layer height = 0.2mm
+
+        let layers = (dimensions[2] / bambu.layer_height_mm).ceil().max(1.0);
+        let swaps = (layers * 1.5).round() as u32;
+        let extra_minutes = ((swaps as f32 * 50.0) / 60.0).round() as u32;
+        let poop_grams = swaps as f32 * 0.25;
+
+        assert_eq!(layers, 500.0);
+        assert_eq!(swaps, 750);
+        assert_eq!(extra_minutes, 625);
+        assert_eq!(poop_grams, 187.5);
     }
 
     #[cfg(target_os = "macos")]

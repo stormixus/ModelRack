@@ -141,6 +141,8 @@ pub struct AppPrefs {
     pub collapsed_folders: Vec<PathBuf>,
     #[serde(default = "default_use_embedded_3mf_preview")]
     pub use_embedded_3mf_preview: bool,
+    #[serde(default = "default_estimate_multicolor")]
+    pub estimate_multicolor: bool,
 }
 
 impl AppPrefs {
@@ -186,6 +188,7 @@ impl Default for AppPrefs {
             excluded_folders: Vec::new(),
             collapsed_folders: Vec::new(),
             use_embedded_3mf_preview: default_use_embedded_3mf_preview(),
+            estimate_multicolor: default_estimate_multicolor(),
         }
     }
 }
@@ -252,6 +255,10 @@ fn default_show_file_extensions() -> bool {
 
 fn default_use_embedded_3mf_preview() -> bool {
     true
+}
+
+fn default_estimate_multicolor() -> bool {
+    false
 }
 
 fn default_startup_view() -> String {
@@ -1549,6 +1556,7 @@ mod tests {
             library_folders: vec![PathBuf::from("/tmp/other-lib")],
             excluded_folders: vec![PathBuf::from("/tmp/models/archived")],
             collapsed_folders: vec![PathBuf::from("/tmp/models/nested")],
+            estimate_multicolor: false,
         };
         let json = serde_json::to_string(&prefs).unwrap();
         let loaded: AppPrefs = serde_json::from_str(&json).unwrap();
