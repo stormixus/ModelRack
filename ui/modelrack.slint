@@ -1215,7 +1215,7 @@ component SettingsOptionButton inherits Rectangle {
         height: parent.height;
         spacing: 6px;
         // Cross-axis = vertical: center label + monogram in the 24px row (start looked top-heavy).
-        alignment: center;
+        alignment: start;
 
         if root.show-row-icon: Rectangle {
             width: 18px;
@@ -1302,7 +1302,7 @@ component SettingsMakerOptionRow inherits Rectangle {
         padding-left: 4px;
         padding-right: 4px;
         // Cross-axis = vertical: center badge + label as one row in 24px.
-        alignment: center;
+        alignment: start;
 
         PrinterMakerMark { maker-key: root.key; }
 

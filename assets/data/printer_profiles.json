@@ -620,6 +620,62 @@
       "process_label": "0.40 Draft"
     },
     {
+      "key": "prusa-coreone-0.2",
+      "label": "Prusa CoreOne · 0.2mm · 0.08 High Detail",
+      "printer_label": "Prusa CoreOne",
+      "nozzle_diameter_mm": 0.2,
+      "build_volume": [
+        250,
+        250,
+        250
+      ],
+      "layer_height_mm": 0.08,
+      "grams_per_minute": 0.22,
+      "process_label": "0.08 High Detail"
+    },
+    {
+      "key": "prusa-coreone-0.4",
+      "label": "Prusa CoreOne · 0.4mm · 0.20 Standard",
+      "printer_label": "Prusa CoreOne",
+      "nozzle_diameter_mm": 0.4,
+      "build_volume": [
+        250,
+        250,
+        250
+      ],
+      "layer_height_mm": 0.2,
+      "grams_per_minute": 0.68,
+      "process_label": "0.20 Standard"
+    },
+    {
+      "key": "prusa-coreone-0.6",
+      "label": "Prusa CoreOne · 0.6mm · 0.30 Standard",
+      "printer_label": "Prusa CoreOne",
+      "nozzle_diameter_mm": 0.6,
+      "build_volume": [
+        250,
+        250,
+        250
+      ],
+      "layer_height_mm": 0.3,
+      "grams_per_minute": 0.9,
+      "process_label": "0.30 Standard"
+    },
+    {
+      "key": "prusa-coreone-0.8",
+      "label": "Prusa CoreOne · 0.8mm · 0.40 Draft",
+      "printer_label": "Prusa CoreOne",
+      "nozzle_diameter_mm": 0.8,
+      "build_volume": [
+        250,
+        250,
+        250
+      ],
+      "layer_height_mm": 0.4,
+      "grams_per_minute": 1.2,
+      "process_label": "0.40 Draft"
+    },
+    {
       "key": "creality-k1-0.2",
       "label": "Creality K1 · 0.2mm · 0.20 Speed",
       "printer_label": "Creality K1",
@@ -1012,6 +1068,230 @@
       "process_label": "0.40 Draft"
     },
     {
+      "key": "creality-cr-m4-0.2",
+      "label": "Creality CR-M4 · 0.2mm · 0.08 High Detail",
+      "printer_label": "Creality CR-M4",
+      "nozzle_diameter_mm": 0.2,
+      "build_volume": [
+        450,
+        450,
+        470
+      ],
+      "layer_height_mm": 0.08,
+      "grams_per_minute": 0.18,
+      "process_label": "0.08 High Detail"
+    },
+    {
+      "key": "creality-cr-m4-0.4",
+      "label": "Creality CR-M4 · 0.4mm · 0.20 Standard",
+      "printer_label": "Creality CR-M4",
+      "nozzle_diameter_mm": 0.4,
+      "build_volume": [
+        450,
+        450,
+        470
+      ],
+      "layer_height_mm": 0.2,
+      "grams_per_minute": 0.55,
+      "process_label": "0.20 Standard"
+    },
+    {
+      "key": "creality-cr-m4-0.6",
+      "label": "Creality CR-M4 · 0.6mm · 0.30 Standard",
+      "printer_label": "Creality CR-M4",
+      "nozzle_diameter_mm": 0.6,
+      "build_volume": [
+        450,
+        450,
+        470
+      ],
+      "layer_height_mm": 0.3,
+      "grams_per_minute": 0.75,
+      "process_label": "0.30 Standard"
+    },
+    {
+      "key": "creality-cr-m4-0.8",
+      "label": "Creality CR-M4 · 0.8mm · 0.40 Draft",
+      "printer_label": "Creality CR-M4",
+      "nozzle_diameter_mm": 0.8,
+      "build_volume": [
+        450,
+        450,
+        470
+      ],
+      "layer_height_mm": 0.4,
+      "grams_per_minute": 1.0,
+      "process_label": "0.40 Draft"
+    },
+    {
+      "key": "creality-ender-3-v2-0.2",
+      "label": "Creality Ender-3 V2 · 0.2mm · 0.08 High Detail",
+      "printer_label": "Creality Ender-3 V2",
+      "nozzle_diameter_mm": 0.2,
+      "build_volume": [
+        220,
+        220,
+        250
+      ],
+      "layer_height_mm": 0.08,
+      "grams_per_minute": 0.15,
+      "process_label": "0.08 High Detail"
+    },
+    {
+      "key": "creality-ender-3-v2-0.4",
+      "label": "Creality Ender-3 V2 · 0.4mm · 0.20 Standard",
+      "printer_label": "Creality Ender-3 V2",
+      "nozzle_diameter_mm": 0.4,
+      "build_volume": [
+        220,
+        220,
+        250
+      ],
+      "layer_height_mm": 0.2,
+      "grams_per_minute": 0.45,
+      "process_label": "0.20 Standard"
+    },
+    {
+      "key": "creality-ender-3-v2-0.6",
+      "label": "Creality Ender-3 V2 · 0.6mm · 0.30 Standard",
+      "printer_label": "Creality Ender-3 V2",
+      "nozzle_diameter_mm": 0.6,
+      "build_volume": [
+        220,
+        220,
+        250
+      ],
+      "layer_height_mm": 0.3,
+      "grams_per_minute": 0.6,
+      "process_label": "0.30 Standard"
+    },
+    {
+      "key": "creality-ender-3-v2-0.8",
+      "label": "Creality Ender-3 V2 · 0.8mm · 0.40 Draft",
+      "printer_label": "Creality Ender-3 V2",
+      "nozzle_diameter_mm": 0.8,
+      "build_volume": [
+        220,
+        220,
+        250
+      ],
+      "layer_height_mm": 0.4,
+      "grams_per_minute": 0.8,
+      "process_label": "0.40 Draft"
+    },
+    {
+      "key": "creality-ender-3-v3-plus-0.2",
+      "label": "Creality Ender-3 V3 Plus · 0.2mm · 0.08 High Detail",
+      "printer_label": "Creality Ender-3 V3 Plus",
+      "nozzle_diameter_mm": 0.2,
+      "build_volume": [
+        300,
+        300,
+        330
+      ],
+      "layer_height_mm": 0.08,
+      "grams_per_minute": 0.2,
+      "process_label": "0.08 High Detail"
+    },
+    {
+      "key": "creality-ender-3-v3-plus-0.4",
+      "label": "Creality Ender-3 V3 Plus · 0.4mm · 0.20 Standard",
+      "printer_label": "Creality Ender-3 V3 Plus",
+      "nozzle_diameter_mm": 0.4,
+      "build_volume": [
+        300,
+        300,
+        330
+      ],
+      "layer_height_mm": 0.2,
+      "grams_per_minute": 0.65,
+      "process_label": "0.20 Standard"
+    },
+    {
+      "key": "creality-ender-3-v3-plus-0.6",
+      "label": "Creality Ender-3 V3 Plus · 0.6mm · 0.30 Standard",
+      "printer_label": "Creality Ender-3 V3 Plus",
+      "nozzle_diameter_mm": 0.6,
+      "build_volume": [
+        300,
+        300,
+        330
+      ],
+      "layer_height_mm": 0.3,
+      "grams_per_minute": 0.85,
+      "process_label": "0.30 Standard"
+    },
+    {
+      "key": "creality-ender-3-v3-plus-0.8",
+      "label": "Creality Ender-3 V3 Plus · 0.8mm · 0.40 Draft",
+      "printer_label": "Creality Ender-3 V3 Plus",
+      "nozzle_diameter_mm": 0.8,
+      "build_volume": [
+        300,
+        300,
+        330
+      ],
+      "layer_height_mm": 0.4,
+      "grams_per_minute": 1.15,
+      "process_label": "0.40 Draft"
+    },
+    {
+      "key": "creality-k2-plus-0.2",
+      "label": "Creality K2 Plus · 0.2mm · 0.08 High Detail",
+      "printer_label": "Creality K2 Plus",
+      "nozzle_diameter_mm": 0.2,
+      "build_volume": [
+        350,
+        350,
+        350
+      ],
+      "layer_height_mm": 0.08,
+      "grams_per_minute": 0.25,
+      "process_label": "0.08 High Detail"
+    },
+    {
+      "key": "creality-k2-plus-0.4",
+      "label": "Creality K2 Plus · 0.4mm · 0.20 Standard",
+      "printer_label": "Creality K2 Plus",
+      "nozzle_diameter_mm": 0.4,
+      "build_volume": [
+        350,
+        350,
+        350
+      ],
+      "layer_height_mm": 0.2,
+      "grams_per_minute": 0.75,
+      "process_label": "0.20 Standard"
+    },
+    {
+      "key": "creality-k2-plus-0.6",
+      "label": "Creality K2 Plus · 0.6mm · 0.30 Standard",
+      "printer_label": "Creality K2 Plus",
+      "nozzle_diameter_mm": 0.6,
+      "build_volume": [
+        350,
+        350,
+        350
+      ],
+      "layer_height_mm": 0.3,
+      "grams_per_minute": 0.95,
+      "process_label": "0.30 Standard"
+    },
+    {
+      "key": "creality-k2-plus-0.8",
+      "label": "Creality K2 Plus · 0.8mm · 0.40 Draft",
+      "printer_label": "Creality K2 Plus",
+      "nozzle_diameter_mm": 0.8,
+      "build_volume": [
+        350,
+        350,
+        350
+      ],
+      "layer_height_mm": 0.4,
+      "grams_per_minute": 1.25,
+      "process_label": "0.40 Draft"
+    },
+    {
       "key": "anycubic-kobra3-0.2",
       "label": "Anycubic Kobra 3 · 0.2mm · 0.20 Speed",
       "printer_label": "Anycubic Kobra 3",
@@ -1177,6 +1457,118 @@
       ],
       "layer_height_mm": 0.38,
       "grams_per_minute": 0.73,
+      "process_label": "0.40 Draft"
+    },
+    {
+      "key": "anycubic-kobra-2-max-0.2",
+      "label": "Anycubic Kobra 2 Max · 0.2mm · 0.08 High Detail",
+      "printer_label": "Anycubic Kobra 2 Max",
+      "nozzle_diameter_mm": 0.2,
+      "build_volume": [
+        400,
+        400,
+        500
+      ],
+      "layer_height_mm": 0.08,
+      "grams_per_minute": 0.2,
+      "process_label": "0.08 High Detail"
+    },
+    {
+      "key": "anycubic-kobra-2-max-0.4",
+      "label": "Anycubic Kobra 2 Max · 0.4mm · 0.20 Standard",
+      "printer_label": "Anycubic Kobra 2 Max",
+      "nozzle_diameter_mm": 0.4,
+      "build_volume": [
+        400,
+        400,
+        500
+      ],
+      "layer_height_mm": 0.2,
+      "grams_per_minute": 0.6,
+      "process_label": "0.20 Standard"
+    },
+    {
+      "key": "anycubic-kobra-2-max-0.6",
+      "label": "Anycubic Kobra 2 Max · 0.6mm · 0.30 Standard",
+      "printer_label": "Anycubic Kobra 2 Max",
+      "nozzle_diameter_mm": 0.6,
+      "build_volume": [
+        400,
+        400,
+        500
+      ],
+      "layer_height_mm": 0.3,
+      "grams_per_minute": 0.8,
+      "process_label": "0.30 Standard"
+    },
+    {
+      "key": "anycubic-kobra-2-max-0.8",
+      "label": "Anycubic Kobra 2 Max · 0.8mm · 0.40 Draft",
+      "printer_label": "Anycubic Kobra 2 Max",
+      "nozzle_diameter_mm": 0.8,
+      "build_volume": [
+        400,
+        400,
+        500
+      ],
+      "layer_height_mm": 0.4,
+      "grams_per_minute": 1.1,
+      "process_label": "0.40 Draft"
+    },
+    {
+      "key": "anycubic-kobra-3-combo-0.2",
+      "label": "Anycubic Kobra 3 Combo · 0.2mm · 0.08 High Detail",
+      "printer_label": "Anycubic Kobra 3 Combo",
+      "nozzle_diameter_mm": 0.2,
+      "build_volume": [
+        250,
+        250,
+        250
+      ],
+      "layer_height_mm": 0.08,
+      "grams_per_minute": 0.22,
+      "process_label": "0.08 High Detail"
+    },
+    {
+      "key": "anycubic-kobra-3-combo-0.4",
+      "label": "Anycubic Kobra 3 Combo · 0.4mm · 0.20 Standard",
+      "printer_label": "Anycubic Kobra 3 Combo",
+      "nozzle_diameter_mm": 0.4,
+      "build_volume": [
+        250,
+        250,
+        250
+      ],
+      "layer_height_mm": 0.2,
+      "grams_per_minute": 0.65,
+      "process_label": "0.20 Standard"
+    },
+    {
+      "key": "anycubic-kobra-3-combo-0.6",
+      "label": "Anycubic Kobra 3 Combo · 0.6mm · 0.30 Standard",
+      "printer_label": "Anycubic Kobra 3 Combo",
+      "nozzle_diameter_mm": 0.6,
+      "build_volume": [
+        250,
+        250,
+        250
+      ],
+      "layer_height_mm": 0.3,
+      "grams_per_minute": 0.85,
+      "process_label": "0.30 Standard"
+    },
+    {
+      "key": "anycubic-kobra-3-combo-0.8",
+      "label": "Anycubic Kobra 3 Combo · 0.8mm · 0.40 Draft",
+      "printer_label": "Anycubic Kobra 3 Combo",
+      "nozzle_diameter_mm": 0.8,
+      "build_volume": [
+        250,
+        250,
+        250
+      ],
+      "layer_height_mm": 0.4,
+      "grams_per_minute": 1.15,
       "process_label": "0.40 Draft"
     },
     {
@@ -1348,6 +1740,118 @@
       "process_label": "0.40 Draft"
     },
     {
+      "key": "elegoo-neptune-3-pro-0.2",
+      "label": "Elegoo Neptune 3 Pro · 0.2mm · 0.08 High Detail",
+      "printer_label": "Elegoo Neptune 3 Pro",
+      "nozzle_diameter_mm": 0.2,
+      "build_volume": [
+        220,
+        220,
+        250
+      ],
+      "layer_height_mm": 0.08,
+      "grams_per_minute": 0.15,
+      "process_label": "0.08 High Detail"
+    },
+    {
+      "key": "elegoo-neptune-3-pro-0.4",
+      "label": "Elegoo Neptune 3 Pro · 0.4mm · 0.20 Standard",
+      "printer_label": "Elegoo Neptune 3 Pro",
+      "nozzle_diameter_mm": 0.4,
+      "build_volume": [
+        220,
+        220,
+        250
+      ],
+      "layer_height_mm": 0.2,
+      "grams_per_minute": 0.45,
+      "process_label": "0.20 Standard"
+    },
+    {
+      "key": "elegoo-neptune-3-pro-0.6",
+      "label": "Elegoo Neptune 3 Pro · 0.6mm · 0.30 Standard",
+      "printer_label": "Elegoo Neptune 3 Pro",
+      "nozzle_diameter_mm": 0.6,
+      "build_volume": [
+        220,
+        220,
+        250
+      ],
+      "layer_height_mm": 0.3,
+      "grams_per_minute": 0.6,
+      "process_label": "0.30 Standard"
+    },
+    {
+      "key": "elegoo-neptune-3-pro-0.8",
+      "label": "Elegoo Neptune 3 Pro · 0.8mm · 0.40 Draft",
+      "printer_label": "Elegoo Neptune 3 Pro",
+      "nozzle_diameter_mm": 0.8,
+      "build_volume": [
+        220,
+        220,
+        250
+      ],
+      "layer_height_mm": 0.4,
+      "grams_per_minute": 0.8,
+      "process_label": "0.40 Draft"
+    },
+    {
+      "key": "elegoo-neptune-4-max-0.2",
+      "label": "Elegoo Neptune 4 Max · 0.2mm · 0.08 High Detail",
+      "printer_label": "Elegoo Neptune 4 Max",
+      "nozzle_diameter_mm": 0.2,
+      "build_volume": [
+        420,
+        420,
+        480
+      ],
+      "layer_height_mm": 0.08,
+      "grams_per_minute": 0.2,
+      "process_label": "0.08 High Detail"
+    },
+    {
+      "key": "elegoo-neptune-4-max-0.4",
+      "label": "Elegoo Neptune 4 Max · 0.4mm · 0.20 Standard",
+      "printer_label": "Elegoo Neptune 4 Max",
+      "nozzle_diameter_mm": 0.4,
+      "build_volume": [
+        420,
+        420,
+        480
+      ],
+      "layer_height_mm": 0.2,
+      "grams_per_minute": 0.65,
+      "process_label": "0.20 Standard"
+    },
+    {
+      "key": "elegoo-neptune-4-max-0.6",
+      "label": "Elegoo Neptune 4 Max · 0.6mm · 0.30 Standard",
+      "printer_label": "Elegoo Neptune 4 Max",
+      "nozzle_diameter_mm": 0.6,
+      "build_volume": [
+        420,
+        420,
+        480
+      ],
+      "layer_height_mm": 0.3,
+      "grams_per_minute": 0.85,
+      "process_label": "0.30 Standard"
+    },
+    {
+      "key": "elegoo-neptune-4-max-0.8",
+      "label": "Elegoo Neptune 4 Max · 0.8mm · 0.40 Draft",
+      "printer_label": "Elegoo Neptune 4 Max",
+      "nozzle_diameter_mm": 0.8,
+      "build_volume": [
+        420,
+        420,
+        480
+      ],
+      "layer_height_mm": 0.4,
+      "grams_per_minute": 1.15,
+      "process_label": "0.40 Draft"
+    },
+    {
       "key": "sovol-sv08-0.2",
       "label": "Sovol SV08 · 0.2mm · 0.20 Speed",
       "printer_label": "Sovol SV08",
@@ -1457,6 +1961,118 @@
       ],
       "layer_height_mm": 0.38,
       "grams_per_minute": 0.92,
+      "process_label": "0.40 Draft"
+    },
+    {
+      "key": "sovol-sv06-0.2",
+      "label": "Sovol SV06 · 0.2mm · 0.08 High Detail",
+      "printer_label": "Sovol SV06",
+      "nozzle_diameter_mm": 0.2,
+      "build_volume": [
+        220,
+        220,
+        250
+      ],
+      "layer_height_mm": 0.08,
+      "grams_per_minute": 0.18,
+      "process_label": "0.08 High Detail"
+    },
+    {
+      "key": "sovol-sv06-0.4",
+      "label": "Sovol SV06 · 0.4mm · 0.20 Standard",
+      "printer_label": "Sovol SV06",
+      "nozzle_diameter_mm": 0.4,
+      "build_volume": [
+        220,
+        220,
+        250
+      ],
+      "layer_height_mm": 0.2,
+      "grams_per_minute": 0.5,
+      "process_label": "0.20 Standard"
+    },
+    {
+      "key": "sovol-sv06-0.6",
+      "label": "Sovol SV06 · 0.6mm · 0.30 Standard",
+      "printer_label": "Sovol SV06",
+      "nozzle_diameter_mm": 0.6,
+      "build_volume": [
+        220,
+        220,
+        250
+      ],
+      "layer_height_mm": 0.3,
+      "grams_per_minute": 0.7,
+      "process_label": "0.30 Standard"
+    },
+    {
+      "key": "sovol-sv06-0.8",
+      "label": "Sovol SV06 · 0.8mm · 0.40 Draft",
+      "printer_label": "Sovol SV06",
+      "nozzle_diameter_mm": 0.8,
+      "build_volume": [
+        220,
+        220,
+        250
+      ],
+      "layer_height_mm": 0.4,
+      "grams_per_minute": 0.95,
+      "process_label": "0.40 Draft"
+    },
+    {
+      "key": "sovol-sv06-plus-0.2",
+      "label": "Sovol SV06 Plus · 0.2mm · 0.08 High Detail",
+      "printer_label": "Sovol SV06 Plus",
+      "nozzle_diameter_mm": 0.2,
+      "build_volume": [
+        300,
+        300,
+        340
+      ],
+      "layer_height_mm": 0.08,
+      "grams_per_minute": 0.2,
+      "process_label": "0.08 High Detail"
+    },
+    {
+      "key": "sovol-sv06-plus-0.4",
+      "label": "Sovol SV06 Plus · 0.4mm · 0.20 Standard",
+      "printer_label": "Sovol SV06 Plus",
+      "nozzle_diameter_mm": 0.4,
+      "build_volume": [
+        300,
+        300,
+        340
+      ],
+      "layer_height_mm": 0.2,
+      "grams_per_minute": 0.55,
+      "process_label": "0.20 Standard"
+    },
+    {
+      "key": "sovol-sv06-plus-0.6",
+      "label": "Sovol SV06 Plus · 0.6mm · 0.30 Standard",
+      "printer_label": "Sovol SV06 Plus",
+      "nozzle_diameter_mm": 0.6,
+      "build_volume": [
+        300,
+        300,
+        340
+      ],
+      "layer_height_mm": 0.3,
+      "grams_per_minute": 0.75,
+      "process_label": "0.30 Standard"
+    },
+    {
+      "key": "sovol-sv06-plus-0.8",
+      "label": "Sovol SV06 Plus · 0.8mm · 0.40 Draft",
+      "printer_label": "Sovol SV06 Plus",
+      "nozzle_diameter_mm": 0.8,
+      "build_volume": [
+        300,
+        300,
+        340
+      ],
+      "layer_height_mm": 0.4,
+      "grams_per_minute": 1.0,
       "process_label": "0.40 Draft"
     },
     {
@@ -1737,6 +2353,286 @@
       ],
       "layer_height_mm": 0.38,
       "grams_per_minute": 1.03,
+      "process_label": "0.40 Draft"
+    },
+    {
+      "key": "voron-2-4-250-0.2",
+      "label": "Voron 2.4 250 · 0.2mm · 0.08 High Detail",
+      "printer_label": "Voron 2.4 250",
+      "nozzle_diameter_mm": 0.2,
+      "build_volume": [
+        250,
+        250,
+        250
+      ],
+      "layer_height_mm": 0.08,
+      "grams_per_minute": 0.25,
+      "process_label": "0.08 High Detail"
+    },
+    {
+      "key": "voron-2-4-250-0.4",
+      "label": "Voron 2.4 250 · 0.4mm · 0.20 Standard",
+      "printer_label": "Voron 2.4 250",
+      "nozzle_diameter_mm": 0.4,
+      "build_volume": [
+        250,
+        250,
+        250
+      ],
+      "layer_height_mm": 0.2,
+      "grams_per_minute": 0.75,
+      "process_label": "0.20 Standard"
+    },
+    {
+      "key": "voron-2-4-250-0.6",
+      "label": "Voron 2.4 250 · 0.6mm · 0.30 Standard",
+      "printer_label": "Voron 2.4 250",
+      "nozzle_diameter_mm": 0.6,
+      "build_volume": [
+        250,
+        250,
+        250
+      ],
+      "layer_height_mm": 0.3,
+      "grams_per_minute": 0.95,
+      "process_label": "0.30 Standard"
+    },
+    {
+      "key": "voron-2-4-250-0.8",
+      "label": "Voron 2.4 250 · 0.8mm · 0.40 Draft",
+      "printer_label": "Voron 2.4 250",
+      "nozzle_diameter_mm": 0.8,
+      "build_volume": [
+        250,
+        250,
+        250
+      ],
+      "layer_height_mm": 0.4,
+      "grams_per_minute": 1.25,
+      "process_label": "0.40 Draft"
+    },
+    {
+      "key": "voron-2-4-300-0.2",
+      "label": "Voron 2.4 300 · 0.2mm · 0.08 High Detail",
+      "printer_label": "Voron 2.4 300",
+      "nozzle_diameter_mm": 0.2,
+      "build_volume": [
+        300,
+        300,
+        300
+      ],
+      "layer_height_mm": 0.08,
+      "grams_per_minute": 0.25,
+      "process_label": "0.08 High Detail"
+    },
+    {
+      "key": "voron-2-4-300-0.4",
+      "label": "Voron 2.4 300 · 0.4mm · 0.20 Standard",
+      "printer_label": "Voron 2.4 300",
+      "nozzle_diameter_mm": 0.4,
+      "build_volume": [
+        300,
+        300,
+        300
+      ],
+      "layer_height_mm": 0.2,
+      "grams_per_minute": 0.75,
+      "process_label": "0.20 Standard"
+    },
+    {
+      "key": "voron-2-4-300-0.6",
+      "label": "Voron 2.4 300 · 0.6mm · 0.30 Standard",
+      "printer_label": "Voron 2.4 300",
+      "nozzle_diameter_mm": 0.6,
+      "build_volume": [
+        300,
+        300,
+        300
+      ],
+      "layer_height_mm": 0.3,
+      "grams_per_minute": 0.95,
+      "process_label": "0.30 Standard"
+    },
+    {
+      "key": "voron-2-4-300-0.8",
+      "label": "Voron 2.4 300 · 0.8mm · 0.40 Draft",
+      "printer_label": "Voron 2.4 300",
+      "nozzle_diameter_mm": 0.8,
+      "build_volume": [
+        300,
+        300,
+        300
+      ],
+      "layer_height_mm": 0.4,
+      "grams_per_minute": 1.25,
+      "process_label": "0.40 Draft"
+    },
+    {
+      "key": "voron-trident-300-0.2",
+      "label": "Voron Trident 300 · 0.2mm · 0.08 High Detail",
+      "printer_label": "Voron Trident 300",
+      "nozzle_diameter_mm": 0.2,
+      "build_volume": [
+        300,
+        300,
+        300
+      ],
+      "layer_height_mm": 0.08,
+      "grams_per_minute": 0.25,
+      "process_label": "0.08 High Detail"
+    },
+    {
+      "key": "voron-trident-300-0.4",
+      "label": "Voron Trident 300 · 0.4mm · 0.20 Standard",
+      "printer_label": "Voron Trident 300",
+      "nozzle_diameter_mm": 0.4,
+      "build_volume": [
+        300,
+        300,
+        300
+      ],
+      "layer_height_mm": 0.2,
+      "grams_per_minute": 0.75,
+      "process_label": "0.20 Standard"
+    },
+    {
+      "key": "voron-trident-300-0.6",
+      "label": "Voron Trident 300 · 0.6mm · 0.30 Standard",
+      "printer_label": "Voron Trident 300",
+      "nozzle_diameter_mm": 0.6,
+      "build_volume": [
+        300,
+        300,
+        300
+      ],
+      "layer_height_mm": 0.3,
+      "grams_per_minute": 0.95,
+      "process_label": "0.30 Standard"
+    },
+    {
+      "key": "voron-trident-300-0.8",
+      "label": "Voron Trident 300 · 0.8mm · 0.40 Draft",
+      "printer_label": "Voron Trident 300",
+      "nozzle_diameter_mm": 0.8,
+      "build_volume": [
+        300,
+        300,
+        300
+      ],
+      "layer_height_mm": 0.4,
+      "grams_per_minute": 1.25,
+      "process_label": "0.40 Draft"
+    },
+    {
+      "key": "voron-trident-350-0.2",
+      "label": "Voron Trident 350 · 0.2mm · 0.08 High Detail",
+      "printer_label": "Voron Trident 350",
+      "nozzle_diameter_mm": 0.2,
+      "build_volume": [
+        350,
+        350,
+        350
+      ],
+      "layer_height_mm": 0.08,
+      "grams_per_minute": 0.25,
+      "process_label": "0.08 High Detail"
+    },
+    {
+      "key": "voron-trident-350-0.4",
+      "label": "Voron Trident 350 · 0.4mm · 0.20 Standard",
+      "printer_label": "Voron Trident 350",
+      "nozzle_diameter_mm": 0.4,
+      "build_volume": [
+        350,
+        350,
+        350
+      ],
+      "layer_height_mm": 0.2,
+      "grams_per_minute": 0.75,
+      "process_label": "0.20 Standard"
+    },
+    {
+      "key": "voron-trident-350-0.6",
+      "label": "Voron Trident 350 · 0.6mm · 0.30 Standard",
+      "printer_label": "Voron Trident 350",
+      "nozzle_diameter_mm": 0.6,
+      "build_volume": [
+        350,
+        350,
+        350
+      ],
+      "layer_height_mm": 0.3,
+      "grams_per_minute": 0.95,
+      "process_label": "0.30 Standard"
+    },
+    {
+      "key": "voron-trident-350-0.8",
+      "label": "Voron Trident 350 · 0.8mm · 0.40 Draft",
+      "printer_label": "Voron Trident 350",
+      "nozzle_diameter_mm": 0.8,
+      "build_volume": [
+        350,
+        350,
+        350
+      ],
+      "layer_height_mm": 0.4,
+      "grams_per_minute": 1.25,
+      "process_label": "0.40 Draft"
+    },
+    {
+      "key": "voron-v0-2-0.2",
+      "label": "Voron V0.2 · 0.2mm · 0.08 High Detail",
+      "printer_label": "Voron V0.2",
+      "nozzle_diameter_mm": 0.2,
+      "build_volume": [
+        120,
+        120,
+        120
+      ],
+      "layer_height_mm": 0.08,
+      "grams_per_minute": 0.22,
+      "process_label": "0.08 High Detail"
+    },
+    {
+      "key": "voron-v0-2-0.4",
+      "label": "Voron V0.2 · 0.4mm · 0.20 Standard",
+      "printer_label": "Voron V0.2",
+      "nozzle_diameter_mm": 0.4,
+      "build_volume": [
+        120,
+        120,
+        120
+      ],
+      "layer_height_mm": 0.2,
+      "grams_per_minute": 0.68,
+      "process_label": "0.20 Standard"
+    },
+    {
+      "key": "voron-v0-2-0.6",
+      "label": "Voron V0.2 · 0.6mm · 0.30 Standard",
+      "printer_label": "Voron V0.2",
+      "nozzle_diameter_mm": 0.6,
+      "build_volume": [
+        120,
+        120,
+        120
+      ],
+      "layer_height_mm": 0.3,
+      "grams_per_minute": 0.88,
+      "process_label": "0.30 Standard"
+    },
+    {
+      "key": "voron-v0-2-0.8",
+      "label": "Voron V0.2 · 0.8mm · 0.40 Draft",
+      "printer_label": "Voron V0.2",
+      "nozzle_diameter_mm": 0.8,
+      "build_volume": [
+        120,
+        120,
+        120
+      ],
+      "layer_height_mm": 0.4,
+      "grams_per_minute": 1.15,
       "process_label": "0.40 Draft"
     }
   ]
