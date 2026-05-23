@@ -285,6 +285,10 @@ mod imp {
             let count: usize = msg_send![windows, count];
             for idx in 0..count {
                 let window: *mut Object = msg_send![windows, objectAtIndex: idx];
+                let can_become_key: bool = msg_send![window, canBecomeKeyWindow];
+                if !can_become_key {
+                    continue;
+                }
 
                 // Keep the NSWindow wrapper/decorations alive for native
                 // rounded corners, shadow, and full-screen transitions, but
@@ -379,22 +383,34 @@ mod imp {
         let app: *mut Object = msg_send![class!(NSApplication), sharedApplication];
         let key_window: *mut Object = msg_send![app, keyWindow];
         if !key_window.is_null() {
-            return Some(key_window);
+            let can_become_key: bool = msg_send![key_window, canBecomeKeyWindow];
+            if can_become_key {
+                return Some(key_window);
+            }
         }
 
         let main_window: *mut Object = msg_send![app, mainWindow];
         if !main_window.is_null() {
-            return Some(main_window);
+            let can_become_key: bool = msg_send![main_window, canBecomeKeyWindow];
+            if can_become_key {
+                return Some(main_window);
+            }
         }
 
         let windows: *mut Object = msg_send![app, windows];
         let count: usize = msg_send![windows, count];
-        if count == 0 {
-            None
-        } else {
-            let window: *mut Object = msg_send![windows, objectAtIndex: 0usize];
-            (!window.is_null()).then_some(window)
+        for idx in 0..count {
+            let window: *mut Object = msg_send![windows, objectAtIndex: idx];
+            if !window.is_null() {
+                let can_become_key: bool = msg_send![window, canBecomeKeyWindow];
+                let is_visible: bool = msg_send![window, isVisible];
+                let is_miniaturized: bool = msg_send![window, isMiniaturized];
+                if can_become_key && (is_visible || is_miniaturized) {
+                    return Some(window);
+                }
+            }
         }
+        None
     }
 
     unsafe fn show_all_windows() {
@@ -404,9 +420,16 @@ mod imp {
         let count: usize = msg_send![windows, count];
         for idx in 0..count {
             let window: *mut Object = msg_send![windows, objectAtIndex: idx];
-            let _: () = msg_send![window, deminiaturize: std::ptr::null_mut::<Object>()];
-            let _: () = msg_send![window, makeKeyAndOrderFront: std::ptr::null_mut::<Object>()];
-            let _: () = msg_send![window, orderFrontRegardless];
+            let can_become_key: bool = msg_send![window, canBecomeKeyWindow];
+            let is_visible: bool = msg_send![window, isVisible];
+            let is_miniaturized: bool = msg_send![window, isMiniaturized];
+            if can_become_key && (is_visible || is_miniaturized) {
+                if is_miniaturized {
+                    let _: () = msg_send![window, deminiaturize: std::ptr::null_mut::<Object>()];
+                }
+                let _: () = msg_send![window, makeKeyAndOrderFront: std::ptr::null_mut::<Object>()];
+                let _: () = msg_send![window, orderFrontRegardless];
+            }
         }
         let _: () = msg_send![app, activateIgnoringOtherApps: true];
     }
