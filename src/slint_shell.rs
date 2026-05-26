@@ -1521,53 +1521,21 @@ pub fn run() -> Result<(), slint::PlatformError> {
     ui.on_folder_dropped_on_tag(move |folder_key, tag_key| {
         if let Some(ui) = weak.upgrade() {
             let mut state = folder_drop_state.borrow_mut();
-            let folder_path_str = folder_key
-                .as_str()
-                .strip_prefix("folder:")
-                .unwrap_or(folder_key.as_str());
-            let folder_path = PathBuf::from(folder_path_str);
-            let tag_str = tag_key
-                .as_str()
-                .strip_prefix("tag:")
-                .unwrap_or(tag_key.as_str());
+            tag_all_in_folder(&ui, &mut state, folder_key.as_str(), tag_key.as_str());
+        }
+    });
 
-            let paths: Vec<PathBuf> = state
-                .entries
-                .iter()
-                .filter(|e| e.path.starts_with(&folder_path))
-                .map(|e| e.path.clone())
-                .collect();
-
-            let allow_sidecar_writes = state.sidecar_writes_enabled;
-            let prefs = state.prefs.clone();
-            let mut added = 0usize;
-            for path in &paths {
-                match persist_add_existing_tag(
-                    &prefs,
-                    &mut state.entries,
-                    path,
-                    allow_sidecar_writes,
-                    tag_str,
-                ) {
-                    Ok(Some(TagDropOutcome::Added { .. })) => added += 1,
-                    _ => {}
-                }
-            }
-
-            if added > 0 {
-                ui.set_status_text(
-                    format!("Tagged {} models in folder with '{}'", added, tag_str).into(),
-                );
+    let weak = ui.as_weak();
+    let folder_tag_dialog_state = state.clone();
+    ui.on_add_tag_to_folder_path(move |folder_key, tag_name| {
+        if let Some(ui) = weak.upgrade() {
+            let mut state = folder_tag_dialog_state.borrow_mut();
+            let key_with_prefix = if folder_key.as_str().starts_with("folder:") {
+                folder_key.to_string()
             } else {
-                ui.set_status_text(
-                    format!("Tag '{}' already present on all models in folder", tag_str).into(),
-                );
-            }
-
-            let snapshot = state.snapshot_done();
-            apply_snapshot(&ui, &snapshot);
-            apply_detail(&ui, &mut state);
-            apply_settings(&ui, &state);
+                format!("folder:{}", folder_key)
+            };
+            tag_all_in_folder(&ui, &mut state, &key_with_prefix, tag_name.as_str());
         }
     });
 
@@ -6014,6 +5982,42 @@ fn settings_folder_label(state: &ShellState) -> String {
         )
         .to_string()
     }
+}
+
+fn tag_all_in_folder(ui: &ModelRackWindow, state: &mut ShellState, folder_key: &str, tag: &str) {
+    let folder_path_str = folder_key
+        .strip_prefix("folder:")
+        .unwrap_or(folder_key);
+    let folder_path = PathBuf::from(folder_path_str);
+    let tag_str = tag.strip_prefix("tag:").unwrap_or(tag);
+
+    let paths: Vec<PathBuf> = state
+        .entries
+        .iter()
+        .filter(|e| e.path.starts_with(&folder_path))
+        .map(|e| e.path.clone())
+        .collect();
+
+    let allow_sidecar_writes = state.sidecar_writes_enabled;
+    let prefs = state.prefs.clone();
+    let mut added = 0usize;
+    for path in &paths {
+        match persist_add_existing_tag(&prefs, &mut state.entries, path, allow_sidecar_writes, tag_str) {
+            Ok(Some(TagDropOutcome::Added { .. })) => added += 1,
+            _ => {}
+        }
+    }
+
+    if added > 0 {
+        ui.set_status_text(format!("Tagged {} models in folder with '{}'", added, tag_str).into());
+    } else {
+        ui.set_status_text(format!("Tag '{}' already present on all models in folder", tag_str).into());
+    }
+
+    let snapshot = state.snapshot_done();
+    apply_snapshot(ui, &snapshot);
+    apply_detail(ui, state);
+    apply_settings(ui, state);
 }
 
 fn apply_filter_key(ui: &ModelRackWindow, state: &Rc<RefCell<ShellState>>, key: &str) {
