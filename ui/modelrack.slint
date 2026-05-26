@@ -1278,12 +1278,6 @@ component ModelCard inherits Rectangle {
         }
     }
 
-    if root.selected: DragArea {
-        width: root.width;
-        height: root.height;
-        mime-type: "application/x-modelrack-model-index";
-        data: "" + root.card-index;
-    }
 }
 
 component SettingsTabButton inherits Rectangle {
@@ -3339,33 +3333,8 @@ export component ModelRackWindow inherits Window {
                             }
                         }
 
-                        // When files are selected and NOT in lasso → DragArea for dragging to sidebar tags
-                        if selection-count > 0 && !lasso-active: DragArea {
-                            width: parent.width;
-                            height: parent.height;
-                            mime-type: "application/x-modelrack-model-index";
-                            data: "selected";
-
-                            overlay-touch-sel := TouchArea {
-                                width: parent.width;
-                                height: parent.height;
-                                scroll-event(event) => { reject }
-                                pointer-event(event) => {
-                                    if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
-                                        lasso-focus.focus();
-                                    }
-                                    if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up) {
-                                        root.lasso-click(self.mouse-x, self.mouse-y - root.grid-viewport-y, event.modifiers.shift, event.modifiers.meta || event.modifiers.control, self.width);
-                                    }
-                                    if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
-                                        root.lasso-right-click(self.mouse-x, self.mouse-y - root.grid-viewport-y, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y, self.width);
-                                    }
-                                }
-                            }
-                        }
-
-                        // Lasso selection (when nothing selected OR lasso in progress)
-                        if selection-count == 0 || lasso-active: lasso-overlay := TouchArea {
+                        // Lasso + click overlay (always active)
+                        lasso-overlay := TouchArea {
                             width: parent.width;
                             height: parent.height;
                             property <length> press-x;
@@ -3419,8 +3388,8 @@ export component ModelRackWindow inherits Window {
                     }
                 }
 
-                // Tag action bar (folder drag or multi-select)
-                if folder-drag-detected || selection-count > 1: Rectangle {
+                // Tag action bar (folder drag or any selection)
+                if folder-drag-detected || selection-count >= 1: Rectangle {
                     height: 48px;
                     background: Theme.bg-1;
                     clip: true;
