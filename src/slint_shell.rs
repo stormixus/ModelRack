@@ -1033,6 +1033,88 @@ pub fn run() -> Result<(), slint::PlatformError> {
     );
 
     let weak = ui.as_weak();
+    let lasso_click_state = state.clone();
+    ui.on_lasso_click(move |click_x, click_y, shift, cmd, grid_width| {
+        if let Some(ui) = weak.upgrade() {
+            let mut state = lasso_click_state.borrow_mut();
+            let hit = hit_test_card(&state, click_x as f32, click_y as f32, grid_width as f32);
+            if let Some(idx) = hit {
+                if cmd {
+                    if state.selected_indices.contains(&idx) {
+                        state.selected_indices.remove(&idx);
+                        if state.selected_indices.is_empty() {
+                            state.selected_index = None;
+                        }
+                    } else {
+                        state.selected_indices.insert(idx);
+                        state.selected_index = Some(idx);
+                    }
+                } else if shift {
+                    if let Some(anchor) = state.selected_index {
+                        let lo = anchor.min(idx);
+                        let hi = anchor.max(idx);
+                        for i in lo..=hi {
+                            state.selected_indices.insert(i);
+                        }
+                    } else {
+                        state.selected_indices.clear();
+                        state.selected_indices.insert(idx);
+                        state.selected_index = Some(idx);
+                    }
+                } else {
+                    state.selected_indices.clear();
+                    state.selected_indices.insert(idx);
+                    state.selected_index = Some(idx);
+                }
+            } else {
+                state.selected_indices.clear();
+                state.selected_index = None;
+            }
+            state.reset_preview_orbit();
+            state.reset_preview_plate();
+            let snapshot = state.snapshot_done();
+            apply_snapshot(&ui, &snapshot);
+            apply_detail(&ui, &mut state);
+            ui.set_selection_count(state.selected_indices.len() as i32);
+        }
+    });
+
+    let weak = ui.as_weak();
+    let lasso_rclick_state = state.clone();
+    ui.on_lasso_right_click(move |click_x, click_y, abs_x, abs_y, grid_width| {
+        if let Some(ui) = weak.upgrade() {
+            let mut state = lasso_rclick_state.borrow_mut();
+            let hit = hit_test_card(&state, click_x as f32, click_y as f32, grid_width as f32);
+            if let Some(idx) = hit {
+                if !state.selected_indices.contains(&idx) {
+                    state.selected_indices.clear();
+                    state.selected_indices.insert(idx);
+                }
+                state.selected_index = Some(idx);
+                state.reset_preview_orbit();
+                state.reset_preview_plate();
+                let snapshot = state.snapshot_done();
+                apply_snapshot(&ui, &snapshot);
+                apply_detail(&ui, &mut state);
+                ui.set_selection_count(state.selected_indices.len() as i32);
+
+                if let Some(entry) = state.displayed.get(idx) {
+                    let title = entry.filename.clone();
+                    let favorite = entry.meta.as_ref().is_some_and(|m| m.favorite);
+                    let printed_count = entry.meta.as_ref().map(|m| m.printed).unwrap_or(0);
+                    ui.set_model_context_index(idx as i32);
+                    ui.set_model_context_label(title.into());
+                    ui.set_model_context_favorite(favorite);
+                    ui.set_model_context_printed_count(printed_count as i32);
+                    ui.set_model_context_x(abs_x + 2.0);
+                    ui.set_model_context_y(abs_y + 2.0);
+                    ui.set_model_context_open(true);
+                }
+            }
+        }
+    });
+
+    let weak = ui.as_weak();
     let clear_sel_state = state.clone();
     ui.on_clear_selection(move || {
         if let Some(ui) = weak.upgrade() {
@@ -6053,6 +6135,79 @@ fn settings_folder_label(state: &ShellState) -> String {
         )
         .to_string()
     }
+}
+
+fn hit_test_card(state: &ShellState, x: f32, y: f32, grid_width: f32) -> Option<usize> {
+    let limit = state.displayed_card_limit.min(state.displayed.len());
+    let view_mode = ViewMode::from_str(&state.prefs.view_mode);
+    let density = Density::from_str(&state.prefs.density);
+
+    match view_mode {
+        ViewMode::List => {
+            let row_h = match density {
+                Density::Small => 48.0,
+                Density::Medium => 58.0,
+                Density::Large => 68.0,
+            };
+            let gap = 8.0;
+            for i in 0..limit {
+                let cy = i as f32 * (row_h + gap);
+                if y >= cy && y < cy + row_h {
+                    return Some(i);
+                }
+            }
+        }
+        ViewMode::Grid => {
+            let gw = grid_width;
+            let target_w = match density {
+                Density::Small => 144.0,
+                Density::Medium => 168.0,
+                Density::Large => 208.0,
+            };
+            let gap = 12.0;
+            let cols = ((gw + gap) / (target_w + gap)).floor().max(1.0) as usize;
+            let card_w = (gw - (cols as f32 - 1.0) * gap) / cols as f32;
+            let card_h = card_w + 76.0;
+            for i in 0..limit {
+                let col = i % cols;
+                let row = i / cols;
+                let cx = col as f32 * (card_w + gap);
+                let cy = row as f32 * (card_h + gap);
+                if x >= cx && x < cx + card_w && y >= cy && y < cy + card_h {
+                    return Some(i);
+                }
+            }
+        }
+        ViewMode::Masonry => {
+            if let Some(cache) = &state.masonry_cache {
+                let card_w = cache.card_w;
+                for i in 0..limit.min(cache.xs.len()) {
+                    let cx = cache.xs[i];
+                    let cy = cache.ys[i];
+                    let entry = &state.displayed[i];
+                    let aspect: f32 = {
+                        use std::collections::hash_map::DefaultHasher;
+                        use std::hash::{Hash, Hasher};
+                        let mut hasher = DefaultHasher::new();
+                        entry.path.hash(&mut hasher);
+                        match hasher.finish() % 4 {
+                            0 => 0.85,
+                            1 => 1.00,
+                            2 => 1.15,
+                            _ => 1.30,
+                        }
+                    };
+                    let has_tags = entry.meta.as_ref().is_some_and(|m| !m.tags.is_empty());
+                    let text_h = if has_tags { 76.0 } else { 62.0 };
+                    let ch = card_w * aspect + text_h;
+                    if x >= cx && x < cx + card_w && y >= cy && y < cy + ch {
+                        return Some(i);
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 fn tag_all_in_folder(ui: &ModelRackWindow, state: &mut ShellState, folder_key: &str, tag: &str) {

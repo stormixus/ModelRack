@@ -1016,7 +1016,7 @@ component ModelCard inherits Rectangle {
         delay: streaming-list ? min(card.slot-index, 44) * 10ms : 0ms;
     }
 
-    background: selected ? Theme.bg-5 : card-touch.has-hover ? Theme.bg-3 : (is-list ? Theme.bg-1 : Theme.bg-3);
+    background: selected ? Theme.bg-5 : (is-list ? Theme.bg-1 : Theme.bg-3);
     border-color: card.error ? Theme.error :
                   selected ? Theme.accent-line : Theme.line;
     border-width: 1px;
@@ -1212,30 +1212,8 @@ component ModelCard inherits Rectangle {
         }
     }
 
-    DragArea {
-        width: parent.width;
-        height: parent.height;
-        mime-type: "application/x-modelrack-model-index";
-        data: "" + root.card-index;
-
-        card-touch := TouchArea {
-            width: parent.width;
-            height: parent.height;
-            pointer-event(event) => {
-                if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up) {
-                    if (event.modifiers.shift || event.modifiers.meta) {
-                        root.modifier-clicked(root.card-index, event.modifiers.shift, event.modifiers.meta);
-                    } else {
-                        root.clicked(root.card-index);
-                    }
-                }
-                if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
-                    root.context-requested(root.card-index, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
-                }
-            }
-        }
-    }
 }
+
 
 component SettingsTabButton inherits Rectangle {
     in property <string> label;
@@ -2190,13 +2168,13 @@ export component ModelRackWindow inherits Window {
     property <bool> sidebar-context-is-folder: false;
     property <length> sidebar-context-x: 0px;
     property <length> sidebar-context-y: 0px;
-    property <bool> model-context-open: false;
-    property <int> model-context-index: -1;
-    property <string> model-context-label;
-    property <bool> model-context-favorite: false;
-    property <int> model-context-printed-count: 0;
-    property <length> model-context-x: 0px;
-    property <length> model-context-y: 0px;
+    in-out property <bool> model-context-open: false;
+    in-out property <int> model-context-index: -1;
+    in-out property <string> model-context-label;
+    in-out property <bool> model-context-favorite: false;
+    in-out property <int> model-context-printed-count: 0;
+    in-out property <length> model-context-x: 0px;
+    in-out property <length> model-context-y: 0px;
     property <length> model-context-menu-width: 214px;
     property <length> model-context-menu-height: model-context-printed-count > 0 ? 312px : 283px;
     property <bool> slicer-menu-open: false;
@@ -2296,6 +2274,8 @@ export component ModelRackWindow inherits Window {
     callback select-model(int);
     callback select-model-modified(int, bool, bool);
     callback lasso-select(length, length, length, length, bool, length);
+    callback lasso-click(length, length, bool, bool, length);
+    callback lasso-right-click(length, length, length, length, length);
     callback clear-selection();
     callback select-all();
     callback add-tag-to-model(string, string) -> bool;
@@ -3190,44 +3170,6 @@ export component ModelRackWindow inherits Window {
                             }
                         }
 
-                        lasso-touch := TouchArea {
-                            x: 0;
-                            y: 0;
-                            width: parent.width;
-                            height: max(parent.viewport-height, parent.height);
-
-                            pointer-event(event) => {
-                                if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
-                                    root.lasso-start-x = self.mouse-x;
-                                    root.lasso-start-y = self.mouse-y;
-                                    root.lasso-current-x = self.mouse-x;
-                                    root.lasso-current-y = self.mouse-y;
-                                }
-                                if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up) {
-                                    if (root.lasso-active) {
-                                        root.lasso-select(
-                                            min(root.lasso-start-x, root.lasso-current-x),
-                                            min(root.lasso-start-y, root.lasso-current-y),
-                                            abs(root.lasso-current-x - root.lasso-start-x),
-                                            abs(root.lasso-current-y - root.lasso-start-y),
-                                            event.modifiers.meta,
-                                            self.width,
-                                        );
-                                        root.lasso-active = false;
-                                    }
-                                }
-                            }
-                            moved => {
-                                if (self.pressed) {
-                                    root.lasso-current-x = self.mouse-x;
-                                    root.lasso-current-y = self.mouse-y;
-                                    if (abs(root.lasso-current-x - root.lasso-start-x) > 5px || abs(root.lasso-current-y - root.lasso-start-y) > 5px) {
-                                        root.lasso-active = true;
-                                    }
-                                }
-                            }
-                        }
-
                         for card[index] in model-cards: model-card := ModelCard {
                             property <length> target-y: is-list
                                 ? index * (grid-flick.row-h + grid-flick.gap)
@@ -3280,6 +3222,54 @@ export component ModelRackWindow inherits Window {
                                 slicer-menu-open = false;
                                 sort-menu-open = false;
                                 preview-plate-menu-open = false;
+                            }
+                        }
+
+                        lasso-touch := TouchArea {
+                            x: 0;
+                            y: 0;
+                            width: parent.width;
+                            height: max(parent.viewport-height, parent.height);
+
+                            pointer-event(event) => {
+                                if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                                    root.lasso-start-x = self.mouse-x;
+                                    root.lasso-start-y = self.mouse-y;
+                                    root.lasso-current-x = self.mouse-x;
+                                    root.lasso-current-y = self.mouse-y;
+                                }
+                                if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up) {
+                                    if (root.lasso-active) {
+                                        root.lasso-select(
+                                            min(root.lasso-start-x, root.lasso-current-x),
+                                            min(root.lasso-start-y, root.lasso-current-y),
+                                            abs(root.lasso-current-x - root.lasso-start-x),
+                                            abs(root.lasso-current-y - root.lasso-start-y),
+                                            event.modifiers.meta,
+                                            self.width,
+                                        );
+                                        root.lasso-active = false;
+                                    } else {
+                                        // Short click — hit-test card at position
+                                        if (event.modifiers.shift || event.modifiers.meta) {
+                                            root.lasso-click(self.mouse-x, self.mouse-y, event.modifiers.shift, event.modifiers.meta, self.width);
+                                        } else {
+                                            root.lasso-click(self.mouse-x, self.mouse-y, false, false, self.width);
+                                        }
+                                    }
+                                }
+                                if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                                    root.lasso-right-click(self.mouse-x, self.mouse-y, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y, self.width);
+                                }
+                            }
+                            moved => {
+                                if (self.pressed) {
+                                    root.lasso-current-x = self.mouse-x;
+                                    root.lasso-current-y = self.mouse-y;
+                                    if (!root.lasso-active && (abs(root.lasso-current-x - root.lasso-start-x) > 5px || abs(root.lasso-current-y - root.lasso-start-y) > 5px)) {
+                                        root.lasso-active = true;
+                                    }
+                                }
                             }
                         }
 
