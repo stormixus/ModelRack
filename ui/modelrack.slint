@@ -3159,16 +3159,6 @@ export component ModelRackWindow inherits Window {
                     background: Theme.bg-2;
                     vertical-stretch: 1;
 
-                    // Invisible sensor to detect folder drag anywhere on screen
-                    folder-drag-sensor := DropArea {
-                        x: 0; y: 0;
-                        width: parent.width;
-                        height: parent.height;
-                        can-drop(event) => {
-                            event.mime-type == "application/x-modelrack-folder-key";
-                        }
-                    }
-
                     if model-cards.length == 0: VerticalLayout {
                         alignment: center;
                         spacing: 14px;
@@ -4890,6 +4880,16 @@ export component ModelRackWindow inherits Window {
             } else if (event.kind == PointerEventKind.move && right-detail-resizing) {
                 right-detail-width = min(right-detail-max-width, max(right-detail-min-width, resize-start-width - (self.mouse-x - resize-origin-x)));
             }
+        }
+    }
+
+    // Invisible full-window sensor to detect folder drag
+    folder-drag-sensor := DropArea {
+        x: 0; y: 0;
+        width: root.width;
+        height: root.height;
+        can-drop(event) => {
+            event.mime-type == "application/x-modelrack-folder-key";
         }
     }
 
