@@ -3311,11 +3311,20 @@ export component ModelRackWindow inherits Window {
                         width: parent.width - 28px;
                         height: parent.height - 28px;
 
-                        KeyBinding { keys: @keys(Meta + A); activated => { select-all(); } }
-                        KeyBinding { keys: @keys(Control + A); activated => { select-all(); } }
-                        KeyBinding { keys: @keys(Escape); activated => { if selection-count > 0 { clear-selection(); } } }
-                        KeyBinding { keys: @keys(Meta + Z); activated => { undo-library-action(); } }
-                        KeyBinding { keys: @keys(Control + Z); activated => { undo-library-action(); } }
+                        key-pressed(event) => {
+                            if ((event.modifiers.meta || event.modifiers.control) && (event.text == "a" || event.text == "A" || event.text == "ㅁ")) {
+                                select-all();
+                                accept
+                            } else if ((event.modifiers.meta || event.modifiers.control) && (event.text == "z" || event.text == "Z" || event.text == "ㅋ")) {
+                                undo-library-action();
+                                accept
+                            } else if (event.text == Key.Escape) {
+                                if selection-count > 0 { clear-selection(); }
+                                accept
+                            } else {
+                                reject
+                            }
+                        }
 
                         // When files are selected → DragArea for dragging to sidebar tags
                         if selection-count > 0: DragArea {
