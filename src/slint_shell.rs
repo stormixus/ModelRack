@@ -1292,7 +1292,6 @@ pub fn run() -> Result<(), slint::PlatformError> {
             }
             "clear-tags" => {
                 let allow_sidecar_writes = state.sidecar_writes_enabled;
-                let prefs = state.prefs.clone();
                 let paths: Vec<PathBuf> = if state.selected_indices.len() > 1 {
                     state.selected_indices.iter()
                         .filter_map(|&i| state.displayed.get(i).map(|e| e.path.clone()))
@@ -1302,17 +1301,24 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 };
                 let mut cleared = 0usize;
                 for p in &paths {
-                    if let Some(entry) = state.entries.iter_mut().find(|e| e.path == *p) {
-                        if let Some(meta) = &mut entry.meta {
-                            if !meta.tags.is_empty() {
-                                meta.tags.clear();
-                                if allow_sidecar_writes {
-                                    ignore_sidecar_watch(p);
-                                    let _ = scanner::write_sidecar(p, meta);
+                    ignore_sidecar_watch(p);
+                    let clear_in = |entries: &mut [scanner::StlFileInfo]| -> bool {
+                        if let Some(entry) = entries.iter_mut().find(|e| e.path == *p) {
+                            if let Some(meta) = &mut entry.meta {
+                                if !meta.tags.is_empty() {
+                                    meta.tags.clear();
+                                    if allow_sidecar_writes {
+                                        let _ = scanner::write_sidecar(p, meta);
+                                    }
+                                    return true;
                                 }
-                                cleared += 1;
                             }
                         }
+                        false
+                    };
+                    if clear_in(&mut state.entries) {
+                        clear_in(&mut state.displayed);
+                        cleared += 1;
                     }
                 }
                 if cleared > 0 {
