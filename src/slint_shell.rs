@@ -1716,19 +1716,25 @@ pub fn run() -> Result<(), slint::PlatformError> {
     ui.on_add_tag_to_model(move |model_index, tag| {
         if let Some(ui) = weak.upgrade() {
             let mut state = drop_tag_state.borrow_mut();
-            let Ok(dragged_idx) = model_index.as_str().parse::<usize>() else {
-                ui.set_status_text("Invalid model index for tag drop".into());
-                return false;
-            };
 
-            let indices: Vec<usize> = if state.selected_indices.contains(&dragged_idx)
-                && state.selected_indices.len() > 1
-            {
+            let indices: Vec<usize> = if model_index.as_str() == "selected" {
                 let mut v: Vec<usize> = state.selected_indices.iter().copied().collect();
                 v.sort_unstable();
                 v
             } else {
-                vec![dragged_idx]
+                let Ok(dragged_idx) = model_index.as_str().parse::<usize>() else {
+                    ui.set_status_text("Invalid model index for tag drop".into());
+                    return false;
+                };
+                if state.selected_indices.contains(&dragged_idx)
+                    && state.selected_indices.len() > 1
+                {
+                    let mut v: Vec<usize> = state.selected_indices.iter().copied().collect();
+                    v.sort_unstable();
+                    v
+                } else {
+                    vec![dragged_idx]
+                }
             };
 
             let allow_sidecar_writes = state.sidecar_writes_enabled;

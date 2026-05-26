@@ -3314,81 +3314,95 @@ export component ModelRackWindow inherits Window {
                         }
                     }
 
-                    // Lasso overlay — sits on top of Flickable, passes scroll through
+                    // Overlay — keyboard shortcuts + lasso / drag depending on selection
                     if model-cards.length > 0: lasso-focus := FocusScope {
                         x: 14px;
                         y: 14px;
                         width: parent.width - 28px;
                         height: parent.height - 28px;
 
-                        KeyBinding {
-                            keys: @keys(Meta + A);
-                            activated => { select-all(); }
-                        }
-                        KeyBinding {
-                            keys: @keys(Escape);
-                            activated => {
-                                if selection-count > 0 { clear-selection(); }
-                            }
-                        }
-                        KeyBinding {
-                            keys: @keys(Meta + Z);
-                            activated => { undo-library-action(); }
-                        }
+                        KeyBinding { keys: @keys(Meta + A); activated => { select-all(); } }
+                        KeyBinding { keys: @keys(Control + A); activated => { select-all(); } }
+                        KeyBinding { keys: @keys(Escape); activated => { if selection-count > 0 { clear-selection(); } } }
+                        KeyBinding { keys: @keys(Meta + Z); activated => { undo-library-action(); } }
+                        KeyBinding { keys: @keys(Control + Z); activated => { undo-library-action(); } }
 
-                        lasso-overlay := TouchArea {
+                        // When files are selected → DragArea for dragging to sidebar tags
+                        if selection-count > 0: DragArea {
                             width: parent.width;
                             height: parent.height;
+                            mime-type: "application/x-modelrack-model-index";
+                            data: "selected";
 
+                            overlay-touch-sel := TouchArea {
+                                width: parent.width;
+                                height: parent.height;
+                                scroll-event(event) => { reject }
+                                pointer-event(event) => {
+                                    if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                                        lasso-focus.focus();
+                                    }
+                                    if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up) {
+                                        root.lasso-click(self.mouse-x, self.mouse-y - root.grid-viewport-y, event.modifiers.shift, event.modifiers.meta || event.modifiers.control, self.width);
+                                    }
+                                    if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                                        root.lasso-right-click(self.mouse-x, self.mouse-y - root.grid-viewport-y, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y, self.width);
+                                    }
+                                }
+                            }
+                        }
+
+                        // When nothing selected → TouchArea for lasso selection
+                        if selection-count == 0: lasso-overlay := TouchArea {
+                            width: parent.width;
+                            height: parent.height;
                             property <length> press-x;
                             property <length> press-y;
                             property <bool> is-dragging;
 
-                        scroll-event(event) => {
-                            reject
-                        }
-                        pointer-event(event) => {
-                            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
-                                lasso-focus.focus();
-                                self.press-x = self.mouse-x;
-                                self.press-y = self.mouse-y;
-                                self.is-dragging = false;
-                            }
-                            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up) {
-                                if (self.is-dragging) {
-                                    root.lasso-select(
-                                        min(self.press-x, self.mouse-x),
-                                        min(self.press-y - root.grid-viewport-y, self.mouse-y - root.grid-viewport-y),
-                                        abs(self.mouse-x - self.press-x),
-                                        abs(self.mouse-y - self.press-y),
-                                        event.modifiers.meta,
-                                        self.width,
-                                    );
-                                    root.lasso-active = false;
+                            scroll-event(event) => { reject }
+                            pointer-event(event) => {
+                                if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                                    lasso-focus.focus();
+                                    self.press-x = self.mouse-x;
+                                    self.press-y = self.mouse-y;
                                     self.is-dragging = false;
-                                } else {
-                                    root.lasso-click(self.mouse-x, self.mouse-y - root.grid-viewport-y, event.modifiers.shift, event.modifiers.meta, self.width);
+                                }
+                                if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up) {
+                                    if (self.is-dragging) {
+                                        root.lasso-active = false;
+                                        self.is-dragging = false;
+                                    } else {
+                                        root.lasso-click(self.mouse-x, self.mouse-y - root.grid-viewport-y, event.modifiers.shift, event.modifiers.meta || event.modifiers.control, self.width);
+                                    }
+                                }
+                                if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                                    root.lasso-right-click(self.mouse-x, self.mouse-y - root.grid-viewport-y, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y, self.width);
                                 }
                             }
-                            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
-                                root.lasso-right-click(self.mouse-x, self.mouse-y - root.grid-viewport-y, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y, self.width);
-                            }
-                        }
-                        moved => {
-                            if (self.pressed) {
-                                if (!self.is-dragging && (abs(self.mouse-x - self.press-x) > 5px || abs(self.mouse-y - self.press-y) > 5px)) {
-                                    self.is-dragging = true;
+                            moved => {
+                                if (self.pressed) {
+                                    if (!self.is-dragging && (abs(self.mouse-x - self.press-x) > 5px || abs(self.mouse-y - self.press-y) > 5px)) {
+                                        self.is-dragging = true;
+                                    }
+                                    if (self.is-dragging) {
+                                        root.lasso-start-x = self.press-x;
+                                        root.lasso-start-y = self.press-y - root.grid-viewport-y;
+                                        root.lasso-current-x = self.mouse-x;
+                                        root.lasso-current-y = self.mouse-y - root.grid-viewport-y;
+                                        root.lasso-active = true;
+                                        // Real-time selection highlight
+                                        root.lasso-select(
+                                            min(self.press-x, self.mouse-x),
+                                            min(self.press-y - root.grid-viewport-y, self.mouse-y - root.grid-viewport-y),
+                                            abs(self.mouse-x - self.press-x),
+                                            abs(self.mouse-y - self.press-y),
+                                            false,
+                                            self.width,
+                                        );
+                                    }
                                 }
-                                if (self.is-dragging) {
-                                    // Update lasso rect in viewport coords
-                                    root.lasso-start-x = self.press-x;
-                                    root.lasso-start-y = self.press-y - root.grid-viewport-y;
-                                    root.lasso-current-x = self.mouse-x;
-                                    root.lasso-current-y = self.mouse-y - root.grid-viewport-y;
-                                    root.lasso-active = true;
-                                }
                             }
-                        }
                         }
                     }
                 }
