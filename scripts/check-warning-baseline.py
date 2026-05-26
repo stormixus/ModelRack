@@ -29,6 +29,10 @@ WARNING_POLICY = {
         "disposition": "allowed temporary",
         "classification": "macOS app-menu/window hooks are intentionally exported ahead of full menu wiring; remove when warning budget is tightened",
     },
+    "unused_variables|src/slint_shell.rs": {
+        "disposition": "allowed temporary",
+        "classification": "Slint-generated callback closures may capture variables unused on some toolchain versions",
+    },
     "dead_code|src/fonts.rs": {
         "disposition": "allowed temporary",
         "classification": "font-family constants document bundled font names while Slint currently consumes registration side effects",
