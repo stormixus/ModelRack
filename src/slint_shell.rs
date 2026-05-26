@@ -1139,6 +1139,35 @@ pub fn run() -> Result<(), slint::PlatformError> {
     });
 
     let weak = ui.as_weak();
+    let tag_sel_state = state.clone();
+    ui.on_add_tag_to_selection(move |tag| {
+        if let Some(ui) = weak.upgrade() {
+            let mut state = tag_sel_state.borrow_mut();
+            let indices: Vec<usize> = state.selected_indices.iter().copied().collect();
+            let allow_sidecar_writes = state.sidecar_writes_enabled;
+            let prefs = state.prefs.clone();
+            let tag_str = tag.as_str();
+            let mut added = 0usize;
+            for &idx in &indices {
+                let Some(path) = state.displayed.get(idx).map(|e| e.path.clone()) else { continue };
+                match persist_add_existing_tag(&prefs, &mut state.entries, &path, allow_sidecar_writes, tag_str) {
+                    Ok(Some(TagDropOutcome::Added { .. })) => added += 1,
+                    _ => {}
+                }
+            }
+            if added > 0 {
+                ui.set_status_text(format!("Tagged {} models with '{}'", added, tag_str).into());
+            } else {
+                ui.set_status_text(format!("Tag '{}' already present on all selected models", tag_str).into());
+            }
+            let snapshot = state.snapshot_done();
+            apply_snapshot(&ui, &snapshot);
+            apply_detail(&ui, &mut state);
+            apply_settings(&ui, &state);
+        }
+    });
+
+    let weak = ui.as_weak();
     let model_context_state = state.clone();
     ui.on_model_context_action(move |action, index| {
         let Some(ui) = weak.upgrade() else {
