@@ -1115,6 +1115,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
             apply_snapshot(&ui, &snapshot);
             apply_detail(&ui, &mut state);
             ui.set_selection_count(0);
+            ui.set_model_context_open(false);
         }
     });
 

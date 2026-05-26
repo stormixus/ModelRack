@@ -479,8 +479,10 @@ component ModelContextMenu inherits Rectangle {
     in property <string> target-label;
     in property <bool> favorite;
     in property <int> printed-count;
+    in property <bool> multi-mode: false;
+    in property <int> multi-count: 0;
     in property <length> menu-width: 214px;
-    in property <length> menu-height: printed-count > 0 ? 312px : 283px;
+    in property <length> menu-height: multi-mode ? 160px : (printed-count > 0 ? 312px : 283px);
     in property <string> rename-label;
     in property <string> open-label;
     in property <string> reveal-label;
@@ -506,42 +508,42 @@ component ModelContextMenu inherits Rectangle {
 
         Text {
             height: 22px;
-            text: target-label;
+            text: multi-mode ? (multi-count + " selected") : target-label;
             color: Theme.fg-3;
             font-family: "JetBrains Mono";
             font-size: Theme.font-overline;
             overflow: elide;
         }
 
-        ContextMenuItem {
+        if !multi-mode: ContextMenuItem {
             label: rename-label;
             hint: "";
             icon: @image-url("../assets/icons/document.svg");
             activated => { root.action("rename"); }
         }
 
-        ContextMenuItem {
+        if !multi-mode: ContextMenuItem {
             label: open-label;
             hint: "";
             icon: @image-url("../assets/icons/slicer.svg");
             activated => { root.action("open"); }
         }
 
-        ContextMenuItem {
+        if !multi-mode: ContextMenuItem {
             label: reveal-label;
             hint: "";
             icon: @image-url("../assets/icons/folder-open.svg");
             activated => { root.action("reveal"); }
         }
 
-        ContextMenuItem {
+        if !multi-mode: ContextMenuItem {
             label: details-label;
             hint: "";
             icon: @image-url("../assets/icons/eye.svg");
             activated => { root.action("details"); }
         }
 
-        Rectangle { height: 1px; background: Theme.line; }
+        if !multi-mode: Rectangle { height: 1px; background: Theme.line; }
 
         ContextMenuItem {
             label: favorite ? remove-favorite-label : add-favorite-label;
@@ -557,23 +559,23 @@ component ModelContextMenu inherits Rectangle {
             activated => { root.action("print-plus"); }
         }
 
-        if printed-count > 0: ContextMenuItem {
+        if printed-count > 0 && !multi-mode: ContextMenuItem {
             label: remove-print-label;
             hint: "";
             icon: @image-url("../assets/icons/minus.svg");
             activated => { root.action("print-minus"); }
         }
 
-        Rectangle { height: 1px; background: Theme.line; }
+        if !multi-mode: Rectangle { height: 1px; background: Theme.line; }
 
-        ContextMenuItem {
+        if !multi-mode: ContextMenuItem {
             label: copy-name-label;
             hint: "";
             icon: @image-url("../assets/icons/duplicate.svg");
             activated => { root.action("copy-name"); }
         }
 
-        ContextMenuItem {
+        if !multi-mode: ContextMenuItem {
             label: copy-path-label;
             hint: "";
             icon: @image-url("../assets/icons/link.svg");
@@ -4835,6 +4837,8 @@ export component ModelRackWindow inherits Window {
 
     if model-context-open: ModelContextMenu {
         z: 520;
+        multi-mode: selection-count > 1;
+        multi-count: selection-count;
         menu-width: model-context-menu-width;
         menu-height: model-context-menu-height;
         x: min(parent.width - model-context-menu-width - 8px, max(8px, model-context-x));
