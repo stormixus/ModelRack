@@ -5,6 +5,16 @@
     "check",
     "--message-format=json"
   ],
-  "total_warnings": 0,
-  "entries": []
+  "total_warnings": 1,
+  "entries": [
+    {
+      "key": "unused_variables|src/slint_shell.rs",
+      "code": "unused_variables",
+      "file": "src/slint_shell.rs",
+      "count": 1,
+      "disposition": "allowed temporary",
+      "classification": "Slint-generated callback closures may capture variables unused on some toolchain versions",
+      "sample": ""
+    }
+  ]
 }
