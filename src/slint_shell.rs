@@ -1148,7 +1148,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
             let indices: Vec<usize> = state.selected_indices.iter().copied().collect();
             let allow_sidecar_writes = state.sidecar_writes_enabled;
             let prefs = state.prefs.clone();
-            let tag_str = tag.as_str();
+            let tag_str = tag.as_str().strip_prefix("tag:").unwrap_or(tag.as_str());
             let mut added = 0usize;
             for &idx in &indices {
                 let Some(path) = state.displayed.get(idx).map(|e| e.path.clone()) else { continue };
