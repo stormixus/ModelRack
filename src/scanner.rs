@@ -255,6 +255,9 @@ pub fn scan_folder_stream(path: &Path, tx: crossbeam_channel::Sender<ScanEvent>)
                     });
                 }
                 Err(err) => {
+                    if ext == "obj" && is_binary_file_quick(&file_path) {
+                        return;
+                    }
                     eprintln!("Parse error for {}: {}", file_path.display(), err);
 
                     let fallback_info = metadata_only_file(&file_path, StlType::Unknown)
@@ -536,6 +539,18 @@ fn parse_fallback_model_file_plates(model_texts: &HashMap<String, String>) -> Ve
             })
         })
         .collect()
+}
+
+fn is_binary_file_quick(path: &Path) -> bool {
+    if let Ok(mut file) = std::fs::File::open(path) {
+        let mut buffer = [0u8; 1024];
+        if let Ok(bytes_read) = file.read(&mut buffer) {
+            if bytes_read > 0 {
+                return buffer[..bytes_read].contains(&0);
+            }
+        }
+    }
+    false
 }
 
 fn parse_obj_file(path: &Path) -> Result<(StlFileInfo, Option<MeshData>)> {

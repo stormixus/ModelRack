@@ -1795,6 +1795,218 @@ component TrafficLightButton inherits Rectangle {
     }
 }
 
+component UpdateBubble inherits Rectangle {
+    in property <string> version;
+    in property <string> status;
+    in property <int> progress;
+    
+    callback update();
+    callback later();
+    callback dismiss();
+
+    width: 280px;
+    height: progress >= 0 ? 116px : 96px;
+    background: @linear-gradient(135deg, Theme.bg-2 0%, Theme.bg-1 100%);
+    border-color: Theme.accent-line;
+    border-width: 1px;
+    border-radius: 8px;
+    clip: true;
+
+    animate height { duration: 180ms; easing: ease-in-out; }
+
+    Rectangle {
+        x: 0; y: 0; width: parent.width; height: parent.height;
+        border-color: Theme.line-2;
+        border-width: 1px;
+        border-radius: 8px;
+    }
+
+    VerticalLayout {
+        padding: 12px;
+        spacing: 8px;
+
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+
+            Rectangle {
+                width: 24px;
+                height: 24px;
+                background: Theme.accent-dim;
+                border-radius: 12px;
+                
+                SvgIcon {
+                    x: 6px; y: 6px; width: 12px; height: 12px;
+                    icon: status == "ready" ? @image-url("../assets/icons/check.svg") :
+                          status == "error" ? @image-url("../assets/icons/error.svg") :
+                          status == "downloading" ? @image-url("../assets/icons/refresh.svg") :
+                          @image-url("../assets/icons/sparkle.svg");
+                    tint: status == "ready" ? Theme.success :
+                          status == "error" ? Theme.error :
+                          Theme.accent;
+                }
+            }
+
+            VerticalLayout {
+                spacing: 2px;
+                
+                Text {
+                    text: status == "ready" ? "Update Ready" :
+                          status == "error" ? "Update Error" :
+                          status == "downloading" ? "Downloading Update..." :
+                          "Update Available";
+                    color: Theme.fg-0;
+                    font-size: 12px;
+                    font-weight: 600;
+                }
+
+                Text {
+                    text: status == "ready" ? "Restart ModelRack to apply" :
+                          status == "error" ? "Failed to download update" :
+                          status == "downloading" ? "Downloading v" + version :
+                          "New version v" + version + " is available";
+                    color: Theme.fg-2;
+                    font-size: 10.5px;
+                }
+            }
+        }
+
+        if progress >= 0 : Rectangle {
+            height: 6px;
+            background: Theme.bg-3;
+            border-radius: 3px;
+            clip: true;
+
+            Rectangle {
+                x: 0; y: 0;
+                width: parent.width * (progress / 100.0);
+                height: parent.height;
+                background: Theme.accent;
+                border-radius: 3px;
+
+                animate width { duration: 150ms; }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: end;
+
+            if status == "available" : later-btn := TouchArea {
+                height: 20px;
+                width: 50px;
+                clicked => { later(); }
+                
+                Rectangle {
+                    background: later-btn.has-hover ? Theme.bg-3 : transparent;
+                    border-radius: 4px;
+                    
+                    Text {
+                        text: "Later";
+                        color: Theme.fg-2;
+                        font-size: 10.5px;
+                        font-weight: 500;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            if status == "available" : update-btn := TouchArea {
+                height: 20px;
+                width: 65px;
+                clicked => { update(); }
+                
+                Rectangle {
+                    background: update-btn.has-hover ? Theme.accent : Theme.accent-dim;
+                    border-color: Theme.accent-line;
+                    border-width: 1px;
+                    border-radius: 4px;
+
+                    animate background { duration: 100ms; }
+                    
+                    Text {
+                        text: "Update";
+                        color: update-btn.has-hover ? #0e2a32 : Theme.accent;
+                        font-size: 10.5px;
+                        font-weight: 600;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            if status == "ready" : restart-btn := TouchArea {
+                height: 20px;
+                width: 110px;
+                clicked => { update(); }
+                
+                Rectangle {
+                    background: restart-btn.has-hover ? Theme.success : Theme.bg-3;
+                    border-color: restart-btn.has-hover ? Theme.success : Theme.line-2;
+                    border-width: 1px;
+                    border-radius: 4px;
+
+                    animate background { duration: 100ms; }
+                    
+                    Text {
+                        text: "Restart & Update";
+                        color: restart-btn.has-hover ? #0e2a32 : Theme.success;
+                        font-size: 10.5px;
+                        font-weight: 600;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            if status == "error" : dismiss-btn := TouchArea {
+                height: 20px;
+                width: 60px;
+                clicked => { dismiss(); }
+                
+                Rectangle {
+                    background: dismiss-btn.has-hover ? Theme.bg-3 : transparent;
+                    border-radius: 4px;
+                    
+                    Text {
+                        text: "Dismiss";
+                        color: Theme.fg-2;
+                        font-size: 10.5px;
+                        font-weight: 500;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            if status == "error" : retry-btn := TouchArea {
+                height: 20px;
+                width: 60px;
+                clicked => { update(); }
+                
+                Rectangle {
+                    background: retry-btn.has-hover ? Theme.accent : Theme.accent-dim;
+                    border-color: Theme.accent-line;
+                    border-width: 1px;
+                    border-radius: 4px;
+
+                    animate background { duration: 100ms; }
+                    
+                    Text {
+                        text: "Retry";
+                        color: retry-btn.has-hover ? #0e2a32 : Theme.accent;
+                        font-size: 10.5px;
+                        font-weight: 600;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+    }
+}
+
 // ─── Main window ─────────────────────────────────────────
 
 export component ModelRackWindow inherits Window {
@@ -1803,6 +2015,10 @@ export component ModelRackWindow inherits Window {
     // Core properties
     in property <string> app-title: "ModelRack";
     in property <string> app-version: "v0.1.3";
+    in property <bool> update-available: false;
+    in property <string> update-version: "";
+    in property <string> update-status: "";
+    in property <int> update-progress: -1;
     in property <string> library-label: "Sample library";
     in property <int> selected-card-index: -1;
     in property <string> selected-thumb-key: "rack";
@@ -2251,11 +2467,13 @@ export component ModelRackWindow inherits Window {
     callback window-minimize();
     callback window-fullscreen();
     callback titlebar-drag(length, length);
+    callback apply-update();
+    callback dismiss-update();
 
     title: "";
     preferred-width: 1480px;
     preferred-height: 920px;
-    default-font-family: "Inter";
+    default-font-family: "Pretendard";
     background: Theme.bg-0;
 
     init => {
@@ -5805,5 +6023,15 @@ export component ModelRackWindow inherits Window {
         }
     }
 
-
+    if update-available : UpdateBubble {
+        x: 16px;
+        y: parent.height - self.height - 32px;
+        version: update-version;
+        status: update-status;
+        progress: update-progress;
+        update => { apply-update(); }
+        later => { dismiss-update(); }
+        dismiss => { dismiss-update(); }
+        z: 1000;
+    }
 }
