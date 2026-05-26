@@ -1212,28 +1212,29 @@ component ModelCard inherits Rectangle {
         }
     }
 
+    card-touch := TouchArea {
+        width: parent.width;
+        height: parent.height;
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up) {
+                if (event.modifiers.shift || event.modifiers.meta) {
+                    root.modifier-clicked(root.card-index, event.modifiers.shift, event.modifiers.meta);
+                } else {
+                    root.clicked(root.card-index);
+                }
+            }
+            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                root.context-requested(root.card-index, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
+            }
+        }
+    }
+
     DragArea {
         width: parent.width;
         height: parent.height;
+        enabled: root.selected;
         mime-type: "application/x-modelrack-model-index";
         data: "" + root.card-index;
-
-        card-touch := TouchArea {
-            width: parent.width;
-            height: parent.height;
-            pointer-event(event) => {
-                if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up) {
-                    if (event.modifiers.shift || event.modifiers.meta) {
-                        root.modifier-clicked(root.card-index, event.modifiers.shift, event.modifiers.meta);
-                    } else {
-                        root.clicked(root.card-index);
-                    }
-                }
-                if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
-                    root.context-requested(root.card-index, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
-                }
-            }
-        }
     }
 }
 
