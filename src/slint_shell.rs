@@ -956,8 +956,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                             Density::Large => 208.0,
                         };
                         let gap = 12.0;
-                        let cols =
-                            ((gw + gap) / (target_w + gap)).floor().max(1.0) as usize;
+                        let cols = ((gw + gap) / (target_w + gap)).floor().max(1.0) as usize;
                         let card_w = (gw - (cols as f32 - 1.0) * gap) / cols as f32;
                         let card_h = card_w + 76.0;
                         for i in 0..limit {
@@ -965,10 +964,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                             let row = i / cols;
                             let cx = col as f32 * (card_w + gap);
                             let cy = row as f32 * (card_h + gap);
-                            if cx + card_w > lx
-                                && cx < lx + lw
-                                && cy + card_h > ly
-                                && cy < ly + lh
+                            if cx + card_w > lx && cx < lx + lw && cy + card_h > ly && cy < ly + lh
                             {
                                 state.selected_indices.insert(i);
                             }
@@ -996,17 +992,11 @@ pub fn run() -> Result<(), slint::PlatformError> {
                                     2 => 1.15,
                                     _ => 1.30,
                                 };
-                                let has_tags = entry
-                                    .meta
-                                    .as_ref()
-                                    .is_some_and(|m| !m.tags.is_empty());
-                                let text_h: f32 =
-                                    if has_tags { 76.0 } else { 62.0 };
+                                let has_tags =
+                                    entry.meta.as_ref().is_some_and(|m| !m.tags.is_empty());
+                                let text_h: f32 = if has_tags { 76.0 } else { 62.0 };
                                 let ch = card_w * aspect_ratio + text_h;
-                                if cx + card_w > lx
-                                    && cx < lx + lw
-                                    && cy + ch > ly
-                                    && cy < ly + lh
+                                if cx + card_w > lx && cx < lx + lw && cy + ch > ly && cy < ly + lh
                                 {
                                     hits.push(i);
                                 }
@@ -1043,14 +1033,18 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 if cmd {
                     if state.selected_indices.contains(&idx) {
                         state.selected_indices.remove(&idx);
-                        if state.selected_indices.is_empty() { state.selected_index = None; }
+                        if state.selected_indices.is_empty() {
+                            state.selected_index = None;
+                        }
                     } else {
                         state.selected_indices.insert(idx);
                         state.selected_index = Some(idx);
                     }
                 } else if shift {
                     if let Some(anchor) = state.selected_index {
-                        for i in anchor.min(idx)..=anchor.max(idx) { state.selected_indices.insert(i); }
+                        for i in anchor.min(idx)..=anchor.max(idx) {
+                            state.selected_indices.insert(i);
+                        }
                     } else {
                         state.selected_indices.clear();
                         state.selected_indices.insert(idx);
@@ -1096,7 +1090,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
                     ui.set_model_context_index(idx as i32);
                     ui.set_model_context_label(entry.filename.clone().into());
                     ui.set_model_context_favorite(entry.meta.as_ref().is_some_and(|m| m.favorite));
-                    ui.set_model_context_printed_count(entry.meta.as_ref().map(|m| m.printed).unwrap_or(0) as i32);
+                    ui.set_model_context_printed_count(
+                        entry.meta.as_ref().map(|m| m.printed).unwrap_or(0) as i32,
+                    );
                     ui.set_model_context_x(abs_x + 2.0);
                     ui.set_model_context_y(abs_y + 2.0);
                     ui.set_model_context_open(true);
@@ -1151,8 +1147,16 @@ pub fn run() -> Result<(), slint::PlatformError> {
             let tag_str = tag.as_str().strip_prefix("tag:").unwrap_or(tag.as_str());
             let mut added = 0usize;
             for &idx in &indices {
-                let Some(path) = state.displayed.get(idx).map(|e| e.path.clone()) else { continue };
-                match persist_add_existing_tag(&prefs, &mut state.entries, &path, allow_sidecar_writes, tag_str) {
+                let Some(path) = state.displayed.get(idx).map(|e| e.path.clone()) else {
+                    continue;
+                };
+                match persist_add_existing_tag(
+                    &prefs,
+                    &mut state.entries,
+                    &path,
+                    allow_sidecar_writes,
+                    tag_str,
+                ) {
                     Ok(Some(TagDropOutcome::Added { .. })) => added += 1,
                     _ => {}
                 }
@@ -1160,7 +1164,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
             if added > 0 {
                 ui.set_status_text(format!("Tagged {} models with '{}'", added, tag_str).into());
             } else {
-                ui.set_status_text(format!("Tag '{}' already present on all selected models", tag_str).into());
+                ui.set_status_text(
+                    format!("Tag '{}' already present on all selected models", tag_str).into(),
+                );
             }
             let snapshot = state.snapshot_done();
             apply_snapshot(&ui, &snapshot);
@@ -1293,7 +1299,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
             "clear-tags" => {
                 let allow_sidecar_writes = state.sidecar_writes_enabled;
                 let paths: Vec<PathBuf> = if state.selected_indices.len() > 1 {
-                    state.selected_indices.iter()
+                    state
+                        .selected_indices
+                        .iter()
                         .filter_map(|&i| state.displayed.get(i).map(|e| e.path.clone()))
                         .collect()
                 } else {
@@ -1588,7 +1596,10 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 return;
             };
 
-            let parent_path = parent_key.as_str().strip_prefix("tag:").unwrap_or(parent_key.as_str());
+            let parent_path = parent_key
+                .as_str()
+                .strip_prefix("tag:")
+                .unwrap_or(parent_key.as_str());
             let full_tag = format!("{}/{}", parent_path, subtag_draft.as_str().trim());
 
             let allow_sidecar_writes = state.sidecar_writes_enabled;
@@ -1626,8 +1637,14 @@ pub fn run() -> Result<(), slint::PlatformError> {
     ui.on_tag_dropped_on_tag(move |src_key, dest_key| {
         if let Some(ui) = weak.upgrade() {
             let mut state = drag_tag_state.borrow_mut();
-            let src_tag = src_key.as_str().strip_prefix("tag:").unwrap_or(src_key.as_str());
-            let dest_tag = dest_key.as_str().strip_prefix("tag:").unwrap_or(dest_key.as_str());
+            let src_tag = src_key
+                .as_str()
+                .strip_prefix("tag:")
+                .unwrap_or(src_key.as_str());
+            let dest_tag = dest_key
+                .as_str()
+                .strip_prefix("tag:")
+                .unwrap_or(dest_key.as_str());
 
             let allow_sidecar_writes = state.sidecar_writes_enabled;
             let prefs = state.prefs.clone();
@@ -1640,7 +1657,10 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 dest_tag,
             ) {
                 Ok(count) => {
-                    let msg = format!("Reparented tag '{}' under '{}' on {} models", src_tag, dest_tag, count);
+                    let msg = format!(
+                        "Reparented tag '{}' under '{}' on {} models",
+                        src_tag, dest_tag, count
+                    );
                     ui.set_status_text(msg.into());
                 }
                 Err(err) => {
@@ -1692,7 +1712,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
                     checked: false,
                 })
                 .collect();
-            ui.set_folder_tag_picker_items(slint::ModelRc::new(slint::VecModel::from(picker_items)));
+            ui.set_folder_tag_picker_items(slint::ModelRc::new(slint::VecModel::from(
+                picker_items,
+            )));
             ui.set_folder_tag_dialog_folder_key(folder_key);
             ui.set_folder_tag_dialog_folder_label(folder_label);
             ui.set_folder_tag_dialog_open(true);
@@ -1703,7 +1725,10 @@ pub fn run() -> Result<(), slint::PlatformError> {
     ui.on_toggle_folder_tag_picker(move |idx| {
         if let Some(ui) = weak.upgrade() {
             let model = ui.get_folder_tag_picker_items();
-            if let Some(any_model) = model.as_any().downcast_ref::<slint::VecModel<TagPickerItem>>() {
+            if let Some(any_model) = model
+                .as_any()
+                .downcast_ref::<slint::VecModel<TagPickerItem>>()
+            {
                 if let Some(mut item) = any_model.row_data(idx as usize) {
                     item.checked = !item.checked;
                     any_model.set_row_data(idx as usize, item);
@@ -1728,7 +1753,10 @@ pub fn run() -> Result<(), slint::PlatformError> {
 
             // Collect checked tags from picker
             let model = ui.get_folder_tag_picker_items();
-            if let Some(any_model) = model.as_any().downcast_ref::<slint::VecModel<TagPickerItem>>() {
+            if let Some(any_model) = model
+                .as_any()
+                .downcast_ref::<slint::VecModel<TagPickerItem>>()
+            {
                 for i in 0..any_model.row_count() {
                     if let Some(item) = any_model.row_data(i) {
                         if item.checked {
@@ -1768,8 +1796,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                     ui.set_status_text("Invalid model index for tag drop".into());
                     return false;
                 };
-                if state.selected_indices.contains(&dragged_idx)
-                    && state.selected_indices.len() > 1
+                if state.selected_indices.contains(&dragged_idx) && state.selected_indices.len() > 1
                 {
                     let mut v: Vec<usize> = state.selected_indices.iter().copied().collect();
                     v.sort_unstable();
@@ -1812,9 +1839,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                     ui.set_status_text(format!("Tag already present: {tag_str}").into());
                 }
             } else if added_count > 0 {
-                ui.set_status_text(
-                    format!("Tagged {added_count} models with '{tag_str}'").into(),
-                );
+                ui.set_status_text(format!("Tagged {added_count} models with '{tag_str}'").into());
             } else {
                 ui.set_status_text(
                     format!("Tag '{tag_str}' already present on all {total} selected models")
@@ -2046,7 +2071,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                     if let Some(ui) = weak_inner.upgrade() {
                         ui.set_is_transition_active(true);
                     }
-                }
+                },
             );
         }
     });
@@ -3951,7 +3976,11 @@ fn persist_tag_reparent(
     let mut matching_paths = Vec::new();
     for entry in entries.iter() {
         if let Some(meta) = &entry.meta {
-            if meta.tags.iter().any(|t| t == src_tag || t.starts_with(&prefix)) {
+            if meta
+                .tags
+                .iter()
+                .any(|t| t == src_tag || t.starts_with(&prefix))
+            {
                 matching_paths.push(entry.path.clone());
             }
         }
@@ -4408,7 +4437,10 @@ impl ShellState {
                 _ => 1.30,
             };
 
-            let has_tags = entry.meta.as_ref().is_some_and(|meta| !meta.tags.is_empty());
+            let has_tags = entry
+                .meta
+                .as_ref()
+                .is_some_and(|meta| !meta.tags.is_empty());
             let text_h = if has_tags { 76.0 } else { 62.0 };
             let card_h = card_w * aspect_ratio + text_h;
 
@@ -6278,9 +6310,7 @@ fn hit_test_card(state: &ShellState, x: f32, y: f32, grid_width: f32) -> Option<
 }
 
 fn tag_all_in_folder(ui: &ModelRackWindow, state: &mut ShellState, folder_key: &str, tag: &str) {
-    let folder_path_str = folder_key
-        .strip_prefix("folder:")
-        .unwrap_or(folder_key);
+    let folder_path_str = folder_key.strip_prefix("folder:").unwrap_or(folder_key);
     let folder_path = PathBuf::from(folder_path_str);
     let tag_str = tag.strip_prefix("tag:").unwrap_or(tag);
 
@@ -6295,7 +6325,13 @@ fn tag_all_in_folder(ui: &ModelRackWindow, state: &mut ShellState, folder_key: &
     let prefs = state.prefs.clone();
     let mut added = 0usize;
     for path in &paths {
-        match persist_add_existing_tag(&prefs, &mut state.entries, path, allow_sidecar_writes, tag_str) {
+        match persist_add_existing_tag(
+            &prefs,
+            &mut state.entries,
+            path,
+            allow_sidecar_writes,
+            tag_str,
+        ) {
             Ok(Some(TagDropOutcome::Added { .. })) => added += 1,
             _ => {}
         }
@@ -6304,7 +6340,9 @@ fn tag_all_in_folder(ui: &ModelRackWindow, state: &mut ShellState, folder_key: &
     if added > 0 {
         ui.set_status_text(format!("Tagged {} models in folder with '{}'", added, tag_str).into());
     } else {
-        ui.set_status_text(format!("Tag '{}' already present on all models in folder", tag_str).into());
+        ui.set_status_text(
+            format!("Tag '{}' already present on all models in folder", tag_str).into(),
+        );
     }
 
     let snapshot = state.snapshot_done();

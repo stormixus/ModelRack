@@ -944,8 +944,9 @@ pub fn sidebar_folders(
     // 3. Update expandable: sorted order means the immediate next entry is the first child candidate
     let n = result.len();
     for i in 0..n {
-        result[i].expandable =
-            i + 1 < n && result[i + 1].path.starts_with(&result[i].path) && result[i + 1].path != result[i].path;
+        result[i].expandable = i + 1 < n
+            && result[i + 1].path.starts_with(&result[i].path)
+            && result[i + 1].path != result[i].path;
     }
 
     // 4. Update visibility: visible is true only if no ancestor is collapsed
@@ -993,11 +994,7 @@ pub fn sidebar_tags(
         .iter()
         .map(|(label, &count)| {
             let depth = label.matches('/').count();
-            let display_label = label
-                .split('/')
-                .last()
-                .unwrap_or(label)
-                .to_string();
+            let display_label = label.split('/').last().unwrap_or(label).to_string();
 
             let prefix_with_slash = format!("{}/", label);
             let expandable = counts
@@ -1783,10 +1780,7 @@ mod tests {
             loaded.collapsed_folders,
             vec![PathBuf::from("/tmp/models/nested")]
         );
-        assert_eq!(
-            loaded.collapsed_tags,
-            vec!["filament/PLA".to_string()]
-        );
+        assert_eq!(loaded.collapsed_tags, vec!["filament/PLA".to_string()]);
     }
 
     #[test]
@@ -1967,15 +1961,27 @@ mod tests {
         let leaf_filter = LibraryFilter::Tag("filament/PLA/Bambu".to_string());
 
         assert!(entry_matches_filter(&entries, &parent_filter, &entries[0]));
-        assert!(entry_matches_filter(&entries, &intermediate_filter, &entries[0]));
+        assert!(entry_matches_filter(
+            &entries,
+            &intermediate_filter,
+            &entries[0]
+        ));
         assert!(entry_matches_filter(&entries, &leaf_filter, &entries[0]));
 
         assert!(entry_matches_filter(&entries, &parent_filter, &entries[1]));
-        assert!(!entry_matches_filter(&entries, &intermediate_filter, &entries[1]));
+        assert!(!entry_matches_filter(
+            &entries,
+            &intermediate_filter,
+            &entries[1]
+        ));
         assert!(!entry_matches_filter(&entries, &leaf_filter, &entries[1]));
 
         assert!(entry_matches_filter(&entries, &parent_filter, &entries[2]));
-        assert!(entry_matches_filter(&entries, &intermediate_filter, &entries[2]));
+        assert!(entry_matches_filter(
+            &entries,
+            &intermediate_filter,
+            &entries[2]
+        ));
         assert!(!entry_matches_filter(&entries, &leaf_filter, &entries[2]));
 
         // Test collapsing
