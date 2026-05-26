@@ -1810,7 +1810,6 @@ pub fn run() -> Result<(), slint::PlatformError> {
             let prefs = state.prefs.clone();
             let tag_str = tag.as_str();
             let mut added_count = 0usize;
-            let mut already_count = 0usize;
             let mut last_path = None;
 
             for &idx in &indices {
@@ -1825,8 +1824,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                     tag_str,
                 ) {
                     Ok(Some(TagDropOutcome::Added { .. })) => added_count += 1,
-                    Ok(Some(TagDropOutcome::AlreadyPresent { .. })) => already_count += 1,
-                    Ok(None) | Err(_) => {}
+                    _ => {}
                 }
                 last_path = Some(path);
             }
@@ -5671,11 +5669,6 @@ impl ShellState {
     fn selected_model_path(&self) -> Option<PathBuf> {
         let idx = self.selected_index?;
         self.displayed.get(idx).map(|entry| entry.path.clone())
-    }
-
-    fn displayed_model_path_from_str(&self, model_index: &str) -> Option<PathBuf> {
-        let index = model_index.trim().parse::<usize>().ok()?;
-        self.displayed.get(index).map(|entry| entry.path.clone())
     }
 
     fn rename_selected_model(&mut self, requested_name: &str) -> anyhow::Result<Option<PathBuf>> {
