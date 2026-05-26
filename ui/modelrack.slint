@@ -3430,7 +3430,7 @@ export component ModelRackWindow inherits Window {
                                     width: parent.width;
                                     height: parent.height;
                                     clicked => {
-                                        if (selection-count > 1) {
+                                        if (selection-count >= 1) {
                                             add-tag-to-selection(tag.key);
                                         }
                                     }
