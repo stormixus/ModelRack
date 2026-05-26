@@ -8168,24 +8168,27 @@ fn check_for_updates(current_version: &str) -> Result<Option<(String, String)>, 
         .set("User-Agent", "ModelRack-Updater")
         .call()
         .map_err(|e| format!("Failed to check updates: {}", e))?;
-    
-    let body_str = response.into_string()
+
+    let body_str = response
+        .into_string()
         .map_err(|e| format!("Failed to read release response: {}", e))?;
-    
+
     let release: serde_json::Value = serde_json::from_str(&body_str)
         .map_err(|e| format!("Failed to parse release JSON: {}", e))?;
-    
-    let tag_name = release["tag_name"].as_str()
+
+    let tag_name = release["tag_name"]
+        .as_str()
         .ok_or_else(|| "Missing tag_name in release info".to_string())?;
-    
+
     let latest_ver = tag_name.trim_start_matches('v');
     if is_newer_version(current_version, latest_ver) {
-        let assets = release["assets"].as_array()
+        let assets = release["assets"]
+            .as_array()
             .ok_or_else(|| "Missing assets array".to_string())?;
-        
+
         let arch = std::env::consts::ARCH;
         let target_arch = if arch == "aarch64" { "arm64" } else { "x86_64" };
-        
+
         let mut download_url = None;
         for asset in assets {
             if let Some(name) = asset["name"].as_str() {
@@ -8197,7 +8200,7 @@ fn check_for_updates(current_version: &str) -> Result<Option<(String, String)>, 
                 }
             }
         }
-        
+
         if let Some(url) = download_url {
             return Ok(Some((tag_name.to_string(), url)));
         }
@@ -8226,14 +8229,18 @@ fn run_background_update_check(weak_ui: slint::Weak<ModelRackWindow>, delay_secs
                         ui.set_update_version(tag_name.clone().into());
                         ui.set_update_status("available".into());
                         ui.set_update_progress(-1);
-                        ui.set_settings_update_status(format!("New version {} is available!", tag_name).into());
+                        ui.set_settings_update_status(
+                            format!("New version {} is available!", tag_name).into(),
+                        );
                     }
                 });
             }
             Ok(None) => {
                 let _ = slint::invoke_from_event_loop(move || {
                     if let Some(ui) = weak_ui.upgrade() {
-                        ui.set_settings_update_status(format!("ModelRack is up to date (v{})", current_version).into());
+                        ui.set_settings_update_status(
+                            format!("ModelRack is up to date (v{})", current_version).into(),
+                        );
                     }
                 });
             }
@@ -8277,37 +8284,39 @@ fn perform_self_update(weak_ui: slint::Weak<ModelRackWindow>) {
             // 1. Prepare paths
             let temp_dir = std::env::temp_dir();
             let zip_path = temp_dir.join(format!("ModelRack-update-{}.zip", tag_name));
-            
+
             // 2. Download ZIP
             let response = ureq::get(&download_url)
                 .set("User-Agent", "ModelRack-Updater")
                 .call()
                 .map_err(|e| format!("Download request failed: {}", e))?;
-                
-            let total_size = response.header("Content-Length")
+
+            let total_size = response
+                .header("Content-Length")
                 .and_then(|len| len.parse::<u64>().ok())
                 .unwrap_or(0);
-                
+
             let mut reader = response.into_reader();
             let mut file = std::fs::File::create(&zip_path)
                 .map_err(|e| format!("Failed to create temporary zip: {}", e))?;
-                
+
             let mut buffer = [0; 65536];
             let mut downloaded = 0u64;
-            
+
             loop {
-                let bytes_read = reader.read(&mut buffer)
+                let bytes_read = reader
+                    .read(&mut buffer)
                     .map_err(|e| format!("Error reading download stream: {}", e))?;
-                    
+
                 if bytes_read == 0 {
                     break;
                 }
-                
+
                 std::io::Write::write_all(&mut file, &buffer[..bytes_read])
                     .map_err(|e| format!("Error writing download file: {}", e))?;
-                    
+
                 downloaded += bytes_read as u64;
-                
+
                 if total_size > 0 {
                     let progress = ((downloaded * 100) / total_size) as i32;
                     let weak = weak_ui_clone.clone();
@@ -8319,7 +8328,7 @@ fn perform_self_update(weak_ui: slint::Weak<ModelRackWindow>) {
                     });
                 }
             }
-            
+
             drop(file);
 
             // 3. Extract ZIP
@@ -8338,11 +8347,12 @@ fn perform_self_update(weak_ui: slint::Weak<ModelRackWindow>) {
 
             let zip_file = std::fs::File::open(&zip_path)
                 .map_err(|e| format!("Failed to open downloaded zip: {}", e))?;
-                
+
             let mut archive = zip::ZipArchive::new(zip_file)
                 .map_err(|e| format!("Invalid zip archive: {}", e))?;
-                
-            archive.extract(&temp_extract_dir)
+
+            archive
+                .extract(&temp_extract_dir)
                 .map_err(|e| format!("Failed to extract zip: {}", e))?;
 
             // 4. Update UI to "Ready"
@@ -8401,7 +8411,10 @@ fn execute_restart_and_install() -> Result<(), String> {
         app_path.pop(); // ModelRack.app
 
         let old_app_str = app_path.to_string_lossy().into_owned();
-        let new_app_str = temp_extract_dir.join("ModelRack.app").to_string_lossy().into_owned();
+        let new_app_str = temp_extract_dir
+            .join("ModelRack.app")
+            .to_string_lossy()
+            .into_owned();
 
         format!(
             r#"#!/bin/bash
