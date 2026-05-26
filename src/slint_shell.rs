@@ -861,6 +861,8 @@ pub fn run() -> Result<(), slint::PlatformError> {
             state.selected_index = Some(idx);
             state.reset_preview_orbit();
             state.reset_preview_plate();
+            let snapshot = state.snapshot_done();
+            apply_snapshot(&ui, &snapshot);
             apply_detail(&ui, &mut state);
         }
     });
@@ -898,6 +900,8 @@ pub fn run() -> Result<(), slint::PlatformError> {
 
             state.reset_preview_orbit();
             state.reset_preview_plate();
+            let snapshot = state.snapshot_done();
+            apply_snapshot(&ui, &snapshot);
             apply_detail(&ui, &mut state);
         }
     });
@@ -4616,6 +4620,12 @@ fn demo_models() -> Vec<DemoModel> {
 }
 
 impl ShellState {
+    fn mark_selected_cards(&self, cards: &mut [view_model::BrowserCard]) {
+        for card in cards.iter_mut() {
+            card.selected = self.selected_indices.contains(&card.slot_index);
+        }
+    }
+
     fn snapshot_done(&mut self) -> AppViewSnapshot {
         let status = ScanStatus::Done {
             found: self.entries.len(),
@@ -4629,7 +4639,7 @@ impl ShellState {
             preserve_order: false,
         };
         self.displayed = crate::view_model::filtered_sorted_entries(&self.entries, query);
-        AppViewSnapshot::from_parts_with_displayed_slice(
+        let mut snapshot = AppViewSnapshot::from_parts_with_displayed_slice(
             &self.entries,
             &self.displayed,
             self.library_roots_for_snapshot(),
@@ -4637,7 +4647,9 @@ impl ShellState {
             &self.prefs,
             query,
             self.displayed_card_limit,
-        )
+        );
+        self.mark_selected_cards(&mut snapshot.cards);
+        snapshot
     }
 
     fn snapshot_idle(&mut self) -> AppViewSnapshot {
@@ -4649,7 +4661,7 @@ impl ShellState {
             preserve_order: false,
         };
         self.displayed = crate::view_model::filtered_sorted_entries(&self.entries, query);
-        AppViewSnapshot::from_parts_with_displayed_slice(
+        let mut snapshot = AppViewSnapshot::from_parts_with_displayed_slice(
             &self.entries,
             &self.displayed,
             self.library_roots_for_snapshot(),
@@ -4657,7 +4669,9 @@ impl ShellState {
             &self.prefs,
             query,
             self.displayed_card_limit,
-        )
+        );
+        self.mark_selected_cards(&mut snapshot.cards);
+        snapshot
     }
 
     fn begin_folder_scan(&mut self, folder: &Path, current: &str) -> AppViewSnapshot {
@@ -4681,7 +4695,7 @@ impl ShellState {
             sort_ascending: self.sort_ascending,
             preserve_order: false,
         };
-        AppViewSnapshot::from_parts(
+        let mut snapshot = AppViewSnapshot::from_parts(
             &self.entries,
             self.library_roots_for_snapshot(),
             &ScanStatus::Scanning {
@@ -4693,7 +4707,9 @@ impl ShellState {
             &self.prefs,
             query,
             self.displayed_card_limit,
-        )
+        );
+        self.mark_selected_cards(&mut snapshot.cards);
+        snapshot
     }
 
     fn apply_scan_result(&mut self, result: ScanResult) -> AppViewSnapshot {
@@ -4807,7 +4823,7 @@ impl ShellState {
             preserve_order: true,
         };
 
-        Some(AppViewSnapshot::from_parts_with_displayed_slice(
+        let mut snapshot = AppViewSnapshot::from_parts_with_displayed_slice(
             &self.entries,
             &self.displayed,
             self.library_roots_for_snapshot(),
@@ -4815,7 +4831,9 @@ impl ShellState {
             &self.prefs,
             query_for_snapshot,
             self.displayed_card_limit,
-        ))
+        );
+        self.mark_selected_cards(&mut snapshot.cards);
+        Some(snapshot)
     }
 
     fn apply_scan_parts(
@@ -5695,6 +5713,7 @@ fn browser_card_needs_update(old: &BrowserCard, new: &BrowserCard) -> bool {
         || old.printed != new.printed
         || old.error != new.error
         || old.tags != new.tags
+        || old.selected != new.selected
 }
 
 fn detail_parent_label(entry: &scanner::StlFileInfo, state: &ShellState) -> String {
@@ -5789,7 +5808,7 @@ fn apply_filter_key(ui: &ModelRackWindow, state: &Rc<RefCell<ShellState>>, key: 
             skipped: state.skipped,
         };
 
-        AppViewSnapshot::from_parts_with_displayed_slice(
+        let mut snapshot = AppViewSnapshot::from_parts_with_displayed_slice(
             &state.entries,
             &state.displayed,
             state.library_roots_for_snapshot(),
@@ -5797,7 +5816,9 @@ fn apply_filter_key(ui: &ModelRackWindow, state: &Rc<RefCell<ShellState>>, key: 
             &state.prefs,
             query,
             state.displayed_card_limit,
-        )
+        );
+        state.mark_selected_cards(&mut snapshot.cards);
+        snapshot
     };
     apply_snapshot(ui, &snapshot);
     apply_detail_rc(ui, state);
@@ -7163,6 +7184,7 @@ fn browser_card(card: &BrowserCardVm, use_embedded_3mf: bool) -> BrowserCard {
         error: card.error,
         aspect_ratio_type: card.aspect_ratio_type,
         tags: card.tags.clone().into(),
+        selected: card.selected,
     }
 }
 
@@ -7578,6 +7600,7 @@ mod tests {
             error: false,
             aspect_ratio_type: 1,
             tags: "".into(),
+            selected: false,
         }
     }
 

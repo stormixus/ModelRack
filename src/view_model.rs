@@ -396,6 +396,7 @@ pub struct BrowserCard {
     pub error: bool,
     pub aspect_ratio_type: i32,
     pub tags: String,
+    pub selected: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -575,6 +576,7 @@ pub fn browser_cards_for_prefs(
                 error: entry.stl_type == scanner::StlType::Unknown,
                 aspect_ratio_type,
                 tags,
+                selected: false,
             }
         })
         .collect::<Vec<_>>();
@@ -2471,6 +2473,7 @@ mod tests {
                 error: false,
                 aspect_ratio_type: 2, // 임의의 i32 값 기입 후 테스트 돌려서 확인
                 tags: "".to_string(),
+                selected: false,
             }]
         );
     }

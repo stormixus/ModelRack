@@ -22,6 +22,7 @@ export struct BrowserCard {
     error: bool,
     aspect-ratio-type: int,
     tags: string,
+    selected: bool,
 }
 
 export struct SidebarItem {
@@ -3146,7 +3147,7 @@ export component ModelRackWindow inherits Window {
                             streaming-list: scan-progress-percent >= 0 && model-cards.length <= 96;
                             card: card;
                             card-index: card.slot-index;
-                            selected: card.slot-index == selected-card-index;
+                            selected: card.selected;
                             clicked(idx) => {
                                 rename-editing = false;
                                 model-context-open = false;
