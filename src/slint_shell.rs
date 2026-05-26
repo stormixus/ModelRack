@@ -1361,41 +1361,68 @@ pub fn run() -> Result<(), slint::PlatformError> {
     ui.on_add_tag_to_model(move |model_index, tag| {
         if let Some(ui) = weak.upgrade() {
             let mut state = drop_tag_state.borrow_mut();
-            let Some(path) = state.displayed_model_path_from_str(model_index.as_str()) else {
-                ui.set_status_text("Model is no longer available for tag drop".into());
+            let Ok(dragged_idx) = model_index.as_str().parse::<usize>() else {
+                ui.set_status_text("Invalid model index for tag drop".into());
                 return false;
+            };
+
+            let indices: Vec<usize> = if state.selected_indices.contains(&dragged_idx)
+                && state.selected_indices.len() > 1
+            {
+                let mut v: Vec<usize> = state.selected_indices.iter().copied().collect();
+                v.sort_unstable();
+                v
+            } else {
+                vec![dragged_idx]
             };
 
             let allow_sidecar_writes = state.sidecar_writes_enabled;
             let prefs = state.prefs.clone();
-            match persist_add_existing_tag(
-                &prefs,
-                &mut state.entries,
-                &path,
-                allow_sidecar_writes,
-                tag.as_str(),
-            ) {
-                Ok(Some(TagDropOutcome::Added { tag, count })) if allow_sidecar_writes => {
-                    ui.set_status_text(format!("Tag added: {tag} ({count})").into())
+            let tag_str = tag.as_str();
+            let mut added_count = 0usize;
+            let mut already_count = 0usize;
+            let mut last_path = None;
+
+            for &idx in &indices {
+                let Some(path) = state.displayed.get(idx).map(|e| e.path.clone()) else {
+                    continue;
+                };
+                match persist_add_existing_tag(
+                    &prefs,
+                    &mut state.entries,
+                    &path,
+                    allow_sidecar_writes,
+                    tag_str,
+                ) {
+                    Ok(Some(TagDropOutcome::Added { .. })) => added_count += 1,
+                    Ok(Some(TagDropOutcome::AlreadyPresent { .. })) => already_count += 1,
+                    Ok(None) | Err(_) => {}
                 }
-                Ok(Some(TagDropOutcome::Added { tag, count })) => {
-                    ui.set_status_text(format!("Demo tag added: {tag} ({count})").into())
+                last_path = Some(path);
+            }
+
+            let total = indices.len();
+            if total == 1 {
+                if added_count == 1 {
+                    ui.set_status_text(format!("Tag added: {tag_str}").into());
+                } else {
+                    ui.set_status_text(format!("Tag already present: {tag_str}").into());
                 }
-                Ok(Some(TagDropOutcome::AlreadyPresent { tag, count })) => {
-                    ui.set_status_text(format!("Tag already present: {tag} ({count})").into())
-                }
-                Ok(None) => {
-                    ui.set_status_text("Tag drop target is no longer available".into());
-                    return false;
-                }
-                Err(err) => {
-                    ui.set_status_text(format!("Could not add dropped tag: {err}").into());
-                    return false;
-                }
+            } else if added_count > 0 {
+                ui.set_status_text(
+                    format!("Tagged {added_count} models with '{tag_str}'").into(),
+                );
+            } else {
+                ui.set_status_text(
+                    format!("Tag '{tag_str}' already present on all {total} selected models")
+                        .into(),
+                );
             }
 
             let snapshot = state.snapshot_done();
-            state.reselect_path(&path);
+            if let Some(path) = last_path {
+                state.reselect_path(&path);
+            }
             apply_snapshot(&ui, &snapshot);
             apply_detail(&ui, &mut state);
             apply_settings(&ui, &state);
