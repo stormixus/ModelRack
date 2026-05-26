@@ -2930,7 +2930,7 @@ dependencies = [
 
 [[package]]
 name = "modelrack"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "anyhow",
  "blake3",
@@ -2949,6 +2949,7 @@ dependencies = [
  "slint",
  "slint-build",
  "stl_io",
+ "unicode-normalization",
  "unicode-segmentation",
  "ureq",
  "walkdir",
@@ -5203,6 +5204,15 @@ name = "unicode-linebreak"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b09c83c3c29d37506a3e260c08c03743a6bb66a9cd432c6934ab501a190571f"
+
+[[package]]
+name = "unicode-normalization"
+version = "0.1.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5fd4f6878c9cb28d874b009da9e8d183b5abc80117c40bbd187a1fde336be6e8"
+dependencies = [
+ "tinyvec",
+]
 
 [[package]]
 name = "unicode-properties"

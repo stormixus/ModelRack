@@ -3144,8 +3144,8 @@ fn apply_detail_with_quality(
             };
             ui.set_selected_thumb_image(thumb_image);
             ui.set_selected_thumb_ready(thumb_ready);
-            ui.set_detail_name(entry.filename.clone().into());
-            ui.set_detail_path(detail_parent_label(&entry, state).into());
+            ui.set_detail_name(to_nfc(&entry.filename).into());
+            ui.set_detail_path(to_nfc(&detail_parent_label(&entry, state)).into());
             ui.set_detail_format(
                 match entry.stl_type {
                     scanner::StlType::Binary => "Binary STL",
@@ -3192,7 +3192,7 @@ fn apply_detail_with_quality(
                 preview
                     .as_ref()
                     .filter(|preview| preview.plate_count > 1)
-                    .map(|preview| preview.selected_label.clone())
+                    .map(|preview| to_nfc(&preview.selected_label))
                     .unwrap_or_default()
                     .into(),
             );
@@ -3204,7 +3204,7 @@ fn apply_detail_with_quality(
                             .tab_rows
                             .iter()
                             .map(|tab| PlateTab {
-                                label: tab.label.clone().into(),
+                                label: to_nfc(&tab.label).into(),
                                 index: tab.index,
                                 selected: tab.selected,
                             })
@@ -3304,26 +3304,30 @@ fn apply_detail_with_quality(
                     .into(),
             );
             ui.set_detail_tags_label(
-                entry
-                    .meta
-                    .as_ref()
-                    .map(|m| {
-                        if m.tags.is_empty() {
-                            "No tags".to_string()
-                        } else {
-                            m.tags.join(" · ")
-                        }
-                    })
-                    .unwrap_or_else(|| "No tags".to_string())
-                    .into(),
+                to_nfc(
+                    &entry
+                        .meta
+                        .as_ref()
+                        .map(|m| {
+                            if m.tags.is_empty() {
+                                "No tags".to_string()
+                            } else {
+                                m.tags.join(" · ")
+                            }
+                        })
+                        .unwrap_or_else(|| "No tags".to_string()),
+                )
+                .into(),
             );
             ui.set_detail_tags_input(
-                entry
-                    .meta
-                    .as_ref()
-                    .map(|m| m.tags.join(", "))
-                    .unwrap_or_default()
-                    .into(),
+                to_nfc(
+                    &entry
+                        .meta
+                        .as_ref()
+                        .map(|m| m.tags.join(", "))
+                        .unwrap_or_default(),
+                )
+                .into(),
             );
             let tag_chips = entry
                 .meta
@@ -3332,12 +3336,14 @@ fn apply_detail_with_quality(
                 .unwrap_or_default();
             ui.set_detail_tag_chips(slint::ModelRc::new(slint::VecModel::from(tag_chips)));
             ui.set_detail_notes(
-                entry
-                    .meta
-                    .as_ref()
-                    .and_then(|m| (!m.notes.is_empty()).then(|| m.notes.clone()))
-                    .unwrap_or_else(|| "Add notes...".to_string())
-                    .into(),
+                to_nfc(
+                    &entry
+                        .meta
+                        .as_ref()
+                        .and_then(|m| (!m.notes.is_empty()).then(|| m.notes.clone()))
+                        .unwrap_or_else(|| "Add notes...".to_string()),
+                )
+                .into(),
             );
             ui.set_detail_printed_count(entry.meta.as_ref().map_or(0, |m| m.printed as i32));
             let print_history = entry
@@ -6019,7 +6025,7 @@ fn apply_snapshot(ui: &ModelRackWindow, snapshot: &AppViewSnapshot) {
 
     ui.set_app_title(strings::APP_TITLE.into());
     ui.set_app_version(format!("v{}", env!("CARGO_PKG_VERSION")).into());
-    ui.set_library_label(snapshot.library_label.clone().into());
+    ui.set_library_label(to_nfc(&snapshot.library_label).into());
     ui.set_status_text(snapshot.status_text.clone().into());
     ui.set_density_label(snapshot.density_label.clone().into());
     ui.set_view_mode_label(snapshot.view_mode_label.clone().into());
@@ -6040,7 +6046,7 @@ fn apply_snapshot(ui: &ModelRackWindow, snapshot: &AppViewSnapshot) {
     ui.set_duplicates_count(snapshot.sidebar.duplicates as i32);
     ui.set_ready_count(snapshot.sidebar.ready as i32);
     ui.set_errors_count(snapshot.sidebar.errors as i32);
-    ui.set_active_filter_key(snapshot.active_filter_key.clone().into());
+    ui.set_active_filter_key(to_nfc(&snapshot.active_filter_key).into());
     ui.set_total_matching_cards(snapshot.browser.displayed as i32);
 
     let start_cards = std::time::Instant::now();
@@ -6060,8 +6066,8 @@ fn apply_snapshot(ui: &ModelRackWindow, snapshot: &AppViewSnapshot) {
         .iter()
         .filter(|folder| folder.visible)
         .map(|folder| SidebarItem {
-            key: format!("folder:{}", folder.path.display()).into(),
-            label: folder.label.clone().into(),
+            key: to_nfc(&format!("folder:{}", folder.path.display())).into(),
+            label: to_nfc(&folder.label).into(),
             count: folder.count as i32,
             depth: folder.depth as i32,
             expandable: folder.expandable,
@@ -6075,8 +6081,8 @@ fn apply_snapshot(ui: &ModelRackWindow, snapshot: &AppViewSnapshot) {
         .iter()
         .filter(|tag| tag.visible)
         .map(|tag| SidebarItem {
-            key: format!("tag:{}", tag.label).into(),
-            label: tag.display_label.clone().into(),
+            key: to_nfc(&format!("tag:{}", tag.label)).into(),
+            label: to_nfc(&tag.display_label).into(),
             count: tag.count as i32,
             depth: tag.depth as i32,
             expandable: tag.expandable,
@@ -7764,9 +7770,9 @@ fn browser_card(card: &BrowserCardVm, use_embedded_3mf: bool) -> BrowserCard {
     BrowserCard {
         stable_key: card.stable_key.clone().into(),
         slot_index: card.slot_index as i32,
-        title: card.title.clone().into(),
-        subtitle: card.subtitle.clone().into(),
-        author: card.author.clone().into(),
+        title: to_nfc(&card.title).into(),
+        subtitle: to_nfc(&card.subtitle).into(),
+        author: to_nfc(&card.author).into(),
         relative_modified: card.relative_modified.clone().into(),
         thumb_key: card.thumb_key.clone().into(),
         thumb_revision: thumbnail_revision(card.thumb_path.as_deref()).into(),
@@ -8474,6 +8480,11 @@ chmod +x "{old_bin}"
         .map_err(|e| format!("Failed to execute installer script: {}", e))?;
 
     std::process::exit(0);
+}
+
+fn to_nfc(s: &str) -> String {
+    use unicode_normalization::UnicodeNormalization;
+    s.nfc().collect::<String>()
 }
 
 #[cfg(test)]

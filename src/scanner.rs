@@ -311,14 +311,20 @@ pub(crate) fn is_supported_model_ext(ext: &str) -> bool {
 }
 
 fn parse_supported_file(path: &Path, ext: &str) -> Result<(StlFileInfo, Option<MeshData>)> {
-    match ext {
+    let mut res = match ext {
         "stl" => parse_stl_file(path),
         "3mf" => parse_three_mf_file(path),
         "obj" => parse_obj_file(path),
         "step" | "stp" => parse_step_file(path),
         "scad" => parse_scad_file(path),
         _ => anyhow::bail!("Unsupported model format: {}", ext),
-    }
+    }?;
+
+    use unicode_normalization::UnicodeNormalization;
+    let path_str_nfc = res.0.path.to_string_lossy().nfc().collect::<String>();
+    res.0.path = std::path::PathBuf::from(path_str_nfc);
+
+    Ok(res)
 }
 
 pub(crate) fn parse_preview_mesh(path: &Path) -> Result<Option<MeshData>> {

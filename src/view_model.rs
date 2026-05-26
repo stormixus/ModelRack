@@ -1308,7 +1308,14 @@ pub fn entry_matches_filter(
         }
         LibraryFilter::Ready => entry_is_ready_to_print(entries, entry),
         LibraryFilter::Errors => entry.stl_type == scanner::StlType::Unknown,
-        LibraryFilter::Folder(folder) => entry.path.strip_prefix(folder).is_ok(),
+        LibraryFilter::Folder(folder) => {
+            use unicode_normalization::UnicodeNormalization;
+            let entry_path_nfc = entry.path.to_string_lossy().nfc().collect::<String>();
+            let folder_path_nfc = folder.to_string_lossy().nfc().collect::<String>();
+            let normalized_entry = std::path::PathBuf::from(entry_path_nfc);
+            let normalized_folder = std::path::PathBuf::from(folder_path_nfc);
+            normalized_entry.strip_prefix(normalized_folder).is_ok()
+        }
         LibraryFilter::Tag(tag) => entry.meta.as_ref().is_some_and(|meta| {
             meta.tags.iter().any(|entry_tag| {
                 entry_tag == tag
