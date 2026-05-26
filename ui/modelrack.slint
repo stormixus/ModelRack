@@ -3326,8 +3326,8 @@ export component ModelRackWindow inherits Window {
                             }
                         }
 
-                        // When files are selected → DragArea for dragging to sidebar tags
-                        if selection-count > 0: DragArea {
+                        // When files are selected and NOT in lasso → DragArea for dragging to sidebar tags
+                        if selection-count > 0 && !lasso-active: DragArea {
                             width: parent.width;
                             height: parent.height;
                             mime-type: "application/x-modelrack-model-index";
@@ -3351,8 +3351,8 @@ export component ModelRackWindow inherits Window {
                             }
                         }
 
-                        // When nothing selected → TouchArea for lasso selection
-                        if selection-count == 0: lasso-overlay := TouchArea {
+                        // Lasso selection (when nothing selected OR lasso in progress)
+                        if selection-count == 0 || lasso-active: lasso-overlay := TouchArea {
                             width: parent.width;
                             height: parent.height;
                             property <length> press-x;
