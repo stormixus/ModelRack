@@ -1047,6 +1047,26 @@ pub fn run() -> Result<(), slint::PlatformError> {
     });
 
     let weak = ui.as_weak();
+    let select_all_state = state.clone();
+    ui.on_select_all(move || {
+        if let Some(ui) = weak.upgrade() {
+            let mut state = select_all_state.borrow_mut();
+            let limit = state.displayed_card_limit.min(state.displayed.len());
+            state.selected_indices.clear();
+            for i in 0..limit {
+                state.selected_indices.insert(i);
+            }
+            if limit > 0 {
+                state.selected_index = Some(0);
+            }
+            let snapshot = state.snapshot_done();
+            apply_snapshot(&ui, &snapshot);
+            apply_detail(&ui, &mut state);
+            ui.set_selection_count(state.selected_indices.len() as i32);
+        }
+    });
+
+    let weak = ui.as_weak();
     let model_context_state = state.clone();
     ui.on_model_context_action(move |action, index| {
         let Some(ui) = weak.upgrade() else {
@@ -1490,6 +1510,61 @@ pub fn run() -> Result<(), slint::PlatformError> {
             if let Some(path) = state.selected_model_path() {
                 state.reselect_path(&path);
             }
+            apply_snapshot(&ui, &snapshot);
+            apply_detail(&ui, &mut state);
+            apply_settings(&ui, &state);
+        }
+    });
+
+    let weak = ui.as_weak();
+    let folder_drop_state = state.clone();
+    ui.on_folder_dropped_on_tag(move |folder_key, tag_key| {
+        if let Some(ui) = weak.upgrade() {
+            let mut state = folder_drop_state.borrow_mut();
+            let folder_path_str = folder_key
+                .as_str()
+                .strip_prefix("folder:")
+                .unwrap_or(folder_key.as_str());
+            let folder_path = PathBuf::from(folder_path_str);
+            let tag_str = tag_key
+                .as_str()
+                .strip_prefix("tag:")
+                .unwrap_or(tag_key.as_str());
+
+            let paths: Vec<PathBuf> = state
+                .entries
+                .iter()
+                .filter(|e| e.path.starts_with(&folder_path))
+                .map(|e| e.path.clone())
+                .collect();
+
+            let allow_sidecar_writes = state.sidecar_writes_enabled;
+            let prefs = state.prefs.clone();
+            let mut added = 0usize;
+            for path in &paths {
+                match persist_add_existing_tag(
+                    &prefs,
+                    &mut state.entries,
+                    path,
+                    allow_sidecar_writes,
+                    tag_str,
+                ) {
+                    Ok(Some(TagDropOutcome::Added { .. })) => added += 1,
+                    _ => {}
+                }
+            }
+
+            if added > 0 {
+                ui.set_status_text(
+                    format!("Tagged {} models in folder with '{}'", added, tag_str).into(),
+                );
+            } else {
+                ui.set_status_text(
+                    format!("Tag '{}' already present on all models in folder", tag_str).into(),
+                );
+            }
+
+            let snapshot = state.snapshot_done();
             apply_snapshot(&ui, &snapshot);
             apply_detail(&ui, &mut state);
             apply_settings(&ui, &state);

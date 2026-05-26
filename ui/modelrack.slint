@@ -171,12 +171,14 @@ component SidebarLine inherits Rectangle {
     in property <bool> row-visible: true;
     in property <string> key;
     in property <bool> drag-enabled: false;
+    in property <string> drag-mime: "application/x-modelrack-tag-key";
     in property <bool> drop-enabled: false;
     callback activated();
     callback toggle-requested();
     callback context-requested(length, length);
     callback model-dropped(string, string);
     callback tag-dropped(string, string);
+    callback folder-dropped(string, string);
 
     height: row-visible ? 26px : 0px;
     opacity: row-visible ? 1 : 0;
@@ -242,7 +244,7 @@ component SidebarLine inherits Rectangle {
         width: parent.width;
         height: parent.height;
         enabled: root.drag-enabled;
-        mime-type: "application/x-modelrack-tag-key";
+        mime-type: root.drag-mime;
         data: root.key;
 
         ta-line := TouchArea {
@@ -273,13 +275,17 @@ component SidebarLine inherits Rectangle {
         height: parent.height;
         enabled: root.drop-enabled;
         can-drop(event) => {
-            event.mime-type == "application/x-modelrack-model-index" || (root.drag-enabled && event.mime-type == "application/x-modelrack-tag-key" && event.data != root.key);
+            event.mime-type == "application/x-modelrack-model-index"
+            || (root.drag-enabled && event.mime-type == "application/x-modelrack-tag-key" && event.data != root.key)
+            || event.mime-type == "application/x-modelrack-folder-key";
         }
         dropped(event) => {
             if (event.mime-type == "application/x-modelrack-model-index") {
                 root.model-dropped(event.data, root.label);
             } else if (event.mime-type == "application/x-modelrack-tag-key") {
                 root.tag-dropped(event.data, root.key);
+            } else if (event.mime-type == "application/x-modelrack-folder-key") {
+                root.folder-dropped(event.data, root.key);
             }
         }
     }
@@ -2260,6 +2266,7 @@ export component ModelRackWindow inherits Window {
     callback add-tag-sidebar-clicked();
     callback add-subtag-path(string, string);
     callback tag-dropped-on-tag(string, string);
+    callback folder-dropped-on-tag(string, string);
     callback sidebar-context-action(string, string, string);
     callback model-context-action(string, int);
     callback undo-library-action();
@@ -2267,6 +2274,7 @@ export component ModelRackWindow inherits Window {
     callback select-model-modified(int, bool, bool);
     callback lasso-select(length, length, length, length, bool, length);
     callback clear-selection();
+    callback select-all();
     callback add-tag-to-model(string, string) -> bool;
     callback toggle-favorite();
     callback rename-model(string) -> bool;
@@ -2333,6 +2341,11 @@ export component ModelRackWindow inherits Window {
                     rename-editing = true;
                 }
             }
+        }
+
+        KeyBinding {
+            keys: @keys(Meta + A);
+            activated => { select-all(); }
         }
 
         KeyBinding {
@@ -2550,7 +2563,8 @@ export component ModelRackWindow inherits Window {
 
                         for folder in folder-items: folder-row := SidebarLine {
                             key: folder.key;
-                            drag-enabled: false;
+                            drag-enabled: true;
+                            drag-mime: "application/x-modelrack-folder-key";
                             icon: folder.depth == 0 ? @image-url("../assets/icons/folder-open.svg") : @image-url("../assets/icons/folder.svg");
                             label: folder.label;
                             count: folder.count;
@@ -2609,6 +2623,7 @@ export component ModelRackWindow inherits Window {
                             }
                             model-dropped(model, tag) => { add-tag-to-model(model, tag); }
                             tag-dropped(src, dest) => { root.tag-dropped-on-tag(src, dest); }
+                            folder-dropped(folder-key, tag-key) => { root.folder-dropped-on-tag(folder-key, tag-key); }
                             context-requested(x, y) => {
                                 sidebar-context-key = tag.key;
                                 sidebar-context-label = tag.label;
