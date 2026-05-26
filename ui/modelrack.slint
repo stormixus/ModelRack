@@ -2205,6 +2205,12 @@ export component ModelRackWindow inherits Window {
     property <string> subtag-parent-tag: "";
     property <string> subtag-draft: "";
 
+    property <bool> lasso-active: false;
+    property <length> lasso-start-x: 0px;
+    property <length> lasso-start-y: 0px;
+    property <length> lasso-current-x: 0px;
+    property <length> lasso-current-y: 0px;
+
     // Callbacks
     callback open-folder();
     callback refresh-library();
@@ -2258,6 +2264,7 @@ export component ModelRackWindow inherits Window {
     callback undo-library-action();
     callback select-model(int);
     callback select-model-modified(int, bool, bool);
+    callback lasso-select(length, length, length, length, bool, length);
     callback add-tag-to-model(string, string) -> bool;
     callback toggle-favorite();
     callback rename-model(string) -> bool;
@@ -3122,6 +3129,44 @@ export component ModelRackWindow inherits Window {
                             }
                         }
 
+                        lasso-touch := TouchArea {
+                            x: 0;
+                            y: 0;
+                            width: parent.width;
+                            height: max(parent.viewport-height, parent.height);
+
+                            pointer-event(event) => {
+                                if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                                    root.lasso-start-x = self.mouse-x;
+                                    root.lasso-start-y = self.mouse-y;
+                                    root.lasso-current-x = self.mouse-x;
+                                    root.lasso-current-y = self.mouse-y;
+                                }
+                                if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up) {
+                                    if (root.lasso-active) {
+                                        root.lasso-select(
+                                            min(root.lasso-start-x, root.lasso-current-x),
+                                            min(root.lasso-start-y, root.lasso-current-y),
+                                            abs(root.lasso-current-x - root.lasso-start-x),
+                                            abs(root.lasso-current-y - root.lasso-start-y),
+                                            event.modifiers.meta,
+                                            self.width,
+                                        );
+                                        root.lasso-active = false;
+                                    }
+                                }
+                            }
+                            moved => {
+                                if (self.pressed) {
+                                    root.lasso-current-x = self.mouse-x;
+                                    root.lasso-current-y = self.mouse-y;
+                                    if (abs(root.lasso-current-x - root.lasso-start-x) > 5px || abs(root.lasso-current-y - root.lasso-start-y) > 5px) {
+                                        root.lasso-active = true;
+                                    }
+                                }
+                            }
+                        }
+
                         for card[index] in model-cards: model-card := ModelCard {
                             property <length> target-y: is-list
                                 ? index * (grid-flick.row-h + grid-flick.gap)
@@ -3175,6 +3220,17 @@ export component ModelRackWindow inherits Window {
                                 sort-menu-open = false;
                                 preview-plate-menu-open = false;
                             }
+                        }
+
+                        if lasso-active: Rectangle {
+                            x: min(lasso-start-x, lasso-current-x);
+                            y: min(lasso-start-y, lasso-current-y);
+                            width: abs(lasso-current-x - lasso-start-x);
+                            height: abs(lasso-current-y - lasso-start-y);
+                            background: Theme.accent.with-alpha(0.15);
+                            border-color: Theme.accent;
+                            border-width: 1px;
+                            border-radius: 2px;
                         }
                     }
                 }

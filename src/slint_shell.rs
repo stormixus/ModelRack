@@ -907,6 +907,125 @@ pub fn run() -> Result<(), slint::PlatformError> {
     });
 
     let weak = ui.as_weak();
+    let lasso_state = state.clone();
+    ui.on_lasso_select(
+        move |lasso_x, lasso_y, lasso_w, lasso_h, additive, grid_width| {
+            if let Some(ui) = weak.upgrade() {
+                let mut state = lasso_state.borrow_mut();
+
+                if !additive {
+                    state.selected_indices.clear();
+                }
+
+                let lx = lasso_x as f32;
+                let ly = lasso_y as f32;
+                let lw = lasso_w as f32;
+                let lh = lasso_h as f32;
+                let gw = grid_width as f32;
+
+                let limit = state.displayed_card_limit.min(state.displayed.len());
+
+                let view_mode = ViewMode::from_str(&state.prefs.view_mode);
+                let density = Density::from_str(&state.prefs.density);
+
+                match view_mode {
+                    ViewMode::List => {
+                        let row_h = match density {
+                            Density::Small => 48.0,
+                            Density::Medium => 58.0,
+                            Density::Large => 68.0,
+                        };
+                        let gap = 8.0;
+                        for i in 0..limit {
+                            let cy = i as f32 * (row_h + gap);
+                            if cy + row_h > ly && cy < ly + lh {
+                                state.selected_indices.insert(i);
+                            }
+                        }
+                    }
+                    ViewMode::Grid => {
+                        let target_w: f32 = match density {
+                            Density::Small => 144.0,
+                            Density::Medium => 168.0,
+                            Density::Large => 208.0,
+                        };
+                        let gap = 12.0;
+                        let cols =
+                            ((gw + gap) / (target_w + gap)).floor().max(1.0) as usize;
+                        let card_w = (gw - (cols as f32 - 1.0) * gap) / cols as f32;
+                        let card_h = card_w + 76.0;
+                        for i in 0..limit {
+                            let col = i % cols;
+                            let row = i / cols;
+                            let cx = col as f32 * (card_w + gap);
+                            let cy = row as f32 * (card_h + gap);
+                            if cx + card_w > lx
+                                && cx < lx + lw
+                                && cy + card_h > ly
+                                && cy < ly + lh
+                            {
+                                state.selected_indices.insert(i);
+                            }
+                        }
+                    }
+                    ViewMode::Masonry => {
+                        let mut hits = Vec::new();
+                        if let Some(cache) = &state.masonry_cache {
+                            let card_w = cache.card_w;
+                            for i in 0..limit.min(cache.xs.len()) {
+                                let cx = cache.xs[i];
+                                let cy = cache.ys[i];
+                                let entry = &state.displayed[i];
+                                let aspect_ratio_type = {
+                                    use std::collections::hash_map::DefaultHasher;
+                                    use std::hash::{Hash, Hasher};
+                                    let mut hasher = DefaultHasher::new();
+                                    entry.path.hash(&mut hasher);
+                                    let hash_val = hasher.finish();
+                                    (hash_val % 4) as i32
+                                };
+                                let aspect_ratio: f32 = match aspect_ratio_type {
+                                    0 => 0.85,
+                                    1 => 1.00,
+                                    2 => 1.15,
+                                    _ => 1.30,
+                                };
+                                let has_tags = entry
+                                    .meta
+                                    .as_ref()
+                                    .is_some_and(|m| !m.tags.is_empty());
+                                let text_h: f32 =
+                                    if has_tags { 76.0 } else { 62.0 };
+                                let ch = card_w * aspect_ratio + text_h;
+                                if cx + card_w > lx
+                                    && cx < lx + lw
+                                    && cy + ch > ly
+                                    && cy < ly + lh
+                                {
+                                    hits.push(i);
+                                }
+                            }
+                        }
+                        for i in hits {
+                            state.selected_indices.insert(i);
+                        }
+                    }
+                }
+
+                if let Some(&last) = state.selected_indices.iter().max() {
+                    state.selected_index = Some(last);
+                } else {
+                    state.selected_index = None;
+                }
+
+                let snapshot = state.snapshot_done();
+                apply_snapshot(&ui, &snapshot);
+                apply_detail(&ui, &mut state);
+            }
+        },
+    );
+
+    let weak = ui.as_weak();
     let model_context_state = state.clone();
     ui.on_model_context_action(move |action, index| {
         let Some(ui) = weak.upgrade() else {
