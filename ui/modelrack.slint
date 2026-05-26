@@ -2223,6 +2223,7 @@ export component ModelRackWindow inherits Window {
     property <length> resize-start-width: 0px;
     property <bool> rename-editing: false;
     property <string> rename-draft: "";
+    property <bool> folder-drag-detected: folder-drag-sensor.contains-drag;
     property <bool> subtag-dialog-open: false;
     property <string> subtag-parent-tag: "";
     property <string> subtag-draft: "";
@@ -3115,6 +3116,16 @@ export component ModelRackWindow inherits Window {
                     background: Theme.bg-2;
                     vertical-stretch: 1;
 
+                    // Invisible sensor to detect folder drag anywhere on screen
+                    folder-drag-sensor := DropArea {
+                        x: 0; y: 0;
+                        width: parent.width;
+                        height: parent.height;
+                        can-drop(event) => {
+                            event.mime-type == "application/x-modelrack-folder-key";
+                        }
+                    }
+
                     if model-cards.length == 0: VerticalLayout {
                         alignment: center;
                         spacing: 14px;
@@ -3294,6 +3305,59 @@ export component ModelRackWindow inherits Window {
                             border-color: Theme.accent;
                             border-width: 1px;
                             border-radius: 2px;
+                        }
+                    }
+                }
+
+                // Tag drop-zone (appears when dragging a folder)
+                if folder-drag-detected: Rectangle {
+                    height: 48px;
+                    background: Theme.bg-1;
+                    clip: true;
+                    animate height { duration: 150ms; easing: ease-out; }
+
+                    Rectangle {
+                        x: 0; y: 0;
+                        width: parent.width; height: 1px;
+                        background: Theme.line;
+                    }
+
+                    Flickable {
+                        x: 8px;
+                        y: 6px;
+                        width: parent.width - 16px;
+                        height: 36px;
+
+                        HorizontalLayout {
+                            spacing: 6px;
+
+                            for tag in tag-items: Rectangle {
+                                width: drop-tag-label.width + 24px;
+                                height: 30px;
+                                background: drop-tag-area.contains-drag ? Theme.accent-dim : Theme.bg-3;
+                                border-color: drop-tag-area.contains-drag ? Theme.accent : Theme.line-2;
+                                border-width: 1px;
+                                border-radius: 6px;
+
+                                drop-tag-label := Text {
+                                    x: 12px;
+                                    y: (parent.height - self.height) / 2;
+                                    text: tag.label;
+                                    color: drop-tag-area.contains-drag ? Theme.accent : Theme.fg-1;
+                                    font-size: 11px;
+                                }
+
+                                drop-tag-area := DropArea {
+                                    width: parent.width;
+                                    height: parent.height;
+                                    can-drop(event) => {
+                                        event.mime-type == "application/x-modelrack-folder-key";
+                                    }
+                                    dropped(event) => {
+                                        folder-dropped-on-tag(event.data, tag.key);
+                                    }
+                                }
+                            }
                         }
                     }
                 }
