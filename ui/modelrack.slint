@@ -2227,13 +2227,13 @@ export component ModelRackWindow inherits Window {
     property <bool> sidebar-context-is-folder: false;
     property <length> sidebar-context-x: 0px;
     property <length> sidebar-context-y: 0px;
-    property <bool> model-context-open: false;
-    property <int> model-context-index: -1;
-    property <string> model-context-label;
-    property <bool> model-context-favorite: false;
-    property <int> model-context-printed-count: 0;
-    property <length> model-context-x: 0px;
-    property <length> model-context-y: 0px;
+    in-out property <bool> model-context-open: false;
+    in-out property <int> model-context-index: -1;
+    in-out property <string> model-context-label;
+    in-out property <bool> model-context-favorite: false;
+    in-out property <int> model-context-printed-count: 0;
+    in-out property <length> model-context-x: 0px;
+    in-out property <length> model-context-y: 0px;
     property <length> model-context-menu-width: 214px;
     property <length> model-context-menu-height: model-context-printed-count > 0 ? 312px : 283px;
     property <bool> slicer-menu-open: false;
@@ -2261,6 +2261,9 @@ export component ModelRackWindow inherits Window {
     property <bool> rename-editing: false;
     property <string> rename-draft: "";
     property <bool> folder-drag-detected: folder-drag-sensor.contains-drag;
+    property <length> grid-viewport-y: 0px;
+    property <length> grid-viewport-height: 0px;
+    property <length> grid-visible-height: 0px;
     property <bool> subtag-dialog-open: false;
     property <string> subtag-parent-tag: "";
     property <string> subtag-draft: "";
@@ -2334,6 +2337,8 @@ export component ModelRackWindow inherits Window {
     callback select-model(int);
     callback select-model-modified(int, bool, bool);
     callback lasso-select(length, length, length, length, bool, length);
+    callback lasso-click(length, length, bool, bool, length);
+    callback lasso-right-click(length, length, length, length, length);
     callback clear-selection();
     callback select-all();
     callback add-tag-to-model(string, string) -> bool;
@@ -3232,49 +3237,12 @@ export component ModelRackWindow inherits Window {
 
 
                         changed viewport-y => {
+                            root.grid-viewport-y = self.viewport-y;
+                            root.grid-viewport-height = self.viewport-height;
+                            root.grid-visible-height = self.height;
                             if (-self.viewport-y >= self.viewport-height - self.height - 200px && model-cards.length < total-matching-cards && !root.loading-more) {
                                 root.loading-more = true;
                                 root.load-more-cards();
-                            }
-                        }
-
-                        lasso-bg := TouchArea {
-                            x: 0;
-                            y: 0;
-                            width: parent.width;
-                            height: max(parent.viewport-height, parent.height);
-
-                            pointer-event(event) => {
-                                if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
-                                    root.lasso-start-x = self.mouse-x;
-                                    root.lasso-start-y = self.mouse-y;
-                                    root.lasso-current-x = self.mouse-x;
-                                    root.lasso-current-y = self.mouse-y;
-                                }
-                                if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up) {
-                                    if (root.lasso-active) {
-                                        root.lasso-select(
-                                            min(root.lasso-start-x, root.lasso-current-x),
-                                            min(root.lasso-start-y, root.lasso-current-y),
-                                            abs(root.lasso-current-x - root.lasso-start-x),
-                                            abs(root.lasso-current-y - root.lasso-start-y),
-                                            event.modifiers.meta,
-                                            self.width,
-                                        );
-                                        root.lasso-active = false;
-                                    } else {
-                                        root.clear-selection();
-                                    }
-                                }
-                            }
-                            moved => {
-                                if (self.pressed) {
-                                    root.lasso-current-x = self.mouse-x;
-                                    root.lasso-current-y = self.mouse-y;
-                                    if (!root.lasso-active && (abs(root.lasso-current-x - root.lasso-start-x) > 5px || abs(root.lasso-current-y - root.lasso-start-y) > 5px)) {
-                                        root.lasso-active = true;
-                                    }
-                                }
                             }
                         }
 
@@ -3331,28 +3299,6 @@ export component ModelRackWindow inherits Window {
                                 sort-menu-open = false;
                                 preview-plate-menu-open = false;
                             }
-                            lasso-update(abs-sx, abs-sy, abs-cx, abs-cy) => {
-                                root.lasso-start-x = abs-sx - grid-flick.absolute-position.x;
-                                root.lasso-start-y = abs-sy - grid-flick.absolute-position.y - grid-flick.viewport-y;
-                                root.lasso-current-x = abs-cx - grid-flick.absolute-position.x;
-                                root.lasso-current-y = abs-cy - grid-flick.absolute-position.y - grid-flick.viewport-y;
-                                root.lasso-active = true;
-                            }
-                            lasso-finish(abs-sx, abs-sy, abs-cx, abs-cy, meta) => {
-                                root.lasso-start-x = abs-sx - grid-flick.absolute-position.x;
-                                root.lasso-start-y = abs-sy - grid-flick.absolute-position.y - grid-flick.viewport-y;
-                                root.lasso-current-x = abs-cx - grid-flick.absolute-position.x;
-                                root.lasso-current-y = abs-cy - grid-flick.absolute-position.y - grid-flick.viewport-y;
-                                root.lasso-select(
-                                    min(root.lasso-start-x, root.lasso-current-x),
-                                    min(root.lasso-start-y, root.lasso-current-y),
-                                    abs(root.lasso-current-x - root.lasso-start-x),
-                                    abs(root.lasso-current-y - root.lasso-start-y),
-                                    meta,
-                                    grid-flick.width,
-                                );
-                                root.lasso-active = false;
-                            }
                         }
 
                         if lasso-active: Rectangle {
@@ -3364,6 +3310,63 @@ export component ModelRackWindow inherits Window {
                             border-color: Theme.accent;
                             border-width: 1px;
                             border-radius: 2px;
+                        }
+                    }
+
+                    // Lasso overlay — sits on top of Flickable, passes scroll through
+                    if model-cards.length > 0: lasso-overlay := TouchArea {
+                        x: 14px;
+                        y: 14px;
+                        width: parent.width - 28px;
+                        height: parent.height - 28px;
+
+                        property <length> press-x;
+                        property <length> press-y;
+                        property <bool> is-dragging;
+
+                        scroll-event(event) => {
+                            reject
+                        }
+                        pointer-event(event) => {
+                            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                                self.press-x = self.mouse-x;
+                                self.press-y = self.mouse-y;
+                                self.is-dragging = false;
+                            }
+                            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up) {
+                                if (self.is-dragging) {
+                                    root.lasso-select(
+                                        min(self.press-x, self.mouse-x),
+                                        min(self.press-y - root.grid-viewport-y, self.mouse-y - root.grid-viewport-y),
+                                        abs(self.mouse-x - self.press-x),
+                                        abs(self.mouse-y - self.press-y),
+                                        event.modifiers.meta,
+                                        self.width,
+                                    );
+                                    root.lasso-active = false;
+                                    self.is-dragging = false;
+                                } else {
+                                    root.lasso-click(self.mouse-x, self.mouse-y - root.grid-viewport-y, event.modifiers.shift, event.modifiers.meta, self.width);
+                                }
+                            }
+                            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                                root.lasso-right-click(self.mouse-x, self.mouse-y - root.grid-viewport-y, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y, self.width);
+                            }
+                        }
+                        moved => {
+                            if (self.pressed) {
+                                if (!self.is-dragging && (abs(self.mouse-x - self.press-x) > 5px || abs(self.mouse-y - self.press-y) > 5px)) {
+                                    self.is-dragging = true;
+                                }
+                                if (self.is-dragging) {
+                                    // Update lasso rect in viewport coords
+                                    root.lasso-start-x = self.press-x;
+                                    root.lasso-start-y = self.press-y - root.grid-viewport-y;
+                                    root.lasso-current-x = self.mouse-x;
+                                    root.lasso-current-y = self.mouse-y - root.grid-viewport-y;
+                                    root.lasso-active = true;
+                                }
+                            }
                         }
                     }
                 }
