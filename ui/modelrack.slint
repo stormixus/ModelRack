@@ -35,6 +35,12 @@ export struct SidebarItem {
     visible: bool,
 }
 
+export struct TagPickerItem {
+    key: string,
+    label: string,
+    checked: bool,
+}
+
 export struct PrintHistoryRow {
     date: string,
     material: string,
@@ -2220,10 +2226,11 @@ export component ModelRackWindow inherits Window {
     property <bool> subtag-dialog-open: false;
     property <string> subtag-parent-tag: "";
     property <string> subtag-draft: "";
-    property <bool> folder-tag-dialog-open: false;
-    property <string> folder-tag-dialog-folder-key: "";
-    property <string> folder-tag-dialog-folder-label: "";
+    in-out property <bool> folder-tag-dialog-open: false;
+    in-out property <string> folder-tag-dialog-folder-key: "";
+    in-out property <string> folder-tag-dialog-folder-label: "";
     property <string> folder-tag-draft: "";
+    in-out property <[TagPickerItem]> folder-tag-picker-items;
 
     property <bool> lasso-active: false;
     property <length> lasso-start-x: 0px;
@@ -2280,7 +2287,9 @@ export component ModelRackWindow inherits Window {
     callback add-subtag-path(string, string);
     callback tag-dropped-on-tag(string, string);
     callback folder-dropped-on-tag(string, string);
-    callback add-tag-to-folder-path(string, string);
+    callback add-tags-to-folder(string, string);
+    callback open-folder-tag-dialog(string, string);
+    callback toggle-folder-tag-picker(int);
     callback sidebar-context-action(string, string, string);
     callback model-context-action(string, int);
     callback undo-library-action();
@@ -4639,10 +4648,8 @@ export component ModelRackWindow inherits Window {
             shortcut-scope.focus();
             sidebar-context-open = false;
             if action == "add-tag-to-folder" {
-                folder-tag-dialog-folder-key = sidebar-context-key;
-                folder-tag-dialog-folder-label = sidebar-context-label;
                 folder-tag-draft = "";
-                folder-tag-dialog-open = true;
+                open-folder-tag-dialog(sidebar-context-key, sidebar-context-label);
             } else if action == "add-subtag" {
                 subtag-parent-tag = sidebar-context-key;
                 subtag-draft = "";
@@ -4834,7 +4841,7 @@ export component ModelRackWindow inherits Window {
         }
     }
 
-    // ─── Folder tag dialog ───
+    // ─── Folder tag picker dialog ───
     if folder-tag-dialog-open: Rectangle {
         x: 0;
         y: 0;
@@ -4848,10 +4855,10 @@ export component ModelRackWindow inherits Window {
         }
 
         Rectangle {
-            x: (parent.width - 340px) / 2;
-            y: (parent.height - 180px) / 2;
-            width: 340px;
-            height: 180px;
+            x: (parent.width - 380px) / 2;
+            y: (parent.height - self.height) / 2;
+            width: 380px;
+            height: min(460px, 140px + max(folder-tag-picker-items.length, 1) * 32px);
             background: Theme.bg-1;
             border-color: Theme.line;
             border-width: 1px;
@@ -4862,12 +4869,12 @@ export component ModelRackWindow inherits Window {
 
             VerticalLayout {
                 padding: 20px;
-                spacing: 12px;
+                spacing: 10px;
 
                 Text {
                     text: settings-language-key == "ko" ? "폴더에 태그 추가" :
                           settings-language-key == "ja" ? "フォルダにタグを追加" :
-                          "Add Tag to Folder";
+                          "Add Tags to Folder";
                     color: Theme.fg-0;
                     font-size: 16px;
                     font-weight: 600;
@@ -4880,20 +4887,85 @@ export component ModelRackWindow inherits Window {
                     overflow: elide;
                 }
 
-                folder-tag-input := LineEdit {
-                    placeholder-text: settings-language-key == "ko" ? "태그 이름 입력" :
-                                     settings-language-key == "ja" ? "タグ名を入力" :
-                                     "Enter tag name";
-                    text: folder-tag-draft;
-                    edited(val) => { folder-tag-draft = val; }
-                    accepted => {
-                        if (folder-tag-draft != "") {
-                            add-tag-to-folder-path(folder-tag-dialog-folder-key, folder-tag-draft);
-                            folder-tag-dialog-open = false;
+                // Tag checklist
+                ScrollView {
+                    vertical-stretch: 1;
+                    min-height: 40px;
+                    max-height: 260px;
+
+                    VerticalLayout {
+                        spacing: 2px;
+
+                        for item[idx] in folder-tag-picker-items: Rectangle {
+                            height: 30px;
+                            background: ft-item-touch.has-hover ? Theme.bg-3 : transparent;
+                            border-radius: 4px;
+
+                            HorizontalLayout {
+                                padding-left: 8px;
+                                padding-right: 8px;
+                                spacing: 8px;
+                                alignment: start;
+
+                                Rectangle {
+                                    width: 16px;
+                                    height: 16px;
+                                    y: (parent.height - self.height) / 2;
+                                    background: item.checked ? Theme.accent : Theme.bg-2;
+                                    border-color: item.checked ? Theme.accent-line : Theme.line-2;
+                                    border-width: 1px;
+                                    border-radius: 3px;
+
+                                    if item.checked: Text {
+                                        width: parent.width;
+                                        height: parent.height;
+                                        text: "✓";
+                                        color: #ffffff;
+                                        font-size: 11px;
+                                        font-weight: 700;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                }
+
+                                Text {
+                                    text: item.label;
+                                    color: Theme.fg-0;
+                                    font-size: 12px;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                }
+                            }
+
+                            ft-item-touch := TouchArea {
+                                clicked => { toggle-folder-tag-picker(idx); }
+                            }
                         }
                     }
                 }
 
+                // New tag input
+                HorizontalLayout {
+                    spacing: 8px;
+
+                    folder-tag-input := LineEdit {
+                        horizontal-stretch: 1;
+                        placeholder-text: settings-language-key == "ko" ? "새 태그 입력" :
+                                         settings-language-key == "ja" ? "新しいタグを入力" :
+                                         "New tag name";
+                        text: folder-tag-draft;
+                        edited(val) => { folder-tag-draft = val; }
+                        accepted => {
+                            if (folder-tag-draft != "") {
+                                add-tags-to-folder(folder-tag-dialog-folder-key, folder-tag-draft);
+                                folder-tag-draft = "";
+                                open-folder-tag-dialog(folder-tag-dialog-folder-key, folder-tag-dialog-folder-label);
+                            }
+                        }
+                    }
+                }
+
+                // Action buttons
                 HorizontalLayout {
                     alignment: end;
                     spacing: 8px;
@@ -4924,7 +4996,7 @@ export component ModelRackWindow inherits Window {
                     Rectangle {
                         width: 80px;
                         height: 28px;
-                        background: ft-add.has-hover ? Theme.accent.brighter(10%) : Theme.accent;
+                        background: ft-apply.has-hover ? Theme.accent.brighter(10%) : Theme.accent;
                         border-color: Theme.accent-line;
                         border-width: 1px;
                         border-radius: 5px;
@@ -4933,19 +5005,17 @@ export component ModelRackWindow inherits Window {
                             height: parent.height;
                             horizontal-alignment: center;
                             vertical-alignment: center;
-                            text: settings-language-key == "ko" ? "추가" :
-                                  settings-language-key == "ja" ? "追加" :
-                                  "Add";
+                            text: settings-language-key == "ko" ? "적용" :
+                                  settings-language-key == "ja" ? "適用" :
+                                  "Apply";
                             color: #ffffff;
                             font-size: 12px;
                             font-weight: 600;
                         }
-                        ft-add := TouchArea {
+                        ft-apply := TouchArea {
                             clicked => {
-                                if (folder-tag-draft != "") {
-                                    add-tag-to-folder-path(folder-tag-dialog-folder-key, folder-tag-draft);
-                                    folder-tag-dialog-open = false;
-                                }
+                                folder-tag-dialog-open = false;
+                                add-tags-to-folder(folder-tag-dialog-folder-key, "");
                             }
                         }
                     }

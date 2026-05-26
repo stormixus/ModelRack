@@ -1526,16 +1526,87 @@ pub fn run() -> Result<(), slint::PlatformError> {
     });
 
     let weak = ui.as_weak();
-    let folder_tag_dialog_state = state.clone();
-    ui.on_add_tag_to_folder_path(move |folder_key, tag_name| {
+    let open_dialog_state = state.clone();
+    ui.on_open_folder_tag_dialog(move |folder_key, folder_label| {
         if let Some(ui) = weak.upgrade() {
-            let mut state = folder_tag_dialog_state.borrow_mut();
-            let key_with_prefix = if folder_key.as_str().starts_with("folder:") {
+            let state = open_dialog_state.borrow();
+            let all_tags: Vec<String> = {
+                let mut tags = std::collections::BTreeSet::new();
+                for entry in &state.entries {
+                    if let Some(meta) = &entry.meta {
+                        for tag in &meta.tags {
+                            tags.insert(tag.clone());
+                        }
+                    }
+                }
+                tags.into_iter().collect()
+            };
+            let picker_items: Vec<TagPickerItem> = all_tags
+                .into_iter()
+                .map(|tag| TagPickerItem {
+                    key: tag.clone().into(),
+                    label: tag.into(),
+                    checked: false,
+                })
+                .collect();
+            ui.set_folder_tag_picker_items(slint::ModelRc::new(slint::VecModel::from(picker_items)));
+            ui.set_folder_tag_dialog_folder_key(folder_key);
+            ui.set_folder_tag_dialog_folder_label(folder_label);
+            ui.set_folder_tag_dialog_open(true);
+        }
+    });
+
+    let weak = ui.as_weak();
+    ui.on_toggle_folder_tag_picker(move |idx| {
+        if let Some(ui) = weak.upgrade() {
+            let model = ui.get_folder_tag_picker_items();
+            if let Some(any_model) = model.as_any().downcast_ref::<slint::VecModel<TagPickerItem>>() {
+                if let Some(mut item) = any_model.row_data(idx as usize) {
+                    item.checked = !item.checked;
+                    any_model.set_row_data(idx as usize, item);
+                }
+            }
+        }
+    });
+
+    let weak = ui.as_weak();
+    let apply_folder_tags_state = state.clone();
+    ui.on_add_tags_to_folder(move |folder_key, new_tag| {
+        if let Some(ui) = weak.upgrade() {
+            let mut state = apply_folder_tags_state.borrow_mut();
+            let key = if folder_key.as_str().starts_with("folder:") {
                 folder_key.to_string()
             } else {
                 format!("folder:{}", folder_key)
             };
-            tag_all_in_folder(&ui, &mut state, &key_with_prefix, tag_name.as_str());
+
+            let new_tag_str = new_tag.to_string();
+            let mut tags_to_add: Vec<String> = Vec::new();
+
+            // Collect checked tags from picker
+            let model = ui.get_folder_tag_picker_items();
+            if let Some(any_model) = model.as_any().downcast_ref::<slint::VecModel<TagPickerItem>>() {
+                for i in 0..any_model.row_count() {
+                    if let Some(item) = any_model.row_data(i) {
+                        if item.checked {
+                            tags_to_add.push(item.key.to_string());
+                        }
+                    }
+                }
+            }
+
+            // Add new tag if provided
+            if !new_tag_str.is_empty() {
+                tags_to_add.push(new_tag_str);
+            }
+
+            if tags_to_add.is_empty() {
+                return;
+            }
+
+            for tag in &tags_to_add {
+                tag_all_in_folder(&ui, &mut state, &key, tag);
+            }
         }
     });
 
