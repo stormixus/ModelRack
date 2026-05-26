@@ -965,6 +965,7 @@ component ModelCard inherits Rectangle {
     in property <bool> is-masonry: false;
     in property <bool> is-list: false;
     callback clicked(int);
+    callback modifier-clicked(int, bool, bool);
     callback context-requested(int, length, length);
 
     property <float> aspect-ratio: card.aspect-ratio-type == 0 ? 0.85 :
@@ -1199,8 +1200,14 @@ component ModelCard inherits Rectangle {
         card-touch := TouchArea {
             width: parent.width;
             height: parent.height;
-            clicked => { root.clicked(root.card-index); }
             pointer-event(event) => {
+                if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up) {
+                    if (event.modifiers.shift || event.modifiers.meta) {
+                        root.modifier-clicked(root.card-index, event.modifiers.shift, event.modifiers.meta);
+                    } else {
+                        root.clicked(root.card-index);
+                    }
+                }
                 if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
                     root.context-requested(root.card-index, self.absolute-position.x + self.mouse-x, self.absolute-position.y + self.mouse-y);
                 }
@@ -2249,6 +2256,7 @@ export component ModelRackWindow inherits Window {
     callback model-context-action(string, int);
     callback undo-library-action();
     callback select-model(int);
+    callback select-model-modified(int, bool, bool);
     callback add-tag-to-model(string, string) -> bool;
     callback toggle-favorite();
     callback rename-model(string) -> bool;
@@ -3144,6 +3152,12 @@ export component ModelRackWindow inherits Window {
                                 model-context-open = false;
                                 sidebar-context-open = false;
                                 select-model(idx);
+                            }
+                            modifier-clicked(idx, shift, cmd) => {
+                                rename-editing = false;
+                                model-context-open = false;
+                                sidebar-context-open = false;
+                                select-model-modified(idx, shift, cmd);
                             }
                             context-requested(idx, x, y) => {
                                 rename-editing = false;

@@ -866,6 +866,43 @@ pub fn run() -> Result<(), slint::PlatformError> {
     });
 
     let weak = ui.as_weak();
+    let modified_select_state = state.clone();
+    ui.on_select_model_modified(move |index, shift, cmd| {
+        if let Some(ui) = weak.upgrade() {
+            let mut state = modified_select_state.borrow_mut();
+            let idx = index as usize;
+
+            if cmd {
+                if state.selected_indices.contains(&idx) {
+                    state.selected_indices.remove(&idx);
+                    if state.selected_indices.is_empty() {
+                        state.selected_index = None;
+                    }
+                } else {
+                    state.selected_indices.insert(idx);
+                    state.selected_index = Some(idx);
+                }
+            } else if shift {
+                if let Some(anchor) = state.selected_index {
+                    let lo = anchor.min(idx);
+                    let hi = anchor.max(idx);
+                    for i in lo..=hi {
+                        state.selected_indices.insert(i);
+                    }
+                } else {
+                    state.selected_indices.clear();
+                    state.selected_indices.insert(idx);
+                    state.selected_index = Some(idx);
+                }
+            }
+
+            state.reset_preview_orbit();
+            state.reset_preview_plate();
+            apply_detail(&ui, &mut state);
+        }
+    });
+
+    let weak = ui.as_weak();
     let model_context_state = state.clone();
     ui.on_model_context_action(move |action, index| {
         let Some(ui) = weak.upgrade() else {
