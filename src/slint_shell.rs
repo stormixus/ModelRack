@@ -39,6 +39,17 @@ const PREVIEW_ORBIT_SETTLE_DELAY: Duration = Duration::from_millis(120);
 
 const DEMO_ROOT: &str = "/Users/hwankishin/Library/3d";
 
+thread_local! {
+    static IGNORED_PATHS: std::cell::RefCell<HashSet<PathBuf>> = std::cell::RefCell::new(HashSet::new());
+}
+
+pub(crate) fn ignore_sidecar_watch(model_path: &Path) {
+    let sidecar = crate::scanner::sidecar_path(model_path);
+    IGNORED_PATHS.with(|paths| {
+        paths.borrow_mut().insert(sidecar);
+    });
+}
+
 pub fn run() -> Result<(), slint::PlatformError> {
     configure_slint_backend()?;
     crate::fonts::install_slint_fonts();
@@ -253,6 +264,29 @@ pub fn run() -> Result<(), slint::PlatformError> {
     ui.on_toggle_sidebar_folder(move |key| {
         if let Some(ui) = weak.upgrade() {
             toggle_sidebar_folder(&ui, &toggle_folder_state, key.as_str());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let toggle_tag_state = state.clone();
+    ui.on_toggle_sidebar_tag(move |key| {
+        if let Some(ui) = weak.upgrade() {
+            toggle_sidebar_tag(&ui, &toggle_tag_state, key.as_str());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let add_tag_sidebar_state = state.clone();
+    ui.on_add_tag_sidebar_clicked(move || {
+        if let Some(ui) = weak.upgrade() {
+            let language = add_tag_sidebar_state.borrow().prefs.language.clone();
+            let msg = localized(
+                "To create a new tag, select a model and add tags in the right-hand detail panel.",
+                "태그를 새로 만들려면 모델을 선택하고 오른쪽 상세 패널에서 태그를 추가해 주세요.",
+                "新しいタグを追加するには、モデルを選択して右側の詳細パネルからタグを追加してください。",
+                &language
+            );
+            ui.set_status_text(msg.into());
         }
     });
 
@@ -539,6 +573,21 @@ pub fn run() -> Result<(), slint::PlatformError> {
 
     let weak = ui.as_weak();
     let settings_state = state.clone();
+    ui.on_toggle_settings_layout_transitions(move |on| {
+        if let Some(ui) = weak.upgrade() {
+            let snapshot = {
+                let mut state = settings_state.borrow_mut();
+                state.set_layout_transitions(on);
+                state.snapshot_done()
+            };
+            apply_snapshot(&ui, &snapshot);
+            apply_settings(&ui, &settings_state.borrow());
+            save_prefs_status(&ui, &settings_state.borrow());
+        }
+    });
+
+    let weak = ui.as_weak();
+    let settings_state = state.clone();
     ui.on_choose_settings_startup(move |key| {
         if let Some(ui) = weak.upgrade() {
             {
@@ -806,7 +855,10 @@ pub fn run() -> Result<(), slint::PlatformError> {
     ui.on_select_model(move |index| {
         if let Some(ui) = weak.upgrade() {
             let mut state = select_state.borrow_mut();
-            state.selected_index = Some(index as usize);
+            let idx = index as usize;
+            state.selected_indices.clear();
+            state.selected_indices.insert(idx);
+            state.selected_index = Some(idx);
             state.reset_preview_orbit();
             state.reset_preview_plate();
             apply_detail(&ui, &mut state);
@@ -1176,6 +1228,94 @@ pub fn run() -> Result<(), slint::PlatformError> {
     });
 
     let weak = ui.as_weak();
+    let subtag_state = state.clone();
+    ui.on_add_subtag_path(move |parent_key, subtag_draft| {
+        if let Some(ui) = weak.upgrade() {
+            let mut state = subtag_state.borrow_mut();
+            let Some(path) = state.selected_model_path() else {
+                let language = state.prefs.language.clone();
+                let msg = localized(
+                    "Please select a model first to attach the sub-tag.",
+                    "하위 태그를 추가할 모델을 먼저 선택해 주세요.",
+                    "下位タグを追加するモデルをまず選択してください。",
+                    &language,
+                );
+                ui.set_status_text(msg.into());
+                return;
+            };
+
+            let parent_path = parent_key.as_str().strip_prefix("tag:").unwrap_or(parent_key.as_str());
+            let full_tag = format!("{}/{}", parent_path, subtag_draft.as_str().trim());
+
+            let allow_sidecar_writes = state.sidecar_writes_enabled;
+            let prefs = state.prefs.clone();
+            match persist_add_tags(
+                &prefs,
+                &mut state.entries,
+                &path,
+                allow_sidecar_writes,
+                &full_tag,
+            ) {
+                Ok(Some(count)) if allow_sidecar_writes => {
+                    ui.set_status_text(format!("Sub-tag added: {}", full_tag).into())
+                }
+                Ok(Some(_)) => {
+                    ui.set_status_text(format!("Demo sub-tag added: {}", full_tag).into())
+                }
+                Ok(None) => ui.set_status_text("Selected model is no longer available".into()),
+                Err(err) => {
+                    ui.set_status_text(format!("Could not add sub-tag: {}", err).into());
+                    return;
+                }
+            }
+
+            let snapshot = state.snapshot_done();
+            state.reselect_path(&path);
+            apply_snapshot(&ui, &snapshot);
+            apply_detail(&ui, &mut state);
+            apply_settings(&ui, &state);
+        }
+    });
+
+    let weak = ui.as_weak();
+    let drag_tag_state = state.clone();
+    ui.on_tag_dropped_on_tag(move |src_key, dest_key| {
+        if let Some(ui) = weak.upgrade() {
+            let mut state = drag_tag_state.borrow_mut();
+            let src_tag = src_key.as_str().strip_prefix("tag:").unwrap_or(src_key.as_str());
+            let dest_tag = dest_key.as_str().strip_prefix("tag:").unwrap_or(dest_key.as_str());
+
+            let allow_sidecar_writes = state.sidecar_writes_enabled;
+            let prefs = state.prefs.clone();
+
+            match persist_tag_reparent(
+                &prefs,
+                &mut state.entries,
+                allow_sidecar_writes,
+                src_tag,
+                dest_tag,
+            ) {
+                Ok(count) => {
+                    let msg = format!("Reparented tag '{}' under '{}' on {} models", src_tag, dest_tag, count);
+                    ui.set_status_text(msg.into());
+                }
+                Err(err) => {
+                    let msg = format!("Could not drag-and-drop tag: {}", err);
+                    ui.set_status_text(msg.into());
+                }
+            }
+
+            let snapshot = state.snapshot_done();
+            if let Some(path) = state.selected_model_path() {
+                state.reselect_path(&path);
+            }
+            apply_snapshot(&ui, &snapshot);
+            apply_detail(&ui, &mut state);
+            apply_settings(&ui, &state);
+        }
+    });
+
+    let weak = ui.as_weak();
     let drop_tag_state = state.clone();
     ui.on_add_tag_to_model(move |model_index, tag| {
         if let Some(ui) = weak.upgrade() {
@@ -1419,6 +1559,25 @@ pub fn run() -> Result<(), slint::PlatformError> {
 
     ui.on_window_fullscreen(move || {
         crate::macos::fullscreen_window();
+    });
+
+    let weak = ui.as_weak();
+    let resize_timer = Rc::new(std::cell::RefCell::new(slint::Timer::default()));
+    ui.on_window_resized(move || {
+        if let Some(ui) = weak.upgrade() {
+            ui.set_is_transition_active(false);
+            let weak_inner = ui.as_weak();
+            resize_timer.borrow().stop();
+            resize_timer.borrow().start(
+                slint::TimerMode::SingleShot,
+                std::time::Duration::from_millis(150),
+                move || {
+                    if let Some(ui) = weak_inner.upgrade() {
+                        ui.set_is_transition_active(true);
+                    }
+                }
+            );
+        }
     });
 
     let weak = ui.as_weak();
@@ -1817,11 +1976,35 @@ impl LibraryWatcherRuntime {
         let mut poll = WatchPoll::default();
         while let Ok(message) = self.rx.try_recv() {
             match message {
-                WatchMessage::Changed { generation, paths }
-                    if generation == self.generation
-                        && paths.iter().any(|path| is_refresh_relevant_path(path)) =>
-                {
-                    saw_relevant = true;
+                WatchMessage::Changed { generation, paths } if generation == self.generation => {
+                    let has_non_ignored = paths.iter().any(|path| {
+                        if !is_refresh_relevant_path(path) {
+                            return false;
+                        }
+
+                        let mut ignored = false;
+                        IGNORED_PATHS.with(|ignored_set| {
+                            let mut set = ignored_set.borrow_mut();
+                            if set.remove(path) {
+                                ignored = true;
+                            } else {
+                                let found = set
+                                    .iter()
+                                    .find(|p| p.file_name() == path.file_name())
+                                    .cloned();
+                                if let Some(p) = found {
+                                    set.remove(&p);
+                                    ignored = true;
+                                }
+                            }
+                        });
+
+                        !ignored
+                    });
+
+                    if has_non_ignored {
+                        saw_relevant = true;
+                    }
                 }
                 WatchMessage::Changed { .. } => {}
                 WatchMessage::Error {
@@ -3139,6 +3322,7 @@ fn persist_favorite_toggle(
         if !path.exists() {
             anyhow::bail!("model does not exist: {}", path.display());
         }
+        ignore_sidecar_watch(path);
         scanner::write_sidecar(path, &meta)?;
     }
     entry.meta = Some(meta.clone());
@@ -3219,6 +3403,7 @@ fn persist_add_existing_tag(
     let mut meta = entry.meta.clone().unwrap_or_default();
     meta.tags.push(tag.to_string());
     if allow_sidecar_writes {
+        ignore_sidecar_watch(path);
         scanner::write_sidecar(path, &meta)?;
     }
     let count = meta.tags.len();
@@ -3280,6 +3465,54 @@ fn persist_remove_tag(
         meta.tags.remove(tag_index);
     })?;
     Ok(updated.map(|meta| meta.tags.len()))
+}
+
+fn persist_tag_reparent(
+    prefs: &AppPrefs,
+    entries: &mut [scanner::StlFileInfo],
+    allow_sidecar_writes: bool,
+    src_tag: &str,
+    dest_tag: &str,
+) -> anyhow::Result<usize> {
+    let leaf = src_tag.split('/').last().unwrap_or(src_tag);
+    let prefix = format!("{}/", src_tag);
+
+    let mut matching_paths = Vec::new();
+    for entry in entries.iter() {
+        if let Some(meta) = &entry.meta {
+            if meta.tags.iter().any(|t| t == src_tag || t.starts_with(&prefix)) {
+                matching_paths.push(entry.path.clone());
+            }
+        }
+    }
+
+    let mut updated_count = 0;
+    for path in matching_paths {
+        update_model_meta(prefs, entries, &path, allow_sidecar_writes, |meta| {
+            let mut seen = std::collections::HashSet::new();
+            let mut new_tags = Vec::new();
+            for t in &meta.tags {
+                let new_t = if t == src_tag {
+                    format!("{}/{}", dest_tag, leaf)
+                } else if t.starts_with(&prefix) {
+                    if let Some(suffix) = t.strip_prefix(src_tag) {
+                        format!("{}/{}{}", dest_tag, leaf, suffix)
+                    } else {
+                        t.clone()
+                    }
+                } else {
+                    t.clone()
+                };
+                if seen.insert(new_t.clone()) {
+                    new_tags.push(new_t);
+                }
+            }
+            meta.tags = new_tags;
+        })?;
+        updated_count += 1;
+    }
+
+    Ok(updated_count)
 }
 
 fn persist_print_count_delta(
@@ -3377,6 +3610,7 @@ fn update_model_meta(
         if !path.exists() {
             anyhow::bail!("model does not exist: {}", path.display());
         }
+        ignore_sidecar_watch(path);
         scanner::write_sidecar(path, &meta)?;
     }
     entry.meta = Some(meta.clone());
@@ -3581,6 +3815,7 @@ struct ShellState {
     settings_open: bool,
     settings_tab: String,
     selected_index: Option<usize>,
+    selected_indices: std::collections::HashSet<usize>,
     preview_orbit_yaw: f32,
     preview_orbit_pitch: f32,
     target_orbit_yaw: f32,
@@ -3702,7 +3937,9 @@ impl ShellState {
                 _ => 1.30,
             };
 
-            let card_h = card_w * aspect_ratio + 62.0;
+            let has_tags = entry.meta.as_ref().is_some_and(|meta| !meta.tags.is_empty());
+            let text_h = if has_tags { 76.0 } else { 62.0 };
+            let card_h = card_w * aspect_ratio + text_h;
 
             let mut min_col = 0;
             let mut min_height = col_heights[0];
@@ -3775,6 +4012,7 @@ impl ShellState {
             settings_open: false,
             settings_tab: "general".to_string(),
             selected_index: Some(0),
+            selected_indices: std::collections::HashSet::new(),
             preview_orbit_yaw: -0.62,
             preview_orbit_pitch: -0.48,
             target_orbit_yaw: -0.62,
@@ -4752,6 +4990,25 @@ impl ShellState {
         self.snapshot_done()
     }
 
+    fn toggle_sidebar_tag(&mut self, tag: &str) -> AppViewSnapshot {
+        if self
+            .prefs
+            .collapsed_tags
+            .iter()
+            .any(|collapsed| collapsed == tag)
+        {
+            self.prefs
+                .collapsed_tags
+                .retain(|collapsed| collapsed != tag);
+        } else {
+            self.prefs
+                .collapsed_tags
+                .retain(|collapsed| !collapsed.starts_with(&format!("{}/", tag)));
+            self.prefs.collapsed_tags.push(tag.to_string());
+        }
+        self.snapshot_done()
+    }
+
     fn clear_library_state(&mut self) {
         self.entries.clear();
         self.displayed.clear();
@@ -4880,6 +5137,10 @@ impl ShellState {
 
     fn set_show_file_extensions(&mut self, on: bool) {
         self.prefs.show_file_extensions = on;
+    }
+
+    fn set_layout_transitions(&mut self, on: bool) {
+        self.prefs.layout_transitions = on;
     }
 
     fn choose_startup_view(&mut self, key: &str) {
@@ -5264,6 +5525,7 @@ fn apply_snapshot(ui: &ModelRackWindow, snapshot: &AppViewSnapshot) {
     let folders = snapshot
         .folders
         .iter()
+        .filter(|folder| folder.visible)
         .map(|folder| SidebarItem {
             key: format!("folder:{}", folder.path.display()).into(),
             label: folder.label.clone().into(),
@@ -5278,14 +5540,15 @@ fn apply_snapshot(ui: &ModelRackWindow, snapshot: &AppViewSnapshot) {
     let tags = snapshot
         .tags
         .iter()
+        .filter(|tag| tag.visible)
         .map(|tag| SidebarItem {
             key: format!("tag:{}", tag.label).into(),
-            label: tag.label.clone().into(),
+            label: tag.display_label.clone().into(),
             count: tag.count as i32,
-            depth: 0,
-            expandable: false,
-            expanded: false,
-            visible: true,
+            depth: tag.depth as i32,
+            expandable: tag.expandable,
+            expanded: tag.expanded,
+            visible: tag.visible,
         })
         .collect::<Vec<SidebarItem>>();
     ui.set_tag_items(slint::ModelRc::new(slint::VecModel::from(tags)));
@@ -5394,6 +5657,7 @@ fn browser_card_needs_update(old: &BrowserCard, new: &BrowserCard) -> bool {
         || old.favorite != new.favorite
         || old.printed != new.printed
         || old.error != new.error
+        || old.tags != new.tags
 }
 
 fn detail_parent_label(entry: &scanner::StlFileInfo, state: &ShellState) -> String {
@@ -5457,12 +5721,46 @@ fn settings_folder_label(state: &ShellState) -> String {
 fn apply_filter_key(ui: &ModelRackWindow, state: &Rc<RefCell<ShellState>>, key: &str) {
     let snapshot = {
         let mut state = state.borrow_mut();
+        let prev_selected_path = state.selected_model_path();
+
         if let Some(filter) = smart_filter_from_key(key) {
             state.filter = filter;
         }
         state.displayed_card_limit = 100;
-        state.selected_index = None;
-        state.snapshot_done()
+
+        let search_query = state.search_query.clone();
+        let filter = state.filter.clone();
+
+        let query = crate::view_model::DisplayQuery {
+            search_query: &search_query,
+            library_filter: &filter,
+            sort_by: state.sort_by,
+            sort_ascending: state.sort_ascending,
+            preserve_order: false,
+        };
+
+        state.displayed = crate::view_model::filtered_sorted_entries(&state.entries, query);
+
+        if let Some(path) = prev_selected_path {
+            state.reselect_path(&path);
+        } else {
+            state.selected_index = None;
+        }
+
+        let status = ScanStatus::Done {
+            found: state.entries.len(),
+            skipped: state.skipped,
+        };
+
+        AppViewSnapshot::from_parts_with_displayed_slice(
+            &state.entries,
+            &state.displayed,
+            state.library_roots_for_snapshot(),
+            &status,
+            &state.prefs,
+            query,
+            state.displayed_card_limit,
+        )
     };
     apply_snapshot(ui, &snapshot);
     apply_detail_rc(ui, state);
@@ -5477,6 +5775,21 @@ fn toggle_sidebar_folder(ui: &ModelRackWindow, state: &Rc<RefCell<ShellState>>, 
     let snapshot = {
         let mut state = state.borrow_mut();
         state.toggle_sidebar_folder(&folder)
+    };
+    apply_snapshot(ui, &snapshot);
+    apply_detail_rc(ui, state);
+    apply_settings(ui, &state.borrow());
+    save_prefs_status(ui, &state.borrow());
+}
+
+fn toggle_sidebar_tag(ui: &ModelRackWindow, state: &Rc<RefCell<ShellState>>, key: &str) {
+    let Some(tag) = key.strip_prefix("tag:") else {
+        ui.set_status_text("Invalid tag key format".into());
+        return;
+    };
+    let snapshot = {
+        let mut state = state.borrow_mut();
+        state.toggle_sidebar_tag(tag)
     };
     apply_snapshot(ui, &snapshot);
     apply_detail_rc(ui, state);
@@ -5517,6 +5830,7 @@ fn apply_settings(ui: &ModelRackWindow, state: &ShellState) {
             .into(),
     );
     ui.set_settings_show_file_extensions(state.prefs.show_file_extensions);
+    ui.set_settings_layout_transitions(state.prefs.layout_transitions);
     ui.set_settings_startup_key(
         match state.prefs.startup_view.as_str() {
             "empty" => "empty",
@@ -6811,6 +7125,7 @@ fn browser_card(card: &BrowserCardVm, use_embedded_3mf: bool) -> BrowserCard {
         printed: card.printed,
         error: card.error,
         aspect_ratio_type: card.aspect_ratio_type,
+        tags: card.tags.clone().into(),
     }
 }
 
@@ -7225,6 +7540,7 @@ mod tests {
             printed: false,
             error: false,
             aspect_ratio_type: 1,
+            tags: "".into(),
         }
     }
 
@@ -7775,11 +8091,13 @@ mod tests {
             card_label_mode: "titled".to_string(),
             date_format_mode: "us".to_string(),
             show_file_extensions: false,
+            layout_transitions: true,
             startup_view: "empty".to_string(),
             last_folder: Some(root.join("models")),
             library_folders: vec![root.join("models")],
             excluded_folders: vec![root.join("models/archived")],
             collapsed_folders: vec![root.join("models/nested")],
+            collapsed_tags: vec!["filament/PLA".to_string()],
             use_embedded_3mf_preview: true,
             estimate_multicolor: false,
         };

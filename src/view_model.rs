@@ -128,6 +128,8 @@ pub struct AppPrefs {
     pub date_format_mode: String,
     #[serde(default = "default_show_file_extensions")]
     pub show_file_extensions: bool,
+    #[serde(default = "default_layout_transitions")]
+    pub layout_transitions: bool,
     #[serde(default = "default_startup_view")]
     pub startup_view: String,
     #[serde(default)]
@@ -139,6 +141,8 @@ pub struct AppPrefs {
     pub excluded_folders: Vec<PathBuf>,
     #[serde(default)]
     pub collapsed_folders: Vec<PathBuf>,
+    #[serde(default)]
+    pub collapsed_tags: Vec<String>,
     #[serde(default = "default_use_embedded_3mf_preview")]
     pub use_embedded_3mf_preview: bool,
     #[serde(default = "default_estimate_multicolor")]
@@ -182,11 +186,13 @@ impl Default for AppPrefs {
             card_label_mode: default_card_label_mode(),
             date_format_mode: default_date_format_mode(),
             show_file_extensions: default_show_file_extensions(),
+            layout_transitions: default_layout_transitions(),
             startup_view: default_startup_view(),
             last_folder: None,
             library_folders: Vec::new(),
             excluded_folders: Vec::new(),
             collapsed_folders: Vec::new(),
+            collapsed_tags: Vec::new(),
             use_embedded_3mf_preview: default_use_embedded_3mf_preview(),
             estimate_multicolor: default_estimate_multicolor(),
         }
@@ -250,6 +256,10 @@ fn default_date_format_mode() -> String {
 }
 
 fn default_show_file_extensions() -> bool {
+    true
+}
+
+fn default_layout_transitions() -> bool {
     true
 }
 
@@ -353,7 +363,12 @@ pub struct SidebarFolder {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SidebarTag {
     pub label: String,
+    pub display_label: String,
     pub count: usize,
+    pub depth: usize,
+    pub expandable: bool,
+    pub expanded: bool,
+    pub visible: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -380,6 +395,7 @@ pub struct BrowserCard {
     pub printed: bool,
     pub error: bool,
     pub aspect_ratio_type: i32,
+    pub tags: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -423,7 +439,7 @@ impl AppViewSnapshot {
             library_label: titlebar_for_library_roots(library_roots, language),
             sidebar: sidebar_summary(entries),
             folders: sidebar_folders(entries, library_roots, &prefs.collapsed_folders),
-            tags: sidebar_tags(entries),
+            tags: sidebar_tags(entries, &prefs.collapsed_tags),
             cards: browser_cards_for_prefs(sliced_displayed, prefs),
             browser: BrowserSummary {
                 displayed: displayed.len(),
@@ -467,7 +483,7 @@ impl AppViewSnapshot {
             library_label: titlebar_for_library_roots(library_roots, language),
             sidebar: sidebar_summary(entries),
             folders: sidebar_folders(entries, library_roots, &prefs.collapsed_folders),
-            tags: sidebar_tags(entries),
+            tags: sidebar_tags(entries, &prefs.collapsed_tags),
             cards: browser_cards_for_prefs(sliced_displayed, prefs),
             browser: BrowserSummary {
                 displayed: displayed.len(),
@@ -534,6 +550,11 @@ pub fn browser_cards_for_prefs(
                 } else {
                     entry.thumbnail_path.clone()
                 };
+            let tags = entry
+                .meta
+                .as_ref()
+                .map(|meta| meta.tags.join(", "))
+                .unwrap_or_default();
             BrowserCard {
                 stable_key: entry.path.display().to_string(),
                 slot_index,
@@ -553,6 +574,7 @@ pub fn browser_cards_for_prefs(
                 printed,
                 error: entry.stl_type == scanner::StlType::Unknown,
                 aspect_ratio_type,
+                tags,
             }
         })
         .collect::<Vec<_>>();
@@ -802,47 +824,212 @@ pub fn sidebar_folders(
     if roots.is_empty() {
         return Vec::new();
     }
-    roots
-        .into_iter()
-        .map(|path| {
-            let count = entries
-                .iter()
-                .filter(|e| entry_under_library_root(&e.path, &path))
-                .count();
-            let label = path
-                .file_name()
+
+    // Pre-canonicalize roots once to avoid expensive blocking filesystem calls in the loop
+    let canonical_roots: Vec<PathBuf> = roots
+        .iter()
+        .map(|r| {
+            let expanded = expand_user_pref_path(r);
+            std::fs::canonicalize(&expanded).unwrap_or(expanded)
+        })
+        .collect();
+
+    // 1. Collect all folder paths that contain models or are configured roots.
+    let mut folder_paths = std::collections::HashSet::new();
+    for root in &roots {
+        folder_paths.insert(root.clone());
+    }
+
+    for entry in entries {
+        if let Some(parent) = entry.path.parent() {
+            for (i, root) in roots.iter().enumerate() {
+                let canonical_root = &canonical_roots[i];
+                if entry.path.starts_with(root) || entry.path.starts_with(canonical_root) {
+                    let mut curr = parent.to_path_buf();
+                    while curr.starts_with(root) || curr.starts_with(canonical_root) {
+                        folder_paths.insert(curr.clone());
+                        if curr == *root || curr == *canonical_root {
+                            break;
+                        }
+                        if let Some(p) = curr.parent() {
+                            curr = p.to_path_buf();
+                        } else {
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    // Convert to a sorted vector of folder paths
+    let mut sorted_paths: Vec<PathBuf> = folder_paths.into_iter().collect();
+    sorted_paths.sort();
+
+    // Build a map from folder path → model count.
+    // Each entry increments every ancestor folder it falls under.
+    let mut folder_counts: std::collections::HashMap<PathBuf, usize> =
+        sorted_paths.iter().map(|p| (p.clone(), 0)).collect();
+    for entry in entries {
+        for p in sorted_paths.iter() {
+            if entry.path.starts_with(p) {
+                *folder_counts.get_mut(p).unwrap() += 1;
+            }
+        }
+        // Canonical-root fallback: if the entry doesn't match the logical root
+        // but matches the canonical root, count it under the logical folder too.
+        for (i, root) in roots.iter().enumerate() {
+            let canonical_root = &canonical_roots[i];
+            if !entry.path.starts_with(root) && entry.path.starts_with(canonical_root) {
+                for p in sorted_paths.iter() {
+                    if let Ok(rel) = p.strip_prefix(root) {
+                        if entry.path.starts_with(canonical_root.join(rel)) {
+                            *folder_counts.get_mut(p).unwrap() += 1;
+                        }
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+    // 2. Build SidebarFolder for each path
+    let mut result = Vec::new();
+    for path in sorted_paths.into_iter() {
+        let mut depth = 0;
+        let mut has_root = false;
+        for root in &roots {
+            if path == *root || (path.starts_with(root) && path != *root) {
+                if let Ok(rel) = path.strip_prefix(root) {
+                    depth = rel.components().count();
+                    has_root = true;
+                    break;
+                }
+            }
+        }
+        if !has_root {
+            continue;
+        }
+
+        let count = folder_counts.get(&path).copied().unwrap_or(0);
+
+        let label = if depth == 0 {
+            path.file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("Library")
+                .to_string()
+        } else {
+            path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("Folder")
+                .to_string()
+        };
+
+        let expanded = !collapsed_folders.iter().any(|collapsed| collapsed == &path);
+
+        result.push(SidebarFolder {
+            path,
+            label,
+            count,
+            depth,
+            expandable: false,
+            expanded,
+            visible: true,
+        });
+    }
+
+    // 3. Update expandable: sorted order means the immediate next entry is the first child candidate
+    let n = result.len();
+    for i in 0..n {
+        result[i].expandable =
+            i + 1 < n && result[i + 1].path.starts_with(&result[i].path) && result[i + 1].path != result[i].path;
+    }
+
+    // 4. Update visibility: visible is true only if no ancestor is collapsed
+    for i in 0..n {
+        let path = &result[i].path;
+        let mut is_visible = true;
+        for collapsed in collapsed_folders {
+            if path.starts_with(collapsed) && path != collapsed {
+                is_visible = false;
+                break;
+            }
+        }
+        result[i].visible = is_visible;
+    }
+
+    result
+}
+
+pub fn sidebar_tags(
+    entries: &[scanner::StlFileInfo],
+    collapsed_tags: &[String],
+) -> Vec<SidebarTag> {
+    let mut counts = BTreeMap::new();
+    let mut unique_ancestors = std::collections::HashSet::new();
+    for entry in entries {
+        if let Some(meta) = &entry.meta {
+            unique_ancestors.clear();
+            for tag in &meta.tags {
+                let mut current = String::new();
+                for (i, part) in tag.split('/').enumerate() {
+                    if i > 0 {
+                        current.push('/');
+                    }
+                    current.push_str(part);
+                    unique_ancestors.insert(current.clone());
+                }
+            }
+            for ancestor in &unique_ancestors {
+                *counts.entry(ancestor.clone()).or_insert(0) += 1;
+            }
+        }
+    }
+
+    counts
+        .iter()
+        .map(|(label, &count)| {
+            let depth = label.matches('/').count();
+            let display_label = label
+                .split('/')
+                .last()
+                .unwrap_or(label)
                 .to_string();
-            let expanded = !collapsed_folders.iter().any(|collapsed| collapsed == &path);
-            let visible = !collapsed_folders
-                .iter()
-                .any(|collapsed| path != *collapsed && path.starts_with(collapsed));
-            SidebarFolder {
-                path,
-                label,
+
+            let prefix_with_slash = format!("{}/", label);
+            let expandable = counts
+                .range(prefix_with_slash.clone()..)
+                .next()
+                .is_some_and(|(k, _)| k.starts_with(&prefix_with_slash));
+
+            let expanded = !collapsed_tags.iter().any(|c| c == label);
+
+            // Determine visibility: visible if no ancestor is collapsed
+            let mut visible = true;
+            let parts: Vec<&str> = label.split('/').collect();
+            let mut ancestor = String::new();
+            for (i, part) in parts.iter().enumerate().take(parts.len().saturating_sub(1)) {
+                if i > 0 {
+                    ancestor.push('/');
+                }
+                ancestor.push_str(part);
+                if collapsed_tags.iter().any(|c| c == &ancestor) {
+                    visible = false;
+                    break;
+                }
+            }
+
+            SidebarTag {
+                label: label.clone(),
+                display_label,
                 count,
-                depth: 0,
-                expandable: false,
+                depth,
+                expandable,
                 expanded,
                 visible,
             }
         })
-        .collect()
-}
-
-pub fn sidebar_tags(entries: &[scanner::StlFileInfo]) -> Vec<SidebarTag> {
-    let mut counts = BTreeMap::new();
-    for entry in entries {
-        if let Some(meta) = &entry.meta {
-            for tag in &meta.tags {
-                *counts.entry(tag.clone()).or_insert(0) += 1;
-            }
-        }
-    }
-    counts
-        .into_iter()
-        .map(|(label, count)| SidebarTag { label, count })
         .collect()
 }
 
@@ -1121,10 +1308,13 @@ pub fn entry_matches_filter(
         LibraryFilter::Ready => entry_is_ready_to_print(entries, entry),
         LibraryFilter::Errors => entry.stl_type == scanner::StlType::Unknown,
         LibraryFilter::Folder(folder) => entry.path.strip_prefix(folder).is_ok(),
-        LibraryFilter::Tag(tag) => entry
-            .meta
-            .as_ref()
-            .is_some_and(|meta| meta.tags.iter().any(|entry_tag| entry_tag == tag)),
+        LibraryFilter::Tag(tag) => entry.meta.as_ref().is_some_and(|meta| {
+            meta.tags.iter().any(|entry_tag| {
+                entry_tag == tag
+                    || (entry_tag.starts_with(tag.as_str())
+                        && entry_tag.as_bytes().get(tag.len()) == Some(&b'/'))
+            })
+        }),
     }
 }
 
@@ -1550,12 +1740,14 @@ mod tests {
             card_label_mode: "titled".to_string(),
             date_format_mode: "iso".to_string(),
             show_file_extensions: false,
+            layout_transitions: true,
             startup_view: "empty".to_string(),
             use_embedded_3mf_preview: true,
             last_folder: Some(PathBuf::from("/tmp/models")),
             library_folders: vec![PathBuf::from("/tmp/other-lib")],
             excluded_folders: vec![PathBuf::from("/tmp/models/archived")],
             collapsed_folders: vec![PathBuf::from("/tmp/models/nested")],
+            collapsed_tags: vec!["filament/PLA".to_string()],
             estimate_multicolor: false,
         };
         let json = serde_json::to_string(&prefs).unwrap();
@@ -1586,6 +1778,10 @@ mod tests {
         assert_eq!(
             loaded.collapsed_folders,
             vec![PathBuf::from("/tmp/models/nested")]
+        );
+        assert_eq!(
+            loaded.collapsed_tags,
+            vec!["filament/PLA".to_string()]
         );
     }
 
@@ -1643,11 +1839,11 @@ mod tests {
         assert_eq!(summary.errors, 1);
 
         let folders = sidebar_folders(&entries, &[PathBuf::from("/tmp/models")], &[]);
-        assert_eq!(folders.len(), 1);
+        assert_eq!(folders.len(), 2);
         assert_eq!(folders[0].label, "models");
         assert_eq!(folders[0].count, 3);
         assert_eq!(folders[0].depth, 0);
-        assert!(!folders[0].expandable);
+        assert!(folders[0].expandable);
         assert!(folders[0].expanded);
         assert!(folders[0].visible);
 
@@ -1656,26 +1852,135 @@ mod tests {
             &[PathBuf::from("/tmp/models")],
             &[PathBuf::from("/tmp/models")],
         );
-        assert_eq!(collapsed.len(), 1);
+        assert_eq!(collapsed.len(), 2);
         assert_eq!(collapsed[0].label, "models");
-        assert!(!collapsed[0].expandable);
+        assert!(collapsed[0].expandable);
         assert!(!collapsed[0].expanded);
         assert!(collapsed[0].visible);
 
-        let tags = sidebar_tags(&entries);
+        let tags = sidebar_tags(&entries, &[]);
         assert_eq!(
             tags,
             vec![
                 SidebarTag {
                     label: "draft".to_string(),
+                    display_label: "draft".to_string(),
                     count: 1,
+                    depth: 0,
+                    expandable: false,
+                    expanded: true,
+                    visible: true,
                 },
                 SidebarTag {
                     label: "fixture".to_string(),
+                    display_label: "fixture".to_string(),
                     count: 2,
+                    depth: 0,
+                    expandable: false,
+                    expanded: true,
+                    visible: true,
                 },
             ]
         );
+    }
+
+    #[test]
+    fn test_hierarchical_tags_aggregation_and_matching() {
+        let mut entry_a = entry("/tmp/models/a.stl", 1);
+        entry_a.meta = Some(SidecarMeta {
+            tags: vec!["filament/PLA/Bambu".to_string(), "fixture".to_string()],
+            ..SidecarMeta::default()
+        });
+
+        let mut entry_b = entry("/tmp/models/b.stl", 2);
+        entry_b.meta = Some(SidecarMeta {
+            tags: vec!["filament/PETG".to_string()],
+            ..SidecarMeta::default()
+        });
+
+        let mut entry_c = entry("/tmp/models/c.stl", 3);
+        entry_c.meta = Some(SidecarMeta {
+            tags: vec!["filament/PLA".to_string()],
+            ..SidecarMeta::default()
+        });
+
+        let entries = vec![entry_a, entry_b, entry_c];
+
+        let tags = sidebar_tags(&entries, &[]);
+        assert_eq!(
+            tags,
+            vec![
+                SidebarTag {
+                    label: "filament".to_string(),
+                    display_label: "filament".to_string(),
+                    count: 3,
+                    depth: 0,
+                    expandable: true,
+                    expanded: true,
+                    visible: true,
+                },
+                SidebarTag {
+                    label: "filament/PETG".to_string(),
+                    display_label: "PETG".to_string(),
+                    count: 1,
+                    depth: 1,
+                    expandable: false,
+                    expanded: true,
+                    visible: true,
+                },
+                SidebarTag {
+                    label: "filament/PLA".to_string(),
+                    display_label: "PLA".to_string(),
+                    count: 2,
+                    depth: 1,
+                    expandable: true,
+                    expanded: true,
+                    visible: true,
+                },
+                SidebarTag {
+                    label: "filament/PLA/Bambu".to_string(),
+                    display_label: "Bambu".to_string(),
+                    count: 1,
+                    depth: 2,
+                    expandable: false,
+                    expanded: true,
+                    visible: true,
+                },
+                SidebarTag {
+                    label: "fixture".to_string(),
+                    display_label: "fixture".to_string(),
+                    count: 1,
+                    depth: 0,
+                    expandable: false,
+                    expanded: true,
+                    visible: true,
+                },
+            ]
+        );
+
+        let parent_filter = LibraryFilter::Tag("filament".to_string());
+        let intermediate_filter = LibraryFilter::Tag("filament/PLA".to_string());
+        let leaf_filter = LibraryFilter::Tag("filament/PLA/Bambu".to_string());
+
+        assert!(entry_matches_filter(&entries, &parent_filter, &entries[0]));
+        assert!(entry_matches_filter(&entries, &intermediate_filter, &entries[0]));
+        assert!(entry_matches_filter(&entries, &leaf_filter, &entries[0]));
+
+        assert!(entry_matches_filter(&entries, &parent_filter, &entries[1]));
+        assert!(!entry_matches_filter(&entries, &intermediate_filter, &entries[1]));
+        assert!(!entry_matches_filter(&entries, &leaf_filter, &entries[1]));
+
+        assert!(entry_matches_filter(&entries, &parent_filter, &entries[2]));
+        assert!(entry_matches_filter(&entries, &intermediate_filter, &entries[2]));
+        assert!(!entry_matches_filter(&entries, &leaf_filter, &entries[2]));
+
+        // Test collapsing
+        let collapsed_tags = vec!["filament/PLA".to_string()];
+        let tags_collapsed = sidebar_tags(&entries, &collapsed_tags);
+        assert!(!tags_collapsed[2].expanded); // "filament/PLA" is collapsed
+        assert!(tags_collapsed[2].visible); // "filament/PLA" itself is visible
+        assert!(!tags_collapsed[3].visible); // child "filament/PLA/Bambu" is hidden because ancestor "filament/PLA" is collapsed
+        assert!(tags_collapsed[1].visible); // "filament/PETG" is visible
     }
 
     #[test]
@@ -1689,13 +1994,13 @@ mod tests {
         ];
         let roots = vec![a, b];
         let folders = sidebar_folders(&entries, &roots, &[]);
-        assert_eq!(folders.len(), 2, "{folders:?}");
+        assert_eq!(folders.len(), 3, "{folders:?}");
         let mut counts: Vec<(String, usize)> =
             folders.iter().map(|f| (f.label.clone(), f.count)).collect();
         counts.sort_by(|x, y| x.0.cmp(&y.0));
         assert_eq!(counts[0], ("mr-lib-a".to_string(), 2));
         assert_eq!(counts[1], ("mr-lib-b".to_string(), 1));
-        assert!(folders.iter().all(|f| f.depth == 0 && !f.expandable));
+        assert_eq!(counts[2], ("sub".to_string(), 1));
     }
 
     #[test]
@@ -2165,6 +2470,7 @@ mod tests {
                 printed: true,
                 error: false,
                 aspect_ratio_type: 2, // 임의의 i32 값 기입 후 테스트 돌려서 확인
+                tags: "".to_string(),
             }]
         );
     }

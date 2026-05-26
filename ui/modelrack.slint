@@ -21,6 +21,7 @@ export struct BrowserCard {
     printed: bool,
     error: bool,
     aspect-ratio-type: int,
+    tags: string,
 }
 
 export struct SidebarItem {
@@ -167,11 +168,14 @@ component SidebarLine inherits Rectangle {
     in property <bool> expanded: false;
     in property <bool> selected: false;
     in property <bool> row-visible: true;
+    in property <string> key;
+    in property <bool> drag-enabled: false;
     in property <bool> drop-enabled: false;
     callback activated();
     callback toggle-requested();
     callback context-requested(length, length);
     callback model-dropped(string, string);
+    callback tag-dropped(string, string);
 
     height: row-visible ? 26px : 0px;
     opacity: row-visible ? 1 : 0;
@@ -180,8 +184,8 @@ component SidebarLine inherits Rectangle {
     border-color: tag-drop.contains-drag ? Theme.accent-line : transparent;
     border-width: tag-drop.contains-drag ? 1px : 0px;
     border-radius: Theme.radius-btn;
-    animate height { duration: 180ms; easing: ease-in-out; }
-    animate opacity { duration: 120ms; easing: ease-in-out; }
+    animate height { duration: 150ms; easing: ease-in-out; }
+    animate opacity { duration: 150ms; easing: ease-in-out; }
 
     // Active indicator bar
     if selected: Rectangle {
@@ -202,6 +206,7 @@ component SidebarLine inherits Rectangle {
         tint: expandable ? Theme.fg-3 : transparent;
         transform-origin: { x: 5px, y: 5px };
         transform-rotation: expanded ? 90deg : 0deg;
+        animate transform-rotation { duration: 150ms; easing: ease-in-out; }
     }
 
     SvgIcon {
@@ -232,19 +237,32 @@ component SidebarLine inherits Rectangle {
         font-size: Theme.font-overline;
     }
 
-    ta-line := TouchArea {
+    DragArea {
         width: parent.width;
         height: parent.height;
-        clicked => {
-            if (root.expandable && ta-line.mouse-x < 24px + root.depth * 14px) {
-                root.toggle-requested();
-            } else {
-                root.activated();
+        enabled: root.drag-enabled;
+        mime-type: "application/x-modelrack-tag-key";
+        data: root.key;
+
+        ta-line := TouchArea {
+            width: parent.width;
+            height: parent.height;
+            clicked => {
+                if (root.expandable && ta-line.mouse-x < 24px + root.depth * 14px) {
+                    root.toggle-requested();
+                } else {
+                    root.activated();
+                }
             }
-        }
-        pointer-event(event) => {
-            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
-                root.context-requested(ta-line.absolute-position.x + ta-line.mouse-x, ta-line.absolute-position.y + ta-line.mouse-y);
+            double-clicked => {
+                if (root.expandable) {
+                    root.toggle-requested();
+                }
+            }
+            pointer-event(event) => {
+                if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                    root.context-requested(ta-line.absolute-position.x + ta-line.mouse-x, ta-line.absolute-position.y + ta-line.mouse-y);
+                }
             }
         }
     }
@@ -254,10 +272,14 @@ component SidebarLine inherits Rectangle {
         height: parent.height;
         enabled: root.drop-enabled;
         can-drop(event) => {
-            event.mime-type == "application/x-modelrack-model-index";
+            event.mime-type == "application/x-modelrack-model-index" || (root.drag-enabled && event.mime-type == "application/x-modelrack-tag-key" && event.data != root.key);
         }
         dropped(event) => {
-            root.model-dropped(event.data, root.label);
+            if (event.mime-type == "application/x-modelrack-model-index") {
+                root.model-dropped(event.data, root.label);
+            } else if (event.mime-type == "application/x-modelrack-tag-key") {
+                root.tag-dropped(event.data, root.key);
+            }
         }
     }
 }
@@ -266,6 +288,7 @@ component SectionHeader inherits Rectangle {
     in property <string> label;
     in property <bool> inset: false;
     in property <bool> show-add: false;
+    callback add-requested();
     height: 24px;
 
     Text {
@@ -295,7 +318,9 @@ component SectionHeader inherits Rectangle {
             tint: plus-touch.has-hover ? Theme.fg-0 : Theme.fg-2;
         }
 
-        plus-touch := TouchArea {}
+        plus-touch := TouchArea {
+            clicked => { root.add-requested(); }
+        }
     }
 }
 
@@ -355,10 +380,11 @@ component SidebarContextMenu inherits Rectangle {
     in property <string> delete-folder-label;
     in property <string> copy-path-label;
     in property <string> copy-tag-label;
+    in property <string> add-subtag-label;
     callback action(string);
 
     width: 188px;
-    height: target-is-folder ? 232px : 96px;
+    height: target-is-folder ? 232px : 125px;
     background: Theme.bg-2;
     border-color: Theme.line-2;
     border-width: 1px;
@@ -410,6 +436,13 @@ component SidebarContextMenu inherits Rectangle {
             hint: "";
             icon: @image-url("../assets/icons/trash.svg");
             activated => { root.action("trash"); }
+        }
+
+        if !target-is-folder: ContextMenuItem {
+            label: add-subtag-label;
+            hint: "";
+            icon: @image-url("../assets/icons/plus.svg");
+            activated => { root.action("add-subtag"); }
         }
 
         ContextMenuItem {
@@ -930,6 +963,7 @@ component ModelCard inherits Rectangle {
     in property <bool> streaming-list: false;
     in property <int> card-index;
     in property <bool> is-masonry: false;
+    in property <bool> is-list: false;
     callback clicked(int);
     callback context-requested(int, length, length);
 
@@ -960,11 +994,11 @@ component ModelCard inherits Rectangle {
         delay: streaming-list ? min(card.slot-index, 44) * 10ms : 0ms;
     }
 
-    background: selected ? Theme.bg-5 : Theme.bg-3;
+    background: selected ? Theme.bg-5 : card-touch.has-hover ? Theme.bg-3 : (is-list ? Theme.bg-1 : Theme.bg-3);
     border-color: card.error ? Theme.error :
                   selected ? Theme.accent-line : Theme.line;
     border-width: 1px;
-    border-radius: Theme.radius-card;
+    border-radius: is-list ? 6px : Theme.radius-card;
     animate x { duration: layout-motion ? 220ms : 0ms; easing: ease-in-out; }
     animate y { duration: layout-motion ? 220ms : 0ms; easing: ease-in-out; }
     animate width { duration: layout-motion ? 200ms : 0ms; easing: ease-in-out; }
@@ -980,122 +1014,179 @@ component ModelCard inherits Rectangle {
         opacity: list-appear-opacity;
         background: transparent;
 
-        VerticalLayout {
-            spacing: 0px;
-            padding: 0px;
-            // Thumbnail area
-            Rectangle {
-                height: root.is-masonry
-                    ? root.width * root.aspect-ratio
-                    : root.width;
-                background: Theme.bg-0;
-                border-radius: Theme.radius-card;
+        // Thumbnail area
+        thumb-rect := Rectangle {
+            x: is-list ? 8px : 0px;
+            y: is-list ? (parent.height - self.height) / 2 : 0px;
+            width: is-list ? parent.height - 12px : parent.width;
+            height: is-list ? parent.height - 12px : (root.is-masonry ? parent.width * root.aspect-ratio : parent.width);
+            background: Theme.bg-0;
+            border-radius: is-list ? 4px : Theme.radius-card;
 
-                CachedThumb {
-                    x: 0;
-                    y: 0;
-                    width: parent.width;
-                    height: parent.height;
-                    thumb-key: card.thumb-key;
-                    cached-image: card.thumb-image;
-                    thumb-ready: card.thumb-ready;
-                }
+            animate x { duration: layout-motion ? 200ms : 0ms; easing: ease-in-out; }
+            animate y { duration: layout-motion ? 200ms : 0ms; easing: ease-in-out; }
+            animate width { duration: layout-motion ? 200ms : 0ms; easing: ease-in-out; }
+            animate height { duration: layout-motion ? 200ms : 0ms; easing: ease-in-out; }
+            animate border-radius { duration: layout-motion ? 200ms : 0ms; easing: ease-in-out; }
 
-                // Badge
-                if card.error: Rectangle {
+            CachedThumb {
+                x: 0;
+                y: 0;
+                width: parent.width;
+                height: parent.height;
+                thumb-key: card.thumb-key;
+                cached-image: card.thumb-image;
+                thumb-ready: card.thumb-ready;
+            }
+
+            // Error badge
+            if card.error: Rectangle {
+                x: 6px;
+                y: 6px;
+                width: err-text.width + 12px;
+                height: 18px;
+                background: #3c151ccc;
+                border-radius: 3px;
+
+                err-text := Text {
                     x: 6px;
-                    y: 6px;
-                    width: err-text.width + 12px;
-                    height: 18px;
-                    background: #3c151ccc;
-                    border-radius: 3px;
-
-                    err-text := Text {
-                        x: 6px;
-                        y: (parent.height - self.height) / 2;
-                        text: "ERR";
-                        color: #ff9b8e;
-                        font-family: "JetBrains Mono";
-                        font-size: 10px;
-                        font-weight: 700;
-                    }
-                }
-
-                if !card.error && card.badge != "": Text {
-                    x: 6px;
-                    y: 6px;
-                    text: card.badge;
-                    color: card.error ? #ffb4b0 : Theme.fg-2;
+                    y: (parent.height - self.height) / 2;
+                    text: "ERR";
+                    color: #ff9b8e;
                     font-family: "JetBrains Mono";
                     font-size: 10px;
                     font-weight: 700;
                 }
+            }
 
-                // Favorite star
-                if card.favorite: SvgIcon {
-                    x: parent.width - 24px;
-                    y: 6px;
-                    width: 18px;
-                    height: 18px;
-                    icon: @image-url("../assets/icons/star.svg");
-                    tint: #d4a84f;
-                }
+            if !card.error && card.badge != "": Text {
+                x: 6px;
+                y: 6px;
+                text: card.badge;
+                color: card.error ? #ffb4b0 : Theme.fg-2;
+                font-family: "JetBrains Mono";
+                font-size: 10px;
+                font-weight: 700;
+            }
 
-                // Printed badge
-                if card.printed: Rectangle {
+            // Printed badge
+            if card.printed: Rectangle {
+                x: 6px;
+                y: parent.height - self.height - 6px;
+                width: print-label.width + 12px;
+                height: 18px;
+                background: #00000088;
+                border-radius: 3px;
+
+                print-label := Text {
                     x: 6px;
-                    y: parent.height - self.height - 6px;
-                    width: print-label.width + 12px;
-                    height: 18px;
-                    background: #00000088;
-                    border-radius: 3px;
-
-                    print-label := Text {
-                        x: 6px;
-                        y: (parent.height - self.height) / 2;
-                        text: card.printed-count;
-                        color: Theme.success;
-                        font-size: 10px;
-                    }
+                    y: (parent.height - self.height) / 2;
+                    text: card.printed-count;
+                    color: Theme.success;
+                    font-size: 10px;
                 }
             }
+        }
 
-            // Card body
-            Rectangle {
-                height: 62px;
+        // Text area
+        text-rect := Rectangle {
+            x: is-list ? thumb-rect.x + thumb-rect.width + 10px : 0px;
+            y: is-list ? 0px : thumb-rect.y + thumb-rect.height;
+            width: is-list ? parent.width - thumb-rect.width - 24px : parent.width;
+            height: is-list ? parent.height : ((is-masonry && card.tags == "") ? 62px : 76px);
 
-                VerticalLayout {
-                    padding-left: 9px;
-                    padding-right: 9px;
-                    padding-top: 7px;
-                    padding-bottom: 8px;
-                    spacing: 3px;
+            animate x { duration: layout-motion ? 200ms : 0ms; easing: ease-in-out; }
+            animate y { duration: layout-motion ? 200ms : 0ms; easing: ease-in-out; }
+            animate width { duration: layout-motion ? 200ms : 0ms; easing: ease-in-out; }
+            animate height { duration: layout-motion ? 200ms : 0ms; easing: ease-in-out; }
 
-                    Text {
-                        text: card.title;
-                        color: Theme.fg-0;
-                        font-size: 11.5px;
-                        font-weight: 500;
-                        overflow: elide;
-                    }
-
-                    Text {
-                        text: card.subtitle;
-                        color: Theme.fg-2;
-                        font-family: "JetBrains Mono";
-                        font-size: 10px;
-                        overflow: elide;
-                    }
-
-                    Text {
-                        text: card.relative-modified;
-                        color: Theme.fg-3;
-                        font-family: "JetBrains Mono";
-                        font-size: 10px;
-                        overflow: elide;
-                    }
-                }
+            title-txt := Text {
+                x: is-list ? 0px : 9px;
+                y: is-list ? (parent.height - 35px) / 2 : 7px;
+                width: is-list ? parent.width - 340px : parent.width - 18px;
+                text: card.title;
+                color: Theme.fg-0;
+                font-size: is-list ? Theme.font-body : 11.5px;
+                font-weight: is-list ? 600 : 500;
+                overflow: elide;
+                animate x { duration: layout-motion ? 200ms : 0ms; easing: ease-in-out; }
+                animate y { duration: layout-motion ? 200ms : 0ms; easing: ease-in-out; }
+                animate width { duration: layout-motion ? 200ms : 0ms; easing: ease-in-out; }
+                animate font-size { duration: layout-motion ? 200ms : 0ms; easing: ease-in-out; }
             }
+
+            subtitle-txt := Text {
+                x: is-list ? 0px : 9px;
+                y: is-list ? title-txt.y + 19px : title-txt.y + 17px;
+                width: is-list ? parent.width - 340px : parent.width - 18px;
+                text: card.subtitle;
+                color: Theme.fg-2;
+                font-family: "JetBrains Mono";
+                font-size: is-list ? Theme.font-overline : 10px;
+                overflow: elide;
+                animate x { duration: layout-motion ? 200ms : 0ms; easing: ease-in-out; }
+                animate y { duration: layout-motion ? 200ms : 0ms; easing: ease-in-out; }
+                animate width { duration: layout-motion ? 200ms : 0ms; easing: ease-in-out; }
+            }
+
+            tags-txt := Text {
+                x: is-list ? parent.width - 360px : 9px;
+                y: is-list ? (parent.height - self.height) / 2 : subtitle-txt.y + 15px;
+                width: is-list ? 120px : parent.width - 18px;
+                opacity: 1;
+                text: card.tags != "" ? "🏷️ " + card.tags : "";
+                color: Theme.accent;
+                font-size: 10px;
+                overflow: elide;
+                animate x { duration: layout-motion ? 200ms : 0ms; easing: ease-in-out; }
+                animate y { duration: layout-motion ? 200ms : 0ms; easing: ease-in-out; }
+                animate width { duration: layout-motion ? 200ms : 0ms; easing: ease-in-out; }
+                animate opacity { duration: layout-motion ? 150ms : 0ms; easing: ease-in-out; }
+            }
+
+            author-txt := Text {
+                x: is-list ? parent.width - 230px : 9px;
+                y: is-list ? (parent.height - self.height) / 2 : (card.tags == "" ? subtitle-txt.y + 15px : tags-txt.y + 14px);
+                width: is-list ? 110px : 0px;
+                opacity: is-list ? 1 : 0;
+                text: card.author;
+                color: Theme.fg-2;
+                font-size: Theme.font-meta;
+                overflow: elide;
+                animate x { duration: layout-motion ? 200ms : 0ms; easing: ease-in-out; }
+                animate y { duration: layout-motion ? 200ms : 0ms; easing: ease-in-out; }
+                animate width { duration: layout-motion ? 200ms : 0ms; easing: ease-in-out; }
+                animate opacity { duration: layout-motion ? 150ms : 0ms; easing: ease-in-out; }
+            }
+
+            modified-txt := Text {
+                x: is-list ? parent.width - 108px : 9px;
+                y: is-list ? (parent.height - self.height) / 2 : (card.tags == "" ? subtitle-txt.y + 15px : tags-txt.y + 14px);
+                width: is-list ? 92px : parent.width - 18px;
+                opacity: is-list ? 1 : (is-masonry ? 0 : 1);
+                horizontal-alignment: is-list ? right : left;
+                text: card.relative-modified;
+                color: Theme.fg-3;
+                font-family: "JetBrains Mono";
+                font-size: 10px;
+                overflow: elide;
+                animate x { duration: layout-motion ? 200ms : 0ms; easing: ease-in-out; }
+                animate y { duration: layout-motion ? 200ms : 0ms; easing: ease-in-out; }
+                animate width { duration: layout-motion ? 200ms : 0ms; easing: ease-in-out; }
+                animate opacity { duration: layout-motion ? 150ms : 0ms; easing: ease-in-out; }
+            }
+        }
+
+        // Favorite star
+        if card.favorite: SvgIcon {
+            x: is-list ? parent.width - 130px : parent.width - 24px;
+            y: is-list ? (parent.height - self.height) / 2 : 6px;
+            width: 18px;
+            height: 18px;
+            icon: @image-url("../assets/icons/star.svg");
+            tint: #d4a84f;
+            animate x { duration: layout-motion ? 200ms : 0ms; easing: ease-in-out; }
+            animate y { duration: layout-motion ? 200ms : 0ms; easing: ease-in-out; }
         }
     }
 
@@ -1105,7 +1196,7 @@ component ModelCard inherits Rectangle {
         mime-type: "application/x-modelrack-model-index";
         data: "" + root.card-index;
 
-        TouchArea {
+        card-touch := TouchArea {
             width: parent.width;
             height: parent.height;
             clicked => { root.clicked(root.card-index); }
@@ -1773,6 +1864,9 @@ export component ModelRackWindow inherits Window {
     in property <string> browser-message;
     in property <string> browser-count-label;
     in property <string> sort-label: "Name ↑";
+    in-out property <bool> is-transition-active: true;
+    changed width => { root.window-resized(); }
+    changed height => { root.window-resized(); }
 
     // Sidebar counts
     in property <int> all-count;
@@ -1916,6 +2010,7 @@ export component ModelRackWindow inherits Window {
     property <string> tr-remove-print-count: settings-language-key == "ko" ? "출력 횟수 -1" : settings-language-key == "ja" ? "印刷回数 -1" : "Remove Printed Count";
     property <string> tr-copy-file-name: settings-language-key == "ko" ? "파일명 복사" : settings-language-key == "ja" ? "ファイル名をコピー" : "Copy File Name";
     property <string> tr-copy-file-path: settings-language-key == "ko" ? "파일 경로 복사" : settings-language-key == "ja" ? "ファイルパスをコピー" : "Copy File Path";
+    property <string> tr-layout-transitions: settings-language-key == "ko" ? "레이아웃 트랜지션" : settings-language-key == "ja" ? "レイアウト遷移" : "Layout Transitions";
     property <string> tr-settings-general: settings-language-key == "ko" ? "일반" : settings-language-key == "ja" ? "一般" : "General";
     property <string> tr-settings-appearance: settings-language-key == "ko" ? "모양" : settings-language-key == "ja" ? "外観" : "Appearance";
     property <string> tr-settings-library: settings-language-key == "ko" ? "라이브러리" : settings-language-key == "ja" ? "ライブラリ" : "Library";
@@ -1982,6 +2077,7 @@ export component ModelRackWindow inherits Window {
     property <string> tr-thumbnail-cache-renderer: settings-language-key == "ko" ? "썸네일 캐시 · 렌더러 v9" : settings-language-key == "ja" ? "サムネイルキャッシュ · レンダラー v9" : "thumbnail cache · renderer v9";
     property <string> tr-regenerate-thumbnails: settings-language-key == "ko" ? "썸네일 재생성" : settings-language-key == "ja" ? "サムネイルを再生成" : "Regenerate thumbnails";
     property <string> tr-clear-cache: settings-language-key == "ko" ? "캐시 지우기" : settings-language-key == "ja" ? "キャッシュを削除" : "Clear cache";
+    property <string> tr-add-subtag: settings-language-key == "ko" ? "하위 태그 추가..." : settings-language-key == "ja" ? "下位タグを追加..." : "Add sub-tag...";
     property <string> tr-enabled-profiles: settings-language-key == "ko" ? "활성 프로파일" : settings-language-key == "ja" ? "有効なプロファイル" : "Enabled profiles";
     property <string> tr-default-estimate: settings-language-key == "ko" ? "기본 출력 예상" : settings-language-key == "ja" ? "既定の見積" : "Default estimate";
     property <string> tr-printer-selector: settings-language-key == "ko" ? "프린터 선택" : settings-language-key == "ja" ? "プリンタ選択" : "Printer selector";
@@ -2056,6 +2152,7 @@ export component ModelRackWindow inherits Window {
     in property <string> settings-date-format-key: "auto";
     in property <bool> settings-show-file-extensions: true;
     in property <bool> settings-use-embedded-3mf-preview: true;
+    in property <bool> settings-layout-transitions: true;
     in property <string> settings-startup-key: "last";
     property <bool> sidebar-context-open: false;
     property <string> sidebar-context-key;
@@ -2096,6 +2193,9 @@ export component ModelRackWindow inherits Window {
     property <length> resize-start-width: 0px;
     property <bool> rename-editing: false;
     property <string> rename-draft: "";
+    property <bool> subtag-dialog-open: false;
+    property <string> subtag-parent-tag: "";
+    property <string> subtag-draft: "";
 
     // Callbacks
     callback open-folder();
@@ -2118,6 +2218,7 @@ export component ModelRackWindow inherits Window {
     callback choose-settings-date-format(string);
     callback toggle-settings-show-file-extensions(bool);
     callback toggle-settings-use-embedded-3mf-preview(bool);
+    callback toggle-settings-layout-transitions(bool);
     callback choose-settings-startup(string);
     callback regenerate-thumbnails();
     callback clear-thumbnail-cache();
@@ -2131,6 +2232,7 @@ export component ModelRackWindow inherits Window {
     callback choose-settings-default-printer(string);
     callback choose-estimate-printer(string);
     callback toggle-estimate-multicolor();
+    callback window-resized();
     callback apply-search(string);
     callback choose-view-mode(string);
     callback choose-density(string);
@@ -2139,6 +2241,10 @@ export component ModelRackWindow inherits Window {
     callback toggle-sort();
     callback choose-filter(string);
     callback toggle-sidebar-folder(string);
+    callback toggle-sidebar-tag(string);
+    callback add-tag-sidebar-clicked();
+    callback add-subtag-path(string, string);
+    callback tag-dropped-on-tag(string, string);
     callback sidebar-context-action(string, string, string);
     callback model-context-action(string, int);
     callback undo-library-action();
@@ -2409,9 +2515,15 @@ export component ModelRackWindow inherits Window {
                             background: Theme.line;
                         }
 
-                        if folder-items.length > 0: SectionHeader { label: tr-folders-heading; show-add: true; }
+                        if folder-items.length > 0: SectionHeader {
+                            label: tr-folders-heading;
+                            show-add: true;
+                            add-requested => { open-folder(); }
+                        }
 
                         for folder in folder-items: folder-row := SidebarLine {
+                            key: folder.key;
+                            drag-enabled: false;
                             icon: folder.depth == 0 ? @image-url("../assets/icons/folder-open.svg") : @image-url("../assets/icons/folder.svg");
                             label: folder.label;
                             count: folder.count;
@@ -2441,12 +2553,23 @@ export component ModelRackWindow inherits Window {
                             }
                         }
 
-                        if tag-items.length > 0: SectionHeader { label: tr-tags-heading; show-add: true; }
+                        if tag-items.length > 0: SectionHeader {
+                            label: tr-tags-heading;
+                            show-add: true;
+                            add-requested => { add-tag-sidebar-clicked(); }
+                        }
 
                         for tag in tag-items: tag-row := SidebarLine {
+                            key: tag.key;
+                            drag-enabled: true;
                             icon: @image-url("../assets/icons/tag.svg");
                             label: tag.label;
                             count: tag.count;
+                            depth: tag.depth;
+                            reserve-leading: true;
+                            expandable: tag.expandable;
+                            expanded: tag.expanded;
+                            row-visible: tag.visible;
                             drop-enabled: true;
                             selected: active-filter-key == tag.key;
                             activated => {
@@ -2454,7 +2577,11 @@ export component ModelRackWindow inherits Window {
                                 model-context-open = false;
                                 choose-filter(tag.key);
                             }
+                            toggle-requested => {
+                                toggle-sidebar-tag(tag.key);
+                            }
                             model-dropped(model, tag) => { add-tag-to-model(model, tag); }
+                            tag-dropped(src, dest) => { root.tag-dropped-on-tag(src, dest); }
                             context-requested(x, y) => {
                                 sidebar-context-key = tag.key;
                                 sidebar-context-label = tag.label;
@@ -2468,6 +2595,9 @@ export component ModelRackWindow inherits Window {
                                 preview-plate-menu-open = false;
                             }
                         }
+
+                        // Stretch spacer to push all items to the top
+                        Rectangle {}
                     }
                 }
             }
@@ -2949,27 +3079,32 @@ export component ModelRackWindow inherits Window {
                         }
                     }
 
-                    if model-cards.length > 0 && view-mode-label != "List": grid-flick := Flickable {
+                    if model-cards.length > 0: grid-flick := Flickable {
                         x: 14px;
                         y: 14px;
                         width: parent.width - 28px;
                         height: parent.height - 28px;
 
+                        property <bool> is-list: view-mode-label == "List";
                         property <length> target-card-w: view-mode-label == "Masonry"
                             ? (density-label == "S" ? 132px : density-label == "L" ? 184px : 154px)
                             : (density-label == "S" ? 144px : density-label == "L" ? 208px : 168px);
-                        property <length> card-w: target-card-w;
-                        property <length> gap: 12px;
+                        property <length> gap: is-list ? 8px : 12px;
                         // Keep layout-motion lighter for large libraries (fewer simultaneous x/y animations).
                         property <bool> full-layout-motion: model-cards.length <= 96;
-                        property <int> cols: max(1, floor((self.width + gap) / (target-card-w + gap)));
+                        property <int> cols: is-list ? 1 : max(1, floor((self.width + gap) / (target-card-w + gap)));
+                        property <length> card-w: is-list ? self.width : (self.width - (cols - 1) * gap) / cols;
                         property <int> rows: ceil(model-cards.length / max(1, cols));
-                        property <length> card-h: view-mode-label == "Masonry" ? card-w * 1.30 + 70px : card-w + 62px;
+                        
+                        property <length> row-h: density-label == "S" ? 48px : density-label == "L" ? 68px : 58px;
+                        property <length> card-h: is-list ? row-h : (view-mode-label == "Masonry" ? card-w * 1.30 + 84px : card-w + 76px);
 
-                        viewport-height: view-mode-label == "Masonry"
-                            ? root.calculate-masonry-viewport-height(cols, card-w, gap)
-                            : rows * card-h + max(0, rows - 1) * gap;
-                        animate card-w { duration: full-layout-motion ? 260ms : 120ms; easing: ease-in-out; }
+                        viewport-height: is-list
+                            ? model-cards.length * (row-h + gap)
+                            : (view-mode-label == "Masonry"
+                                ? root.calculate-masonry-viewport-height(cols, card-w, gap)
+                                : rows * card-h + max(0, rows - 1) * gap);
+
 
                         changed viewport-y => {
                             if (-self.viewport-y >= self.viewport-height - self.height - 200px && model-cards.length < total-matching-cards && !root.loading-more) {
@@ -2979,73 +3114,27 @@ export component ModelRackWindow inherits Window {
                         }
 
                         for card[index] in model-cards: model-card := ModelCard {
-                            property <length> target-y: view-mode-label == "Masonry"
-                                ? root.calculate-masonry-y(index, cols, card-w, gap)
-                                : floor(index / cols) * (grid-flick.card-h + grid-flick.gap);
-                            x: view-mode-label == "Masonry"
-                                ? root.calculate-masonry-x(index, cols, card-w, gap)
-                                : mod(index, cols) * (card-w + gap);
+                            property <length> target-y: is-list
+                                ? index * (grid-flick.row-h + grid-flick.gap)
+                                : (view-mode-label == "Masonry"
+                                    ? root.calculate-masonry-y(index, cols, card-w, gap)
+                                    : floor(index / cols) * (grid-flick.card-h + grid-flick.gap));
+                            x: is-list
+                                ? 0px
+                                : (view-mode-label == "Masonry"
+                                    ? root.calculate-masonry-x(index, cols, card-w, gap)
+                                    : mod(index, cols) * (card-w + gap));
                             y: target-y;
                             width: card-w;
-                            height: view-mode-label == "Masonry" ? card-w * (card.aspect-ratio-type == 0 ? 0.85 : card.aspect-ratio-type == 1 ? 1.00 : card.aspect-ratio-type == 2 ? 1.15 : 1.30) + 62px : grid-flick.card-h;
+                            height: is-list
+                                ? grid-flick.row-h
+                                : (view-mode-label == "Masonry"
+                                    ? card-w * (card.aspect-ratio-type == 0 ? 0.85 : card.aspect-ratio-type == 1 ? 1.00 : card.aspect-ratio-type == 2 ? 1.15 : 1.30) + (card.tags == "" ? 62px : 76px)
+                                    : grid-flick.card-h);
                             is-masonry: view-mode-label == "Masonry";
-                            // Do not cull with `visible: false` here: in Slint, non-visible elements do not
-                            // take layout space, which breaks absolutely-positioned grid cells and can leave
-                            // tiles missing until resize. List view has no culling; grid/masonry must show
-                            // the same logical set. The Flickable clips off-screen content.
+                            is-list: grid-flick.is-list;
                             visible: true;
-                            layout-motion: grid-flick.full-layout-motion;
-                            streaming-list: scan-progress-percent >= 0 && model-cards.length <= 96;
-                            card: card;
-                            card-index: card.slot-index;
-                            selected: card.slot-index == selected-card-index;
-                            clicked(idx) => {
-                                rename-editing = false;
-                                model-context-open = false;
-                                sidebar-context-open = false;
-                                select-model(idx);
-                            }
-                            context-requested(idx, x, y) => {
-                                rename-editing = false;
-                                select-model(idx);
-                                model-context-index = idx;
-                                model-context-label = card.title;
-                                model-context-favorite = card.favorite;
-                                model-context-printed-count = card.printed-count;
-                                model-context-x = x + 2px;
-                                model-context-y = y + 2px;
-                                model-context-open = true;
-                                sidebar-context-open = false;
-                                slicer-menu-open = false;
-                                sort-menu-open = false;
-                                preview-plate-menu-open = false;
-                            }
-                        }
-                    }
-
-                    if model-cards.length > 0 && view-mode-label == "List": list-flick := Flickable {
-                        x: 14px;
-                        y: 14px;
-                        width: parent.width - 28px;
-                        height: parent.height - 28px;
-
-                        property <length> row-h: density-label == "S" ? 48px : density-label == "L" ? 68px : 58px;
-                        property <length> gap: 8px;
-
-                        viewport-height: model-cards.length * (row-h + gap);
-
-                        changed viewport-y => {
-                            if (-self.viewport-y >= self.viewport-height - self.height - 200px && model-cards.length < total-matching-cards && !root.loading-more) {
-                                root.loading-more = true;
-                                root.load-more-cards();
-                            }
-                        }
-
-                        for card[index] in model-cards: model-row := ModelListRow {
-                            x: 0;
-                            y: index * (list-flick.row-h + list-flick.gap);
-                            width: list-flick.width;
-                            height: list-flick.row-h;
+                            layout-motion: grid-flick.full-layout-motion && root.settings-layout-transitions && root.is-transition-active;
                             streaming-list: scan-progress-percent >= 0 && model-cards.length <= 96;
                             card: card;
                             card-index: card.slot-index;
@@ -4421,10 +4510,17 @@ export component ModelRackWindow inherits Window {
         delete-folder-label: tr-delete-folder;
         copy-path-label: tr-copy-path;
         copy-tag-label: tr-copy-tag;
+        add-subtag-label: tr-add-subtag;
         action(action) => {
             shortcut-scope.focus();
             sidebar-context-open = false;
-            sidebar-context-action(action, sidebar-context-key, sidebar-context-label);
+            if action == "add-subtag" {
+                subtag-parent-tag = sidebar-context-key;
+                subtag-draft = "";
+                subtag-dialog-open = true;
+            } else {
+                sidebar-context-action(action, sidebar-context-key, sidebar-context-label);
+            }
         }
     }
 
@@ -4483,6 +4579,128 @@ export component ModelRackWindow inherits Window {
                 left-sidebar-width = min(left-sidebar-max-width, max(left-sidebar-min-width, resize-start-width + (self.mouse-x - resize-origin-x)));
             } else if (event.kind == PointerEventKind.move && right-detail-resizing) {
                 right-detail-width = min(right-detail-max-width, max(right-detail-min-width, resize-start-width - (self.mouse-x - resize-origin-x)));
+            }
+        }
+    }
+
+    // ─── Subtag dialog ───
+    if subtag-dialog-open: Rectangle {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        background: #000000aa;
+        z: 900;
+
+        TouchArea {
+            clicked => { subtag-dialog-open = false; }
+        }
+
+        Rectangle {
+            x: (parent.width - 340px) / 2;
+            y: (parent.height - 180px) / 2;
+            width: 340px;
+            height: 180px;
+            background: Theme.bg-1;
+            border-color: Theme.line;
+            border-width: 1px;
+            border-radius: 12px;
+            drop-shadow-color: #00000040;
+            drop-shadow-blur: 16px;
+            drop-shadow-offset-y: 8px;
+
+            VerticalLayout {
+                padding: 20px;
+                spacing: 12px;
+
+                Text {
+                    text: settings-language-key == "ko" ? "하위 태그 추가" :
+                          settings-language-key == "ja" ? "下位タグを追加" :
+                          "Add Sub-tag";
+                    color: Theme.fg-0;
+                    font-size: 16px;
+                    font-weight: 600;
+                }
+
+                Text {
+                    text: (settings-language-key == "ko" ? "상위 태그: " :
+                           settings-language-key == "ja" ? "親タグ: " :
+                           "Parent tag: ") + sidebar-context-label;
+                    color: Theme.fg-2;
+                    font-size: Theme.font-meta;
+                    overflow: elide;
+                }
+
+                subtag-input := LineEdit {
+                    placeholder-text: settings-language-key == "ko" ? "새 태그 이름 입력" :
+                                     settings-language-key == "ja" ? "新しいタグ名を入力" :
+                                     "Enter sub-tag name";
+                    text: subtag-draft;
+                    edited(val) => { subtag-draft = val; }
+                    accepted => {
+                        if (subtag-draft != "") {
+                            add-subtag-path(subtag-parent-tag, subtag-draft);
+                            subtag-dialog-open = false;
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 8px;
+
+                    Rectangle {
+                        width: 80px;
+                        height: 28px;
+                        background: cancel-touch.has-hover ? Theme.bg-4 : Theme.bg-3;
+                        border-color: Theme.line-2;
+                        border-width: 1px;
+                        border-radius: 5px;
+                        Text {
+                            width: parent.width;
+                            height: parent.height;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            text: settings-language-key == "ko" ? "취소" :
+                                  settings-language-key == "ja" ? "キャンセル" :
+                                  "Cancel";
+                            color: Theme.fg-0;
+                            font-size: 12px;
+                        }
+                        cancel-touch := TouchArea {
+                            clicked => { subtag-dialog-open = false; }
+                        }
+                    }
+
+                    Rectangle {
+                        width: 80px;
+                        height: 28px;
+                        background: add-touch.has-hover ? Theme.accent.brighter(10%) : Theme.accent;
+                        border-color: Theme.accent-line;
+                        border-width: 1px;
+                        border-radius: 5px;
+                        Text {
+                            width: parent.width;
+                            height: parent.height;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            text: settings-language-key == "ko" ? "추가" :
+                                  settings-language-key == "ja" ? "追加" :
+                                  "Add";
+                            color: #ffffff;
+                            font-size: 12px;
+                            font-weight: 600;
+                        }
+                        add-touch := TouchArea {
+                            clicked => {
+                                if (subtag-draft != "") {
+                                    add-subtag-path(subtag-parent-tag, subtag-draft);
+                                    subtag-dialog-open = false;
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -4713,6 +4931,12 @@ export component ModelRackWindow inherits Window {
                             Text { x: 0; y: 13px; width: 180px; text: tr-card-label; color: Theme.fg-1; font-size: Theme.font-body; }
                             Text { x: 0; y: 31px; width: 180px; text: tr-card-label-hint; color: Theme.fg-3; font-size: Theme.font-meta; overflow: elide; }
                             SettingsSegment { x: 196px; y: 14px; button-width: 92px; a-label: tr-filename; a-key: "filename"; b-label: tr-title-cased; b-key: "titled"; selected-key: settings-card-label-key; activated(key) => { choose-settings-card-label(key); } }
+                        }
+                        if settings-tab == "appearance": Rectangle {
+                            height: 54px;
+                            Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
+                            Text { x: 0; y: 18px; width: 180px; text: tr-layout-transitions; color: Theme.fg-1; font-size: Theme.font-body; }
+                            SettingsToggle { x: 196px; y: 17px; on: settings-layout-transitions; toggled(value) => { toggle-settings-layout-transitions(value); } }
                         }
 
                         if settings-tab == "library": Rectangle {
