@@ -1184,12 +1184,14 @@ fn relative_modified_label_for_language(
             "ja" => format!("{}か月前", days / 30),
             _ => format!("{}mo ago", days / 30),
         }
-    } else {
+    } else if days / 365 <= 30 {
         match language_key(language) {
             "ko" => format!("{}년 전", days / 365),
             "ja" => format!("{}年前", days / 365),
             _ => format!("{}y ago", days / 365),
         }
+    } else {
+        localized("unknown", "알 수 없음", "不明", language).to_string()
     }
 }
 

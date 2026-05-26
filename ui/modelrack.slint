@@ -482,7 +482,7 @@ component ModelContextMenu inherits Rectangle {
     in property <bool> multi-mode: false;
     in property <int> multi-count: 0;
     in property <length> menu-width: 214px;
-    in property <length> menu-height: multi-mode ? 160px : (printed-count > 0 ? 312px : 283px);
+    in property <length> menu-height: multi-mode ? 192px : (printed-count > 0 ? 344px : 315px);
     in property <string> rename-label;
     in property <string> open-label;
     in property <string> reveal-label;
@@ -493,6 +493,7 @@ component ModelContextMenu inherits Rectangle {
     in property <string> remove-print-label;
     in property <string> copy-name-label;
     in property <string> copy-path-label;
+    in property <string> clear-tags-label;
     callback action(string);
 
     width: menu-width;
@@ -564,6 +565,15 @@ component ModelContextMenu inherits Rectangle {
             hint: "";
             icon: @image-url("../assets/icons/minus.svg");
             activated => { root.action("print-minus"); }
+        }
+
+        Rectangle { height: 1px; background: Theme.line; }
+
+        ContextMenuItem {
+            label: clear-tags-label;
+            hint: "";
+            icon: @image-url("../assets/icons/tag.svg");
+            activated => { root.action("clear-tags"); }
         }
 
         if !multi-mode: Rectangle { height: 1px; background: Theme.line; }
@@ -2078,6 +2088,7 @@ export component ModelRackWindow inherits Window {
     property <string> tr-remove-print-count: settings-language-key == "ko" ? "출력 횟수 -1" : settings-language-key == "ja" ? "印刷回数 -1" : "Remove Printed Count";
     property <string> tr-copy-file-name: settings-language-key == "ko" ? "파일명 복사" : settings-language-key == "ja" ? "ファイル名をコピー" : "Copy File Name";
     property <string> tr-copy-file-path: settings-language-key == "ko" ? "파일 경로 복사" : settings-language-key == "ja" ? "ファイルパスをコピー" : "Copy File Path";
+    property <string> tr-clear-tags: settings-language-key == "ko" ? "태그 초기화" : settings-language-key == "ja" ? "タグをクリア" : "Clear Tags";
     property <string> tr-layout-transitions: settings-language-key == "ko" ? "레이아웃 트랜지션" : settings-language-key == "ja" ? "レイアウト遷移" : "Layout Transitions";
     property <string> tr-settings-general: settings-language-key == "ko" ? "일반" : settings-language-key == "ja" ? "一般" : "General";
     property <string> tr-settings-appearance: settings-language-key == "ko" ? "모양" : settings-language-key == "ja" ? "外観" : "Appearance";
@@ -4856,6 +4867,7 @@ export component ModelRackWindow inherits Window {
         remove-print-label: tr-remove-print-count;
         copy-name-label: tr-copy-file-name;
         copy-path-label: tr-copy-file-path;
+        clear-tags-label: tr-clear-tags;
         action(action) => {
             shortcut-scope.focus();
             model-context-open = false;

@@ -1036,6 +1036,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
     let lasso_click_state = state.clone();
     ui.on_lasso_click(move |click_x, click_y, shift, cmd, grid_width| {
         if let Some(ui) = weak.upgrade() {
+            ui.set_model_context_open(false);
             let mut state = lasso_click_state.borrow_mut();
             let hit = hit_test_card(&state, click_x as f32, click_y as f32, grid_width as f32);
             if let Some(idx) = hit {
@@ -1287,6 +1288,40 @@ pub fn run() -> Result<(), slint::PlatformError> {
                     Err(err) => {
                         ui.set_status_text(format!("Could not copy filename: {}", err).into())
                     }
+                }
+            }
+            "clear-tags" => {
+                let allow_sidecar_writes = state.sidecar_writes_enabled;
+                let prefs = state.prefs.clone();
+                let paths: Vec<PathBuf> = if state.selected_indices.len() > 1 {
+                    state.selected_indices.iter()
+                        .filter_map(|&i| state.displayed.get(i).map(|e| e.path.clone()))
+                        .collect()
+                } else {
+                    vec![path.clone()]
+                };
+                let mut cleared = 0usize;
+                for p in &paths {
+                    if let Some(entry) = state.entries.iter_mut().find(|e| e.path == *p) {
+                        if let Some(meta) = &mut entry.meta {
+                            if !meta.tags.is_empty() {
+                                meta.tags.clear();
+                                if allow_sidecar_writes {
+                                    ignore_sidecar_watch(p);
+                                    let _ = scanner::write_sidecar(p, meta);
+                                }
+                                cleared += 1;
+                            }
+                        }
+                    }
+                }
+                if cleared > 0 {
+                    let snapshot = state.snapshot_done();
+                    apply_snapshot(&ui, &snapshot);
+                    apply_settings(&ui, &state);
+                    ui.set_status_text(format!("Cleared tags on {} model(s)", cleared).into());
+                } else {
+                    ui.set_status_text("No tags to clear".into());
                 }
             }
             _ => ui.set_status_text(format!("Unknown model action: {}", action).into()),
