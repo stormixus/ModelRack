@@ -1266,10 +1266,9 @@ component ModelCard inherits Rectangle {
         }
     }
 
-    DragArea {
-        width: parent.width;
-        height: parent.height;
-        enabled: root.selected;
+    if root.selected: DragArea {
+        width: root.width;
+        height: root.height;
         mime-type: "application/x-modelrack-model-index";
         data: "" + root.card-index;
     }
