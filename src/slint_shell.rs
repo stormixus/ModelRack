@@ -864,6 +864,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
             let snapshot = state.snapshot_done();
             apply_snapshot(&ui, &snapshot);
             apply_detail(&ui, &mut state);
+            ui.set_selection_count(state.selected_indices.len() as i32);
         }
     });
 
@@ -903,6 +904,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
             let snapshot = state.snapshot_done();
             apply_snapshot(&ui, &snapshot);
             apply_detail(&ui, &mut state);
+            ui.set_selection_count(state.selected_indices.len() as i32);
         }
     });
 
@@ -1021,9 +1023,24 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 let snapshot = state.snapshot_done();
                 apply_snapshot(&ui, &snapshot);
                 apply_detail(&ui, &mut state);
+                ui.set_selection_count(state.selected_indices.len() as i32);
             }
         },
     );
+
+    let weak = ui.as_weak();
+    let clear_sel_state = state.clone();
+    ui.on_clear_selection(move || {
+        if let Some(ui) = weak.upgrade() {
+            let mut state = clear_sel_state.borrow_mut();
+            state.selected_indices.clear();
+            state.selected_index = None;
+            let snapshot = state.snapshot_done();
+            apply_snapshot(&ui, &snapshot);
+            apply_detail(&ui, &mut state);
+            ui.set_selection_count(0);
+        }
+    });
 
     let weak = ui.as_weak();
     let model_context_state = state.clone();

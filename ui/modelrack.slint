@@ -1872,6 +1872,7 @@ export component ModelRackWindow inherits Window {
     in property <string> browser-message;
     in property <string> browser-count-label;
     in property <string> sort-label: "Name ↑";
+    in property <int> selection-count: 0;
     in-out property <bool> is-transition-active: true;
     changed width => { root.window-resized(); }
     changed height => { root.window-resized(); }
@@ -2265,6 +2266,7 @@ export component ModelRackWindow inherits Window {
     callback select-model(int);
     callback select-model-modified(int, bool, bool);
     callback lasso-select(length, length, length, length, bool, length);
+    callback clear-selection();
     callback add-tag-to-model(string, string) -> bool;
     callback toggle-favorite();
     callback rename-model(string) -> bool;
@@ -2329,6 +2331,15 @@ export component ModelRackWindow inherits Window {
                 if has-selection && !settings-open {
                     rename-draft = detail-name;
                     rename-editing = true;
+                }
+            }
+        }
+
+        KeyBinding {
+            keys: @keys(Escape);
+            activated => {
+                if selection-count > 0 {
+                    clear-selection();
                 }
             }
         }
@@ -3035,6 +3046,18 @@ export component ModelRackWindow inherits Window {
                         label: active-filter-key;
                         active: true;
                         dismiss => { choose-filter("all"); }
+                    }
+
+                    if selection-count > 1: Text {
+                        x: parent.width - browser-count.width - self.width - 20px;
+                        y: 0;
+                        height: parent.height;
+                        text: selection-count + " selected";
+                        color: Theme.accent;
+                        font-family: "JetBrains Mono";
+                        font-size: 11px;
+                        font-weight: 600;
+                        vertical-alignment: center;
                     }
 
                     browser-count := Text {
