@@ -151,11 +151,13 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 state.search_query = query.to_string();
                 state.displayed_card_limit = 100;
                 state.selected_index = None;
+                state.selected_indices.clear();
                 state.snapshot_done()
             };
             apply_snapshot(&ui, &snapshot);
             apply_detail_rc(&ui, &search_state);
             apply_settings(&ui, &search_state.borrow());
+            ui.set_selection_count(0);
         }
     });
 
@@ -242,12 +244,14 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 state.prefs.sort_ascending = state.sort_ascending;
                 state.displayed_card_limit = 100;
                 state.selected_index = None;
+                state.selected_indices.clear();
                 state.snapshot_done()
             };
             apply_snapshot(&ui, &snapshot);
             apply_detail_rc(&ui, &sort_state);
             apply_settings(&ui, &sort_state.borrow());
             save_prefs_status(&ui, &sort_state.borrow());
+            ui.set_selection_count(0);
         }
     });
 
@@ -5941,6 +5945,7 @@ fn apply_filter_key(ui: &ModelRackWindow, state: &Rc<RefCell<ShellState>>, key: 
     let snapshot = {
         let mut state = state.borrow_mut();
         let prev_selected_path = state.selected_model_path();
+        state.selected_indices.clear();
 
         if let Some(filter) = smart_filter_from_key(key) {
             state.filter = filter;
@@ -5986,6 +5991,7 @@ fn apply_filter_key(ui: &ModelRackWindow, state: &Rc<RefCell<ShellState>>, key: 
     apply_snapshot(ui, &snapshot);
     apply_detail_rc(ui, state);
     apply_settings(ui, &state.borrow());
+    ui.set_selection_count(state.borrow().selected_indices.len() as i32);
 }
 
 fn toggle_sidebar_folder(ui: &ModelRackWindow, state: &Rc<RefCell<ShellState>>, key: &str) {
