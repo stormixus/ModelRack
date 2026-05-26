@@ -3314,15 +3314,30 @@ export component ModelRackWindow inherits Window {
                     }
 
                     // Lasso overlay — sits on top of Flickable, passes scroll through
-                    if model-cards.length > 0: lasso-overlay := TouchArea {
+                    if model-cards.length > 0: FocusScope {
                         x: 14px;
                         y: 14px;
                         width: parent.width - 28px;
                         height: parent.height - 28px;
 
-                        property <length> press-x;
-                        property <length> press-y;
-                        property <bool> is-dragging;
+                        KeyBinding {
+                            keys: @keys(Meta + A);
+                            activated => { select-all(); }
+                        }
+                        KeyBinding {
+                            keys: @keys(Escape);
+                            activated => {
+                                if selection-count > 0 { clear-selection(); }
+                            }
+                        }
+
+                        lasso-overlay := TouchArea {
+                            width: parent.width;
+                            height: parent.height;
+
+                            property <length> press-x;
+                            property <length> press-y;
+                            property <bool> is-dragging;
 
                         scroll-event(event) => {
                             reject
@@ -3367,6 +3382,7 @@ export component ModelRackWindow inherits Window {
                                     root.lasso-active = true;
                                 }
                             }
+                        }
                         }
                     }
                 }
