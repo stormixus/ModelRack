@@ -381,7 +381,7 @@ component SectionHeader inherits Rectangle {
     }
 
     section-touch := TouchArea {
-        width: collapsible ? parent.width - (show-add ? 24px : 0px) : 0px;
+        width: collapsible ? parent.width - (show-add ? 24px : 0px) - (show-reorder ? 24px : 0px) : 0px;
         height: parent.height;
         enabled: collapsible;
         clicked => { collapsed = !collapsed; }
