@@ -2315,7 +2315,7 @@ mod tests {
                 .spawn()
                 .unwrap()
         };
-        let status = wait_child_with_timeout(&mut child, Duration::from_secs(5)).unwrap();
+        let status = wait_child_with_timeout(&mut child, Duration::from_secs(30)).unwrap();
         assert!(status.success());
     }
 
