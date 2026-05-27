@@ -314,6 +314,13 @@ component SectionHeader inherits Rectangle {
     callback add-requested();
     height: 24px;
 
+    section-touch := TouchArea {
+        width: collapsible ? parent.width - (show-add ? 28px : 0px) - (show-reorder ? 28px : 0px) : 0px;
+        height: parent.height;
+        enabled: collapsible;
+        clicked => { collapsed = !collapsed; }
+    }
+
     if collapsible: SvgIcon {
         x: 0px;
         y: (parent.height - 8px) / 2;
@@ -378,13 +385,6 @@ component SectionHeader inherits Rectangle {
         plus-touch := TouchArea {
             clicked => { root.add-requested(); }
         }
-    }
-
-    section-touch := TouchArea {
-        width: collapsible ? parent.width - (show-add ? 24px : 0px) - (show-reorder ? 24px : 0px) : 0px;
-        height: parent.height;
-        enabled: collapsible;
-        clicked => { collapsed = !collapsed; }
     }
 }
 
