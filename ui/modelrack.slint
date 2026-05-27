@@ -1554,15 +1554,62 @@ component SettingsMakerOptionRow inherits Rectangle {
 component SettingsDropdown inherits Rectangle {
     in property <[SidebarItem]> options;
     in property <string> selected-key;
+    in property <string> display-label;
+    in property <string> dropdown-id;
+    in-out property <string> active-dropdown-id;
     callback activated(string);
 
-    property <bool> open: false;
-    in property <string> display-label;
+    property <bool> open: dropdown-id != "" && active-dropdown-id == dropdown-id;
     property <length> row-h: 28px;
-
+    property <length> menu-h: min(200px, options.length * row-h + 4px);
     width: 220px;
     height: 28px;
-    clip: false;
+
+    // Menu opens UPWARD to avoid z-order clipping
+    if open: TouchArea {
+        x: -3000px;
+        y: -3000px;
+        width: 7000px;
+        height: 7000px;
+        clicked => { root.active-dropdown-id = ""; }
+    }
+
+    if open: Rectangle {
+        y: -menu-h - 2px;
+        width: parent.width;
+        height: menu-h;
+        background: Theme.bg-2;
+        border-color: Theme.line-2;
+        border-width: 1px;
+        border-radius: 6px;
+        clip: true;
+
+        VerticalLayout {
+            padding: 2px;
+            spacing: 0px;
+            for opt in options: Rectangle {
+                height: root.row-h;
+                background: dd-opt-touch.has-hover ? Theme.bg-4 : (opt.key == root.selected-key ? Theme.bg-3 : transparent);
+                border-radius: 4px;
+
+                Text {
+                    x: 10px;
+                    y: (parent.height - self.height) / 2;
+                    text: opt.label;
+                    color: opt.key == root.selected-key ? Theme.accent : Theme.fg-1;
+                    font-size: Theme.font-body;
+                    font-weight: opt.key == root.selected-key ? 600 : 400;
+                }
+
+                dd-opt-touch := TouchArea {
+                    clicked => {
+                        root.activated(opt.key);
+                        root.active-dropdown-id = "";
+                    }
+                }
+            }
+        }
+    }
 
     Rectangle {
         width: parent.width;
@@ -1592,58 +1639,11 @@ component SettingsDropdown inherits Rectangle {
         }
 
         dd-touch := TouchArea {
-            clicked => { root.open = !root.open; }
-        }
-    }
-
-    if open: TouchArea {
-        x: -3000px;
-        y: -3000px;
-        width: 7000px;
-        height: 7000px;
-        z: 10;
-        clicked => { root.open = false; }
-    }
-
-    if open: Rectangle {
-        y: 30px;
-        width: parent.width;
-        height: min(200px, options.length * row-h + 4px);
-        background: Theme.bg-2;
-        border-color: Theme.line-2;
-        border-width: 1px;
-        border-radius: 6px;
-        z: 20;
-        clip: true;
-
-        ScrollView {
-            x: 2px;
-            y: 2px;
-            width: parent.width - 4px;
-            height: parent.height - 4px;
-
-            VerticalLayout {
-                spacing: 0px;
-                for opt in options: Rectangle {
-                    height: root.row-h;
-                    background: dd-opt-touch.has-hover ? Theme.bg-4 : (opt.key == root.selected-key ? Theme.bg-3 : transparent);
-                    border-radius: 4px;
-
-                    Text {
-                        x: 10px;
-                        y: (parent.height - self.height) / 2;
-                        text: opt.label;
-                        color: opt.key == root.selected-key ? Theme.accent : Theme.fg-1;
-                        font-size: Theme.font-body;
-                        font-weight: opt.key == root.selected-key ? 600 : 400;
-                    }
-
-                    dd-opt-touch := TouchArea {
-                        clicked => {
-                            root.activated(opt.key);
-                            root.open = false;
-                        }
-                    }
+            clicked => {
+                if (root.open) {
+                    root.active-dropdown-id = "";
+                } else {
+                    root.active-dropdown-id = root.dropdown-id;
                 }
             }
         }
@@ -2532,6 +2532,7 @@ export component ModelRackWindow inherits Window {
     property <bool> rename-editing: false;
     property <string> rename-draft: "";
     property <bool> new-tag-dialog-open: false;
+    property <string> settings-active-dropdown: "";
     property <bool> section-library-collapsed: false;
     property <bool> section-folders-collapsed: false;
     property <bool> section-formats-collapsed: false;
@@ -5819,8 +5820,10 @@ export component ModelRackWindow inherits Window {
                             height: 54px;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
                             Text { x: 0; y: 18px; width: 180px; text: tr-language; color: Theme.fg-1; font-size: Theme.font-body; }
-                            SettingsDropdown {
+                            lang-dropdown := SettingsDropdown {
                                 x: 196px; y: 10px;
+                                dropdown-id: "lang";
+                                active-dropdown-id <=> settings-active-dropdown;
                                 selected-key: settings-language-key;
                                 display-label: settings-language-key == "ko" ? "한국어" : settings-language-key == "ja" ? "日本語" : "English";
                                 options: [
@@ -5828,7 +5831,7 @@ export component ModelRackWindow inherits Window {
                                     { key: "ko", label: "한국어" },
                                     { key: "ja", label: "日本語" },
                                 ];
-                                activated(key) => { choose-settings-language(key); }
+                                activated(key) => { choose-settings-language(key); settings-active-dropdown = ""; }
                             }
                         }
                         if settings-tab == "general": Rectangle {
@@ -5848,8 +5851,10 @@ export component ModelRackWindow inherits Window {
                             height: 54px;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
                             Text { x: 0; y: 18px; width: 180px; text: tr-default-sort; color: Theme.fg-1; font-size: Theme.font-body; }
-                            SettingsDropdown {
+                            sort-dropdown := SettingsDropdown {
                                 x: 196px; y: 10px;
+                                dropdown-id: "sort";
+                                active-dropdown-id <=> settings-active-dropdown;
                                 selected-key: settings-sort-key;
                                 display-label: settings-sort-key == "modified" ? tr-sort-modified : settings-sort-key == "added" ? tr-sort-added : settings-sort-key == "format" ? tr-format : settings-sort-key == "size" ? tr-file-size : settings-sort-key == "triangles" ? tr-triangles : settings-sort-key == "dimensions" ? tr-dimensions : settings-sort-key == "volume" ? tr-volume-est : tr-name;
                                 options: [
@@ -5862,7 +5867,7 @@ export component ModelRackWindow inherits Window {
                                     { key: "dimensions", label: tr-dimensions },
                                     { key: "volume", label: tr-volume-est },
                                 ];
-                                activated(key) => { choose-settings-sort(key); }
+                                activated(key) => { choose-settings-sort(key); settings-active-dropdown = ""; }
                             }
                         }
                         if settings-tab == "general": Rectangle {
