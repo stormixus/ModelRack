@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use crate::scanner::{MeshData, StlFileInfo};
 
-const CACHE_VERSION: &str = "v12";
+const CACHE_VERSION: &str = "v11";
 const THUMB_SIZE: u32 = 224;
 const MAX_SHADED_RENDER_FACES: usize = 160_000;
 

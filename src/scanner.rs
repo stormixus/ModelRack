@@ -2097,11 +2097,9 @@ fn parse_binary_stl_fast(data: &[u8]) -> Option<ParsedStl> {
                 read_f32_le(data, start + 4)?,
                 read_f32_le(data, start + 8)?,
             ];
-            let vertex = if vertex.iter().all(|v| v.is_finite()) {
-                vertex
-            } else {
-                [0.0, 0.0, 0.0]
-            };
+            if !vertex.iter().all(|value| value.is_finite()) {
+                return None;
+            }
             for axis in 0..3 {
                 min[axis] = min[axis].min(vertex[axis]);
                 max[axis] = max[axis].max(vertex[axis]);
@@ -2109,7 +2107,7 @@ fn parse_binary_stl_fast(data: &[u8]) -> Option<ParsedStl> {
             vertices.push(vertex);
         }
         faces.push([base, base + 1, base + 2]);
-        offset += 38; // 3 vertices * 12 bytes + 2 byte attr count
+        offset += 50;
     }
 
     let dimensions = if vertices.is_empty() {
