@@ -2906,6 +2906,8 @@ export component ModelRackWindow inherits Window {
                             background: Theme.line;
                         }
 
+                        Rectangle { height: 1px; background: Theme.line; }
+
                         if folder-items.length > 0: SectionHeader {
                             label: tr-folders-heading;
                             show-add: true;
@@ -2947,6 +2949,8 @@ export component ModelRackWindow inherits Window {
                             }
                         }
 
+                        Rectangle { height: 1px; background: Theme.line; }
+
                         SectionHeader {
                             label: tr-format;
                             collapsible: true;
@@ -2958,6 +2962,8 @@ export component ModelRackWindow inherits Window {
                         if !section-formats-collapsed && step-count > 0: SidebarLine { icon: @image-url("../assets/icons/document.svg"); label: "STEP"; count: step-count; selected: active-filter-key == "format:step"; activated => { choose-filter("format:step"); } }
                         if !section-formats-collapsed && scad-count > 0: SidebarLine { icon: @image-url("../assets/icons/document.svg"); label: "SCAD"; count: scad-count; selected: active-filter-key == "format:scad"; activated => { choose-filter("format:scad"); } }
                         if !section-formats-collapsed && obj-count > 0: SidebarLine { icon: @image-url("../assets/icons/document.svg"); label: "OBJ"; count: obj-count; selected: active-filter-key == "format:obj"; activated => { choose-filter("format:obj"); } }
+
+                        Rectangle { height: 1px; background: Theme.line; }
 
                         SectionHeader {
                             label: tr-tags-heading;
