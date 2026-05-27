@@ -247,6 +247,10 @@ pub fn scan_folder_stream(path: &Path, tx: crossbeam_channel::Sender<ScanEvent>)
                     .to_string(),
             });
 
+            if file_path.metadata().map(|m| m.len()).unwrap_or(0) == 0 {
+                return;
+            }
+
             if ext == "obj" && is_binary_file_quick(&file_path) {
                 return;
             }
