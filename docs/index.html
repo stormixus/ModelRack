@@ -118,7 +118,7 @@
     .nav-links {
       display: flex;
       align-items: center;
-      gap: 32px;
+      gap: 24px;
       font-weight: 500;
       font-size: 15px;
       color: var(--text-muted);
@@ -129,6 +129,31 @@
     }
     
     .nav-links a:hover {
+      color: var(--text-main);
+    }
+    
+    /* Glassmorphic Language Selector */
+    .lang-select {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 6px 12px;
+      border-radius: 6px;
+      outline: none;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      font-family: var(--font-body);
+      transition: var(--transition-smooth);
+    }
+    
+    .lang-select:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: var(--border-glow);
+    }
+    
+    .lang-select option {
+      background: #090d16;
       color: var(--text-main);
     }
     
@@ -177,7 +202,7 @@
       font-weight: 800;
       line-height: 1.1;
       letter-spacing: -2px;
-      max-width: 900px;
+      max-width: 950px;
       margin: 0 auto 24px auto;
     }
     
@@ -190,7 +215,7 @@
     .hero p {
       font-size: 20px;
       color: var(--text-muted);
-      max-width: 680px;
+      max-width: 760px;
       margin: 0 auto 40px auto;
     }
     
@@ -235,7 +260,7 @@
       transform: translateY(-2px);
     }
     
-    /* Interactive Interactive Sandbox Frame (WOW factor) */
+    /* Interactive Interactive Sandbox Frame */
     .sandbox-container {
       background: var(--bg-card);
       border: 1px solid var(--border-color);
@@ -554,11 +579,6 @@
       gap: 8px;
     }
     
-    .tech-badge svg {
-      width: 16px;
-      height: 16px;
-    }
-    
     .tech-visual {
       background: linear-gradient(135deg, rgba(13, 148, 136, 0.15) 0%, rgba(99, 102, 241, 0.15) 100%);
       border: 1px solid var(--border-color);
@@ -640,6 +660,16 @@
         <a href="#features">Features</a>
         <a href="#tech">Tech Stack</a>
         <a href="https://github.com/stormixus/ModelRack" target="_blank">GitHub</a>
+        <select id="lang-select" class="lang-select">
+          <option value="en">English</option>
+          <option value="ko">한국어</option>
+          <option value="ja">日本語</option>
+          <option value="es">Español</option>
+          <option value="pt">Português</option>
+          <option value="ru">Русский</option>
+          <option value="zh-CN">简体中文</option>
+          <option value="zh-TW">繁體中文</option>
+        </select>
         <a href="https://github.com/stormixus/ModelRack/releases" class="nav-btn" target="_blank" id="nav-download-btn">Download</a>
       </nav>
     </div>
@@ -908,7 +938,7 @@
       startY = e.clientY;
     });
 
-    // OS Language Translation Logic (Auto OS Localizer)
+    // Fully Localized translations map for all 8 app languages
     const translations = {
       "en": {
         "badge": "✨ Gorgeous local-first organizer",
@@ -936,7 +966,11 @@
         "label-rust": "Pure Rust Core",
         "label-time": "Test Execution",
         "label-sec": "Local Privacy",
-        "label-formats": "3D File Formats"
+        "label-formats": "3D File Formats",
+        "dl-btn": "Download v0.2.0",
+        "git-btn": "View on GitHub",
+        "nav-dl": "Download",
+        "cr": "© 2026 ModelRack Project. Gorgeous Desktop 3D Model pegboard for Makers."
       },
       "ko": {
         "badge": "✨ 아름다운 로컬 우선 3D 모델 매니저",
@@ -964,16 +998,227 @@
         "label-rust": "순수 Rust 코어",
         "label-time": "자가 테스트 시간",
         "label-sec": "완벽한 로컬 프라이버시",
-        "label-formats": "지원 3D 파일 포맷"
+        "label-formats": "지원 3D 파일 포맷",
+        "dl-btn": "무료 다운로드 v0.2.0",
+        "git-btn": "깃허브 저장소 보기",
+        "nav-dl": "다운로드",
+        "cr": "© 2026 ModelRack Project. 메이커를 위한 가장 직관적이고 아름다운 3D 모델 pegboard 라이브러리."
+      },
+      "ja": {
+        "badge": "✨ 美しいローカル優先3Dモデルマネージャー",
+        "heading": "メイカーのためのデスクトップネイティブ <span>3Dモデルライブラリ</span>",
+        "subheading": "STL、3MF、STEP、SCADファイルをローカルで超高速GPU加速プレビュー、メッシュ分析、スライサーの即時起動でスマートに整理します。",
+        "sandbox-title": "インタラクティブ3D軌道ビューア",
+        "sandbox-desc": "スライダーを調整するか、直接ドラッグして3Dビューポートを回転させ、ModelRackと同じテーマカラーを選択してください。",
+        "features-title": "メイカーのワークフロー向けに設計",
+        "features-desc": "普通のファイルブラウザは忘れてください。ModelRackはメイカーが実際に必要とするビジュアルフィードバックと自動化を提供します。",
+        "feat-cad-title": "高精度CADメッシュエンジン",
+        "feat-cad-desc": "複雑なSTEP B-repループをネイティブ解析。インテリジェントなポリゴン削減により、小さな機械的ペグや穴のスターバーストとエッジの裂けを完全に解決します。",
+        "feat-slint-title": "Slint UIデスクトップシェル",
+        "feat-slint-desc": "美しいグラスモフィズム、応答性の高いナビгеーションドロワー、動的なカラーテーマ、そしてスムーズなサイドバーアニメーション。",
+        "feat-metadata-title": "プライバシー最優先のメタデータ",
+        "feat-metadata-desc": "アカウント不要、テレメトリなし、クラウド同期なし。すべてのタグ、お気に入り、印刷カウントはローカルの.modelrack.jsonサイドカーファイルに保存されます。",
+        "feat-slicer-title": "ワンクリックスライサー起動",
+        "feat-slicer-desc": "OrcaSlicer、Bambu Studio、PrusaSlicerなどのインストール済みスライサーを自動検出し、ワンクリックでファイルをロードします。",
+        "feat-wix-title": "クリーンなネイティブパッケージ",
+        "feat-wix-desc": "Apple公証済みのmacOS DMGと、VCRuntime DLLの依存関係なしで静的ビルドされたWindows MSIパッケージの配布。",
+        "feat-i18n-title": "言語の自动検出",
+        "feat-i18n-desc": "オペレーティングシステムの言語とシームレスに統合。設定不要で、起動時から即座に8か国語の多言語環境を提供します。",
+        "tech-title": "超高速GPUレンダリング技術スタック",
+        "tech-desc": "Electronなどの重いウェブベース技術を排除し、極めて軽量で高効率なRustエンジンとSlint GPUグラフィックスレンダラーを密着設計しました。",
+        "label-accent": "アプリアクセントカラー",
+        "label-rust": "純粋なRustコア",
+        "label-time": "テスト実行時間",
+        "label-sec": "ローカルプライバシー",
+        "label-formats": "3Dファイルフォーマット",
+        "dl-btn": "無料ダウンロード v0.2.0",
+        "git-btn": "GitHubで見る",
+        "nav-dl": "ダウンロード",
+        "cr": "© 2026 ModelRack Project. メイカーのための最も美しく直感的な3Dモデルペグボードライブラリ。"
+      },
+      "es": {
+        "badge": "✨ Hermoso organizador local de modelos 3D",
+        "heading": "Biblioteca de <span>modelos 3D</span> nativa para creadores",
+        "subheading": "Organize sus archivos STL, 3MF, STEP y SCAD localmente con previsualizaciones aceleradas por GPU súper rápidas, análisis de malla e inicio instantáneo del laminador.",
+        "sandbox-title": "Visor orbital 3D interactivo",
+        "sandbox-desc": "Interactúe con la vista 3D ajustando los valores de rotación o elija un color de tema que coincida con ModelRack.",
+        "features-title": "Diseñado para flujos de trabajo de creadores",
+        "features-desc": "Olvídese de los navegadores de archivos comunes. ModelRack proporciona los comentarios visuales y la automatización que los creadores realmente necesitan.",
+        "feat-cad-title": "Mallador CAD de alta fidelidad",
+        "feat-cad-desc": "Análisis nativo de bucles complejos STEP B-rep. La decimación inteligente de polígonos resuelve la distorsión y el desgarro de bordes en pequeñas piezas mecánicas.",
+        "feat-slint-title": "Interfaz Slint UI nativa",
+        "feat-slint-desc": "Magnífico efecto de vidrio, paneles laterales deslizantes suaves, temas de color dinámicos y navegación intuitiva.",
+        "feat-metadata-title": "Metadatos centrados en la privacidad",
+        "feat-metadata-desc": "Sin cuentas, sin telemetría, sin sincronización en la nube. Todas las etiquetas y favoritos se guardan localmente en archivos .modelrack.json.",
+        "feat-slicer-title": "Lanzador de laminador en un clic",
+        "feat-slicer-desc": "Descubrimiento automático de OrcaSlicer, Bambu Studio, PrusaSlicer y SuperSlicer para cargar sus archivos al instante.",
+        "feat-wix-title": "Paquetes nativos limpios",
+        "feat-wix-desc": "Instaladores DMG de macOS firmados y notarizados por Apple, y paquetes MSI de Windows construidos de forma estática.",
+        "feat-i18n-title": "Detección de idioma automática",
+        "feat-i18n-desc": "Se integra sin problemas con el idioma de su sistema operativo. Soporta 8 idiomas desde el primer inicio sin configuración.",
+        "tech-title": "Motor de renderizado GPU ultra rápido",
+        "tech-desc": "ModelRack combina la fiabilidad y seguridad de tipo de Rust con el moderno flujo de gráficos de Slint UI, evitando el exceso de Electron.",
+        "label-accent": "Color de acento de la app",
+        "label-rust": "Núcleo de Rust puro",
+        "label-time": "Tiempo de prueba",
+        "label-sec": "Privacidad 100% local",
+        "label-formats": "Formatos 3D compatibles",
+        "dl-btn": "Descargar gratis v0.2.0",
+        "git-btn": "Ver en GitHub",
+        "nav-dl": "Descargar",
+        "cr": "© 2026 Proyecto ModelRack. Biblioteca de modelos 3D hermosa y local para creadores."
+      },
+      "pt": {
+        "badge": "✨ Lindo organizador local de modelos 3D",
+        "heading": "Biblioteca de <span>modelos 3D</span> nativa para makers",
+        "subheading": "Organize seus arquivos STL, 3MF, STEP e SCAD localmente com pré-visualizações super rápidas aceleradas por GPU, análise de malha e abertura direta no fatiador.",
+        "sandbox-title": "Visualizador orbital 3D interativo",
+        "sandbox-desc": "Interaja com a visualização 3D ajustando os valores de rotação ou escolha uma cor de tema que combine com o ModelRack.",
+        "features-title": "Projetado para o fluxo de trabalho de makers",
+        "features-desc": "Esqueça navegadores de arquivos comuns. O ModelRack oferece o feedback visual e a automação que os makers realmente precisam.",
+        "feat-cad-title": "Gerador de malha CAD de alta fidelidade",
+        "feat-cad-desc": "Processamento nativo de loops STEP B-rep complexos. A decimação inteligente de polígonos resolve distorções e rasgos em pequenos pinos e furos mecânicos.",
+        "feat-slint-title": "Interface Slint UI nativa",
+        "feat-slint-desc": "Lindo efeito translúcido (glassmorphic), painéis laterais de deslizamento suave, temas dinâmicos e navegação intuitiva.",
+        "feat-metadata-title": "Metadatos com foco em privacidade",
+        "feat-metadata-desc": "Sem contas, sem telemetria, sem nuvem. Todas as tags, favoritos e contagens são salvos localmente em arquivos sidecar .modelrack.json.",
+        "feat-slicer-title": "Abertura de fatiador em um clique",
+        "feat-slicer-desc": "Descoberta automática do OrcaSlicer, Bambu Studio, PrusaSlicer e SuperSlicer para carregar seus arquivos instantaneamente.",
+        "feat-wix-title": "Pacotes nativos limpos",
+        "feat-wix-desc": "Instaladores DMG de macOS assinados e homologados pela Apple, e pacotes MSI de Windows compilados estaticamente.",
+        "feat-i18n-title": "Detecção automática de idioma",
+        "feat-i18n-desc": "Integração perfeita com o idioma do seu sistema operacional. Suporta 8 idiomas nativos desde a primeira inicialização.",
+        "tech-title": "Processamento gráfico por GPU super rápido",
+        "tech-desc": "O ModelRack une a segurança e estabilidade do Rust com o pipeline de renderização moderna do Slint UI, evitando o peso do Electron.",
+        "label-accent": "Cor de destaque do app",
+        "label-rust": "Núcleo em Rust puro",
+        "label-time": "Tempo de testes",
+        "label-sec": "Privacidade local",
+        "label-formats": "Formatos 3D suportados",
+        "dl-btn": "Download grátis v0.2.0",
+        "git-btn": "Ver no GitHub",
+        "nav-dl": "Download",
+        "cr": "© 2026 Projeto ModelRack. Biblioteca de modelos 3D linda e local para makers."
+      },
+      "ru": {
+        "badge": "✨ Великолепный локальный менеджер 3D-моделей",
+        "heading": "Локальная <span>библиотека 3D-моделей</span> для мейкеров",
+        "subheading": "Организуйте свои файлы STL, 3MF, STEP и SCAD локально с быстрыми превью на GPU, анализом сетки и моментальным запуском слайсера.",
+        "sandbox-title": "Интерактивный 3D-просмотрщик",
+        "sandbox-desc": "Управляйте 3D-сценой, изменяя углы вращения или выберите цветовую тему, соответствующую интерфейсу ModelRack.",
+        "features-title": "Создано для рабочих процессов мейкеров",
+        "features-desc": "Забудьте об обычных файловых менеджерах. ModelRack предоставляет визуальный контроль и автоматизацию, которые действительно нужны.",
+        "feat-cad-title": "Высокоточное меширование CAD",
+        "feat-cad-desc": "Нативный парсинг сложных STEP B-rep циклов. Интеллектуальное сокращение полигонов устраняет артефакты и разрывы сетки на мелких деталях.",
+        "feat-slint-title": "Интерфейс Slint UI",
+        "feat-slint-desc": "Элегантный эффект матового стекла, плавные анимации боковой панели, динамические цветовые темы и удобная навигация.",
+        "feat-metadata-title": "Абсолютная конфиденциальность",
+        "feat-metadata-desc": "Без учетных записей, телеметрии и облачной синхронизации. Все теги, избранное и история печати хранятся локально в файлах .modelrack.json.",
+        "feat-slicer-title": "Запуск слайсера в один клик",
+        "feat-slicer-desc": "Автоматический поиск установленных слайсеров OrcaSlicer, Bambu Studio, PrusaSlicer и SuperSlicer для мгновенной загрузки файлов.",
+        "feat-wix-title": "Чистые нативные пакеты",
+        "feat-wix-desc": "Официально нотариально заверенные Apple macOS DMG-образы и статические Windows MSI-пакеты без внешних зависимостей.",
+        "feat-i18n-title": "Автоопределение языка",
+        "feat-i18n-desc": "Идеально интегрируется с языком вашей операционной системы. Поддержка 8 языков прямо из коробки.",
+        "tech-title": "Сверхбыстрый GPU-рендеринг",
+        "tech-desc": "ModelRack сочетает надежность и безопасность Rust с современным графическим конвейером Slint UI, исключая раздутый стек Electron.",
+        "label-accent": "Акцентный цвет приложения",
+        "label-rust": "Ядро на чистом Rust",
+        "label-time": "Время тестов",
+        "label-sec": "Локальное хранение",
+        "label-formats": "Поддерживаемые форматы",
+        "dl-btn": "Скачать бесплатно v0.2.0",
+        "git-btn": "Открыть на GitHub",
+        "nav-dl": "Скачать",
+        "cr": "© 2026 Проект ModelRack. Красивая локальная библиотека 3D-моделей для мейкеров."
+      },
+      "zh-CN": {
+        "badge": "✨ 极美的本地优先 3D 模型管理器",
+        "heading": "专为创客打造的本地原生 <span>3D 模型库</span>",
+        "subheading": "在本地轻松整理您的 STL、3MF、STEP 和 SCAD 文件，尊享超快 GPU 加速预览、网格健康检测和一键切片软件启动。",
+        "sandbox-title": "交互式 3D 轨道视图",
+        "sandbox-desc": "通过调整旋转滑块或直接拖拽 3D 视图来进行交互，并选择与 ModelRack 相同的软件主题颜色。",
+        "features-title": "专为创客工作流设计",
+        "features-desc": "告别普通的文件浏览器。ModelRack 提供创客真正需要的视觉反馈和自动化功能。",
+        "feat-cad-title": "高保真 CAD 网格划分",
+        "feat-cad-desc": "原生解析复杂的 STEP B-rep 环。智能多边形抽面可完美解决微小机械销和孔的网格撕裂及放射状拉伸问题。",
+        "feat-slint-title": "Slint UI 桌面外壳",
+        "feat-slint-desc": "精美的毛玻璃特效、自适应抽屉式导航栏、动态色彩主题偏好以及丝滑的侧边栏滑动动画。",
+        "feat-metadata-title": "隐私第一的本地元数据",
+        "feat-metadata-desc": "无需注册、无数据收集、无云端同步。所有标签、收藏和打印记录都以本地 `.modelrack.json` 旁路文件形式安全保存。",
+        "feat-slicer-title": "一键加载切片软件",
+        "feat-slicer-desc": "自动发现已安装的切片软件（OrcaSlicer、Bambu Studio、PrusaSlicer、SuperSlicer），实现一键直接导入文件。",
+        "feat-wix-title": "干净的原生安装包",
+        "feat-wix-desc": "提供完全通过 Apple 公证的 macOS DMG 镜像，以及采用静态链接、无需额外 VCRuntime 依赖的 Windows MSI 安装包。",
+        "feat-i18n-title": "操作系统语言自动检测",
+        "feat-i18n-desc": "与您的操作系统语言无缝集成。开箱即用支持 8 种原生语言，无需任何手动配置。",
+        "tech-title": "极速 GPU 渲染技术栈",
+        "tech-desc": "轻量化架构设计，摒弃 Electron 臃肿的 Web 包装，将高安全性的 Rust 核心与高性能 Slint GPU 渲染管线融为一体。",
+        "label-accent": "软件主题强调色",
+        "label-rust": "纯 Rust 核心",
+        "label-time": "测试执行时间",
+        "label-sec": "本地隐私保护",
+        "label-formats": "支持 3D 文件格式",
+        "dl-btn": "免费下载 v0.2.0",
+        "git-btn": "在 GitHub 上查看",
+        "nav-dl": "下载",
+        "cr": "© 2026 ModelRack 项目。专为创客打造的精美本地 3D 模型挂板库。"
+      },
+      "zh-TW": {
+        "badge": "✨ 極美的本地優先 3D 模型管理器",
+        "heading": "專為創客打造的本地原生 <span>3D 模型庫</span>",
+        "subheading": "在本地輕鬆整理您的 STL、3MF、STEP 和 SCAD 檔案，尊享超超快 GPU 加速預覽、網格健康檢測和一鍵切片軟體啟動。",
+        "sandbox-title": "互動式 3D 軌道視圖",
+        "sandbox-desc": "透過調整旋轉滑塊或直接拖拽 3D 視圖進行互動，並選擇與 ModelRack 相同的軟體主題顏色。",
+        "features-title": "專為創客工作流設計",
+        "features-desc": "告別普通的文件瀏覽器。ModelRack 提供創客真正需要的視覺回饋和自動化功能。",
+        "feat-cad-title": "高保真 CAD 網格劃分",
+        "feat-cad-desc": "原生解析複雜的 STEP B-rep 迴圈。智能多邊形抽面可完美解決微小機械銷和孔的網格撕裂及放射狀拉伸問題。",
+        "feat-slint-title": "Slint UI 桌面外殼",
+        "feat-slint-desc": "精美的毛玻璃特效、自適應抽屜式導航欄、動態色彩主題偏好以及絲滑的側邊欄滑動動畫。",
+        "feat-metadata-title": "隱私第一的本地元數據",
+        "feat-metadata-desc": "無需註冊、無數據收集、無雲端同步。所有標籤、收藏和列印記錄都以本地 `.modelrack.json` 旁路檔案形式安全保存。",
+        "feat-slicer-title": "一鍵加載切片軟體",
+        "feat-slicer-desc": "自動發現已安裝的切片軟體（OrcaSlicer、Bambu Studio、PrusaSlicer、SuperSlicer），實現一鍵直接導入檔案。",
+        "feat-wix-title": "乾淨的原生安裝包",
+        "feat-wix-desc": "提供完全通過 Apple 公證的 macOS DMG 鏡像，以及採用靜態連結、無需額外 VCRuntime 依賴的 Windows MSI 安裝包。",
+        "feat-i18n-title": "作業系統語言自動檢測",
+        "feat-i18n-desc": "與您的作業系統語言無縫整合。開箱即用支援 8 種原生語言，無需任何手動設定。",
+        "tech-title": "極速 GPU 渲染技術棧",
+        "tech-desc": "輕量化架構設計，摒棄 Electron 臃腫的 Web 包裝，將高安全性的 Rust 核心與高性能 Slint GPU 渲染管線融為一体。",
+        "label-accent": "軟體主題強調色",
+        "label-rust": "純 Rust 核心",
+        "label-time": "測試執行時間",
+        "label-sec": "本地隱私保護",
+        "label-formats": "支援 3D 檔案格式",
+        "dl-btn": "免費下載 v0.2.0",
+        "git-btn": "在 GitHub 上查看",
+        "nav-dl": "下載",
+        "cr": "© 2026 ModelRack 專案。專為創客打造的精美本地 3D 模型掛板庫。"
       }
     };
 
-    function applyLocale() {
-      // Auto Detect OS language
-      const userLang = navigator.language || navigator.userLanguage;
-      const isKorean = userLang && userLang.toLowerCase().startsWith('ko');
-      const activeLocale = isKorean ? 'ko' : 'en';
+    function applyLocale(langCode) {
+      let activeLocale = langCode;
+      
+      // Support fallbacks and splits
+      if (!translations[activeLocale]) {
+        const base = activeLocale.split('-')[0];
+        if (translations[base]) {
+          activeLocale = base;
+        } else if (activeLocale.toLowerCase().includes('hant') || activeLocale.toLowerCase().includes('tw') || activeLocale.toLowerCase().includes('hk')) {
+          activeLocale = 'zh-TW';
+        } else if (activeLocale.toLowerCase().startsWith('zh')) {
+          activeLocale = 'zh-CN';
+        } else {
+          activeLocale = 'en';
+        }
+      }
+      
       const dict = translations[activeLocale];
+      
+      // Sync lang dropdown value
+      document.getElementById('lang-select').value = activeLocale;
       
       // Update UI texts
       document.getElementById('locale-badge').textContent = dict["badge"];
@@ -1006,16 +1251,20 @@
       document.getElementById('label-sec').textContent = dict["label-sec"];
       document.getElementById('label-formats').textContent = dict["label-formats"];
       
-      if (isKorean) {
-        document.getElementById('hero-dl-btn').textContent = "무료 다운로드 v0.2.0";
-        document.getElementById('hero-git-btn').textContent = "깃허브 저장소 보기";
-        document.getElementById('nav-download-btn').textContent = "다운로드";
-        document.getElementById('footer-cr').textContent = "© 2026 ModelRack Project. 메이커를 위한 가장 직관적이고 아름다운 3D 모델 pegboard 라이브러리.";
-      }
+      document.getElementById('hero-dl-btn').textContent = dict["dl-btn"];
+      document.getElementById('hero-git-btn').textContent = dict["git-btn"];
+      document.getElementById('nav-download-btn').textContent = dict["nav-dl"];
+      document.getElementById('footer-cr').textContent = dict["cr"];
     }
     
-    // Trigger localization on load
-    applyLocale();
+    // Auto-detect on load
+    const userLang = navigator.language || navigator.userLanguage || 'en';
+    applyLocale(userLang);
+
+    // Dropdown change event
+    document.getElementById('lang-select').addEventListener('change', (e) => {
+      applyLocale(e.target.value);
+    });
   </script>
 </body>
 </html>
