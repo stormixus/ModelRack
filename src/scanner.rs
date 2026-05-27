@@ -19,15 +19,15 @@ const MAX_STL_IO_FALLBACK_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_TEXT_PREVIEW_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_EMBEDDED_3MF_PREVIEW_PNG_BYTES: u64 = 10 * 1024 * 1024;
 #[cfg(not(test))]
-const MAX_3MF_MODEL_XML_BYTES: u64 = 8 * 1024 * 1024;
+const MAX_3MF_MODEL_XML_BYTES: u64 = 128 * 1024 * 1024;
 #[cfg(test)]
 const MAX_3MF_MODEL_XML_BYTES: u64 = 16 * 1024;
 #[cfg(not(test))]
-const MAX_3MF_PREVIEW_VERTICES: usize = 80_000;
+const MAX_3MF_PREVIEW_VERTICES: usize = 2_000_000;
 #[cfg(test)]
 const MAX_3MF_PREVIEW_VERTICES: usize = 64;
 #[cfg(not(test))]
-const MAX_3MF_PREVIEW_FACES: usize = 80_000;
+const MAX_3MF_PREVIEW_FACES: usize = 2_000_000;
 #[cfg(test)]
 const MAX_3MF_PREVIEW_FACES: usize = 64;
 const MAX_3MF_BUILD_ITEMS: usize = 128;
@@ -332,6 +332,15 @@ fn parse_supported_file(path: &Path, ext: &str) -> Result<(StlFileInfo, Option<M
     Ok(res)
 }
 
+pub(crate) fn parse_any_model_file(path: &Path) -> Result<(StlFileInfo, Option<MeshData>)> {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    parse_supported_file(path, &ext)
+}
+
 pub(crate) fn parse_preview_mesh(path: &Path) -> Result<Option<MeshData>> {
     let ext = path
         .extension()
@@ -373,7 +382,7 @@ pub(crate) fn embedded_three_mf_preview_png(path: &Path) -> Option<Vec<u8>> {
 
     for index in 0..archive.len() {
         let mut file = archive.by_index(index).ok()?;
-        let lower = file.name().to_ascii_lowercase();
+        let lower = file.name().to_ascii_lowercase().replace('\\', "/");
         if !lower.starts_with("metadata/") || !lower.ends_with(".png") {
             continue;
         }
@@ -1637,7 +1646,7 @@ fn parse_step_brep_mesh(text: &str) -> Option<MeshData> {
             let Some(bound) = entities.get(&bound_id) else {
                 continue;
             };
-            if !bound.contains("FACE_OUTER_BOUND") {
+            if !bound.contains("FACE_OUTER_BOUND") && !bound.contains("FACE_BOUND") {
                 continue;
             }
             let Some(loop_id) = entity_refs(bound).first().copied() else {
@@ -1796,13 +1805,13 @@ fn append_step_polygon_mesh(
     faces: &mut Vec<[u32; 3]>,
     remap: &mut HashMap<[i64; 3], u32>,
 ) {
-    if points.len() < 3 || polygon_area_estimate(points) < 0.0001 {
+    if points.len() < 3 || points.len() > 16 || polygon_area_estimate(points) < 0.000000001 {
         return;
     }
 
     let base = push_step_vertex(points[0], vertices, remap);
     for idx in 1..points.len() - 1 {
-        if triangle_area(points[0], points[idx], points[idx + 1]) < 0.0001 {
+        if triangle_area(points[0], points[idx], points[idx + 1]) < 0.000000001 {
             continue;
         }
         let b = push_step_vertex(points[idx], vertices, remap);
@@ -2097,9 +2106,11 @@ fn parse_binary_stl_fast(data: &[u8]) -> Option<ParsedStl> {
                 read_f32_le(data, start + 4)?,
                 read_f32_le(data, start + 8)?,
             ];
-            if !vertex.iter().all(|value| value.is_finite()) {
-                return None;
-            }
+            let vertex = if vertex.iter().all(|v| v.is_finite()) {
+                vertex
+            } else {
+                [0.0, 0.0, 0.0]
+            };
             for axis in 0..3 {
                 min[axis] = min[axis].min(vertex[axis]);
                 max[axis] = max[axis].max(vertex[axis]);
@@ -2107,7 +2118,7 @@ fn parse_binary_stl_fast(data: &[u8]) -> Option<ParsedStl> {
             vertices.push(vertex);
         }
         faces.push([base, base + 1, base + 2]);
-        offset += 50;
+        offset += 38; // 3 vertices * 12 bytes + 2 byte attr count
     }
 
     let dimensions = if vertices.is_empty() {
@@ -3136,3 +3147,6 @@ mod tests {
         assert_eq!(result.skipped, 1);
     }
 }
+
+
+

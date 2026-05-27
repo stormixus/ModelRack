@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 
 use crate::scanner::{MeshData, StlFileInfo};
 
-const CACHE_VERSION: &str = "v11";
+const CACHE_VERSION: &str = "v12";
 const THUMB_SIZE: u32 = 224;
-const MAX_SHADED_RENDER_FACES: usize = 160_000;
+const MAX_SHADED_RENDER_FACES: usize = 2_000_000;
 
 pub fn ensure_thumbnail(
     entry: &StlFileInfo,
@@ -1123,8 +1123,9 @@ mod tests {
 
     #[test]
     fn thumbnail_cache_version_reflects_renderer_contract() {
-        assert_eq!(CACHE_VERSION, "v11");
+        assert_eq!(CACHE_VERSION, "v12");
     }
+
 
     #[test]
     fn clear_in_removes_on_disk_thumbnails_and_is_idempotent() {

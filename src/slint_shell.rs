@@ -74,9 +74,11 @@ pub fn run() -> Result<(), slint::PlatformError> {
     if startup_mode != "empty" {
         if let Some(cached) = load_library_cache() {
             if !cached.is_empty() {
-                let mut s = state.borrow_mut();
-                s.entries = cached;
-                let snapshot = s.snapshot_done();
+                let snapshot = {
+                    let mut s = state.borrow_mut();
+                    s.entries = cached;
+                    s.snapshot_done()
+                };
                 apply_snapshot(&ui, &snapshot);
                 apply_detail_rc(&ui, &state);
                 apply_settings(&ui, &state.borrow());
@@ -8115,7 +8117,7 @@ fn get_image_loader_sender() -> std::sync::mpsc::Sender<ImageLoadRequest> {
                             let actual_thumb_path = if let Some(ref path) = thumb_path {
                                 path.clone()
                             } else {
-                                let (info, mesh) = crate::scanner::parse_stl_file(&model_path)
+                                let (info, mesh) = crate::scanner::parse_any_model_file(&model_path)
                                     .map_err(|e| format!("Failed to parse model file {}: {}", model_path.display(), e))?;
 
                                 crate::thumbnail_cache::ensure_thumbnail(&info, mesh.as_ref(), use_embedded_3mf)
