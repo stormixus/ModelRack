@@ -2958,11 +2958,11 @@ export component ModelRackWindow inherits Window {
                             collapsed <=> section-formats-collapsed;
                         }
 
-                        if !section-formats-collapsed && stl-count > 0: SidebarLine { icon: @image-url("../assets/icons/document.svg"); label: "STL"; count: stl-count; selected: active-filter-key == "format:stl"; activated => { choose-filter("format:stl"); } }
-                        if !section-formats-collapsed && threemf-count > 0: SidebarLine { icon: @image-url("../assets/icons/document.svg"); label: "3MF"; count: threemf-count; selected: active-filter-key == "format:3mf"; activated => { choose-filter("format:3mf"); } }
-                        if !section-formats-collapsed && step-count > 0: SidebarLine { icon: @image-url("../assets/icons/document.svg"); label: "STEP"; count: step-count; selected: active-filter-key == "format:step"; activated => { choose-filter("format:step"); } }
-                        if !section-formats-collapsed && scad-count > 0: SidebarLine { icon: @image-url("../assets/icons/document.svg"); label: "SCAD"; count: scad-count; selected: active-filter-key == "format:scad"; activated => { choose-filter("format:scad"); } }
-                        if !section-formats-collapsed && obj-count > 0: SidebarLine { icon: @image-url("../assets/icons/document.svg"); label: "OBJ"; count: obj-count; selected: active-filter-key == "format:obj"; activated => { choose-filter("format:obj"); } }
+                        if !section-formats-collapsed && stl-count > 0: SidebarLine { icon: @image-url("../assets/icons/box.svg"); label: "STL"; count: stl-count; selected: active-filter-key == "format:stl"; activated => { choose-filter("format:stl"); } }
+                        if !section-formats-collapsed && threemf-count > 0: SidebarLine { icon: @image-url("../assets/icons/box.svg"); label: "3MF"; count: threemf-count; selected: active-filter-key == "format:3mf"; activated => { choose-filter("format:3mf"); } }
+                        if !section-formats-collapsed && step-count > 0: SidebarLine { icon: @image-url("../assets/icons/box.svg"); label: "STEP"; count: step-count; selected: active-filter-key == "format:step"; activated => { choose-filter("format:step"); } }
+                        if !section-formats-collapsed && scad-count > 0: SidebarLine { icon: @image-url("../assets/icons/box.svg"); label: "SCAD"; count: scad-count; selected: active-filter-key == "format:scad"; activated => { choose-filter("format:scad"); } }
+                        if !section-formats-collapsed && obj-count > 0: SidebarLine { icon: @image-url("../assets/icons/box.svg"); label: "OBJ"; count: obj-count; selected: active-filter-key == "format:obj"; activated => { choose-filter("format:obj"); } }
 
                         Rectangle { height: 1px; background: Theme.line; }
 
