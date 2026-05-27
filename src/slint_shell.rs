@@ -370,14 +370,27 @@ pub fn run() -> Result<(), slint::PlatformError> {
                     let mut state = sidebar_context_state.borrow_mut();
                     let allow_sidecar_writes = state.sidecar_writes_enabled;
                     let mut removed = 0usize;
+                    let promote = |tags: &mut Vec<String>| {
+                        let mut new_tags = Vec::new();
+                        let mut changed = false;
+                        for t in tags.iter() {
+                            if t == tag {
+                                changed = true;
+                            } else if let Some(child) = t.strip_prefix(&prefix) {
+                                new_tags.push(child.to_string());
+                                changed = true;
+                            } else {
+                                new_tags.push(t.clone());
+                            }
+                        }
+                        new_tags.sort();
+                        new_tags.dedup();
+                        *tags = new_tags;
+                        changed
+                    };
                     for entry in state.entries.iter_mut() {
                         if let Some(meta) = &mut entry.meta {
-                            let before = meta.tags.len();
-                            meta.tags.retain(|t| {
-                                t != tag
-                                    && !t.starts_with(&prefix)
-                            });
-                            if meta.tags.len() < before {
+                            if promote(&mut meta.tags) {
                                 if allow_sidecar_writes {
                                     ignore_sidecar_watch(&entry.path);
                                     let _ = scanner::write_sidecar(&entry.path, meta);
@@ -388,10 +401,12 @@ pub fn run() -> Result<(), slint::PlatformError> {
                     }
                     for entry in state.displayed.iter_mut() {
                         if let Some(meta) = &mut entry.meta {
-                            meta.tags.retain(|t| t != tag && !t.starts_with(&prefix));
+                            promote(&mut meta.tags);
                         }
                     }
-                    state.prefs.standalone_tags.retain(|t| t != tag && !t.starts_with(&prefix));
+                    let mut standalone = state.prefs.standalone_tags.clone();
+                    promote(&mut standalone);
+                    state.prefs.standalone_tags = standalone;
                     if matches!(&state.filter, LibraryFilter::Tag(active) if active == tag || active.starts_with(&prefix)) {
                         state.filter = LibraryFilter::All;
                     }
