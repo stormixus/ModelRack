@@ -1534,7 +1534,8 @@ component SettingsDropdown inherits Rectangle {
     property <length> row-h: 28px;
 
     width: 220px;
-    height: open ? 30px + min(200px, options.length * row-h + 4px) : 28px;
+    height: 28px;
+    clip: false;
 
     Rectangle {
         width: parent.width;
@@ -5153,8 +5154,7 @@ export component ModelRackWindow inherits Window {
                     placeholder-text: settings-language-key == "ko" ? "태그 이름 입력" :
                                      settings-language-key == "ja" ? "タグ名を入力" :
                                      "Enter tag name";
-                    text: new-tag-draft;
-                    edited(val) => { new-tag-draft = val; }
+                    text <=> new-tag-draft;
                     accepted => {
                         if (new-tag-draft != "") {
                             create-empty-tag(new-tag-draft);
@@ -5277,8 +5277,7 @@ export component ModelRackWindow inherits Window {
                     placeholder-text: settings-language-key == "ko" ? "새 태그 이름 입력" :
                                      settings-language-key == "ja" ? "新しいタグ名を入力" :
                                      "Enter sub-tag name";
-                    text: subtag-draft;
-                    edited(val) => { subtag-draft = val; }
+                    text <=> subtag-draft;
                     accepted => {
                         if (subtag-draft != "") {
                             add-subtag-path(subtag-parent-tag, subtag-draft);
@@ -5459,8 +5458,7 @@ export component ModelRackWindow inherits Window {
                         placeholder-text: settings-language-key == "ko" ? "새 태그 입력" :
                                          settings-language-key == "ja" ? "新しいタグを入力" :
                                          "New tag name";
-                        text: folder-tag-draft;
-                        edited(val) => { folder-tag-draft = val; }
+                        text <=> folder-tag-draft;
                         accepted => {
                             if (folder-tag-draft != "") {
                                 add-tags-to-folder(folder-tag-dialog-folder-key, folder-tag-draft);
