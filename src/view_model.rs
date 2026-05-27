@@ -30,6 +30,7 @@ pub enum LibraryFilter {
     Errors,
     Folder(PathBuf),
     Tag(String),
+    Untagged,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -990,7 +991,7 @@ pub fn sidebar_tags(
         }
     }
 
-    counts
+    let mut result: Vec<SidebarTag> = counts
         .iter()
         .map(|(label, &count)| {
             let depth = label.matches('/').count();
@@ -1029,7 +1030,25 @@ pub fn sidebar_tags(
                 visible,
             }
         })
-        .collect()
+        .collect();
+
+    let untagged_count = entries
+        .iter()
+        .filter(|e| e.meta.is_none() || e.meta.as_ref().is_some_and(|m| m.tags.is_empty()))
+        .count();
+    result.insert(
+        0,
+        SidebarTag {
+            label: "__untagged__".to_string(),
+            display_label: "__untagged__".to_string(),
+            count: untagged_count,
+            depth: 0,
+            expandable: false,
+            expanded: true,
+            visible: true,
+        },
+    );
+    result
 }
 
 fn language_key(language: &str) -> &str {
@@ -1263,6 +1282,7 @@ pub fn filter_key(filter: &LibraryFilter) -> String {
         LibraryFilter::Errors => "errors".to_string(),
         LibraryFilter::Folder(path) => format!("folder:{}", path.display()),
         LibraryFilter::Tag(tag) => format!("tag:{}", tag),
+        LibraryFilter::Untagged => "untagged".to_string(),
     }
 }
 
@@ -1275,6 +1295,7 @@ pub fn smart_filter_from_key(key: &str) -> Option<LibraryFilter> {
         "duplicates" => LibraryFilter::Duplicates,
         "ready" => LibraryFilter::Ready,
         "errors" => LibraryFilter::Errors,
+        "untagged" => LibraryFilter::Untagged,
         _ if key.starts_with("folder:") => {
             LibraryFilter::Folder(PathBuf::from(key.trim_start_matches("folder:")))
         }
@@ -1323,6 +1344,9 @@ pub fn entry_matches_filter(
                         && entry_tag.as_bytes().get(tag.len()) == Some(&b'/'))
             })
         }),
+        LibraryFilter::Untagged => {
+            entry.meta.is_none() || entry.meta.as_ref().is_some_and(|meta| meta.tags.is_empty())
+        }
     }
 }
 
@@ -1480,6 +1504,9 @@ pub fn filter_label_for_language(filter: &LibraryFilter, language: &str) -> Opti
             localized("Tag", "태그", "タグ", language),
             tag
         )),
+        LibraryFilter::Untagged => {
+            Some(localized("Untagged", "태그 없음", "タグなし", language).to_string())
+        }
     }
 }
 
@@ -1863,7 +1890,10 @@ mod tests {
         assert!(!collapsed[0].expanded);
         assert!(collapsed[0].visible);
 
-        let tags = sidebar_tags(&entries, &[]);
+        let tags: Vec<_> = sidebar_tags(&entries, &[])
+            .into_iter()
+            .filter(|t| t.label != "__untagged__")
+            .collect();
         assert_eq!(
             tags,
             vec![
@@ -1911,7 +1941,10 @@ mod tests {
 
         let entries = vec![entry_a, entry_b, entry_c];
 
-        let tags = sidebar_tags(&entries, &[]);
+        let tags: Vec<_> = sidebar_tags(&entries, &[])
+            .into_iter()
+            .filter(|t| t.label != "__untagged__")
+            .collect();
         assert_eq!(
             tags,
             vec![
@@ -1994,10 +2027,10 @@ mod tests {
         // Test collapsing
         let collapsed_tags = vec!["filament/PLA".to_string()];
         let tags_collapsed = sidebar_tags(&entries, &collapsed_tags);
-        assert!(!tags_collapsed[2].expanded); // "filament/PLA" is collapsed
-        assert!(tags_collapsed[2].visible); // "filament/PLA" itself is visible
-        assert!(!tags_collapsed[3].visible); // child "filament/PLA/Bambu" is hidden because ancestor "filament/PLA" is collapsed
-        assert!(tags_collapsed[1].visible); // "filament/PETG" is visible
+        assert!(!tags_collapsed[3].expanded); // "filament/PLA" is collapsed
+        assert!(tags_collapsed[3].visible); // "filament/PLA" itself is visible
+        assert!(!tags_collapsed[4].visible); // child "filament/PLA/Bambu" is hidden because ancestor "filament/PLA" is collapsed
+        assert!(tags_collapsed[2].visible); // "filament/PETG" is visible
     }
 
     #[test]

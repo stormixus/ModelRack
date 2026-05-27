@@ -6118,14 +6118,30 @@ fn apply_snapshot(ui: &ModelRackWindow, snapshot: &AppViewSnapshot) {
         .tags
         .iter()
         .filter(|tag| tag.visible)
-        .map(|tag| SidebarItem {
-            key: to_nfc(&format!("tag:{}", tag.label)).into(),
-            label: to_nfc(&tag.display_label).into(),
-            count: tag.count as i32,
-            depth: tag.depth as i32,
-            expandable: tag.expandable,
-            expanded: tag.expanded,
-            visible: tag.visible,
+        .map(|tag| {
+            if tag.label == "__untagged__" {
+                let language = ui.get_settings_language_key().to_string();
+                let display = localized("Untagged", "태그 없음", "タグなし", &language);
+                SidebarItem {
+                    key: "untagged".into(),
+                    label: display.into(),
+                    count: tag.count as i32,
+                    depth: 0,
+                    expandable: false,
+                    expanded: true,
+                    visible: true,
+                }
+            } else {
+                SidebarItem {
+                    key: to_nfc(&format!("tag:{}", tag.label)).into(),
+                    label: to_nfc(&tag.display_label).into(),
+                    count: tag.count as i32,
+                    depth: tag.depth as i32,
+                    expandable: tag.expandable,
+                    expanded: tag.expanded,
+                    visible: tag.visible,
+                }
+            }
         })
         .collect::<Vec<SidebarItem>>();
     ui.set_tag_items(slint::ModelRc::new(slint::VecModel::from(tags)));
