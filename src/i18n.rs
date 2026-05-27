@@ -6,6 +6,11 @@ use crate::slint_shell::ModelRackWindow;
 static EN: OnceLock<HashMap<String, String>> = OnceLock::new();
 static KO: OnceLock<HashMap<String, String>> = OnceLock::new();
 static JA: OnceLock<HashMap<String, String>> = OnceLock::new();
+static ES: OnceLock<HashMap<String, String>> = OnceLock::new();
+static ZH_CN: OnceLock<HashMap<String, String>> = OnceLock::new();
+static ZH_TW: OnceLock<HashMap<String, String>> = OnceLock::new();
+static PT: OnceLock<HashMap<String, String>> = OnceLock::new();
+static RU: OnceLock<HashMap<String, String>> = OnceLock::new();
 
 fn en_map() -> &'static HashMap<String, String> {
     EN.get_or_init(|| {
@@ -25,11 +30,46 @@ fn ja_map() -> &'static HashMap<String, String> {
     })
 }
 
+fn es_map() -> &'static HashMap<String, String> {
+    ES.get_or_init(|| {
+        serde_json::from_str(include_str!("../assets/i18n/es.json")).expect("invalid es.json")
+    })
+}
+
+fn zh_cn_map() -> &'static HashMap<String, String> {
+    ZH_CN.get_or_init(|| {
+        serde_json::from_str(include_str!("../assets/i18n/zh-CN.json")).expect("invalid zh-CN.json")
+    })
+}
+
+fn zh_tw_map() -> &'static HashMap<String, String> {
+    ZH_TW.get_or_init(|| {
+        serde_json::from_str(include_str!("../assets/i18n/zh-TW.json")).expect("invalid zh-TW.json")
+    })
+}
+
+fn pt_map() -> &'static HashMap<String, String> {
+    PT.get_or_init(|| {
+        serde_json::from_str(include_str!("../assets/i18n/pt.json")).expect("invalid pt.json")
+    })
+}
+
+fn ru_map() -> &'static HashMap<String, String> {
+    RU.get_or_init(|| {
+        serde_json::from_str(include_str!("../assets/i18n/ru.json")).expect("invalid ru.json")
+    })
+}
+
 /// Look up a translation key for the given language, falling back to English.
 pub fn tr<'a>(key: &'a str, language: &str) -> &'a str {
     let map = match language {
         "ko" => ko_map(),
         "ja" => ja_map(),
+        "es" => es_map(),
+        "zh-CN" => zh_cn_map(),
+        "zh-TW" => zh_tw_map(),
+        "pt" => pt_map(),
+        "ru" => ru_map(),
         _ => en_map(),
     };
     if let Some(value) = map.get(key) {
