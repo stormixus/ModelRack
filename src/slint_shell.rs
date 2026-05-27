@@ -9308,6 +9308,7 @@ mod tests {
             collapsed_folders: vec![root.join("models/nested")],
             collapsed_tags: vec!["filament/PLA".to_string()],
             standalone_tags: Vec::new(),
+            tag_order: Vec::new(),
             use_embedded_3mf_preview: true,
             estimate_multicolor: false,
         };

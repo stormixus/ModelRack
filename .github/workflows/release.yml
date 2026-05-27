@@ -160,12 +160,12 @@ jobs:
             RELEASE_TITLE="ModelRack ${TAG} desktop alpha"
             RELEASE_HEADING="desktop maker-library alpha"
             RELEASE_CREATE_FLAGS=(--prerelease --latest=false)
-            RELEASE_EDIT_FLAGS=(--prerelease --latest=false)
+            RELEASE_EDIT_FLAGS=(--prerelease --latest=false --draft=false)
           else
             RELEASE_TITLE="ModelRack ${TAG} desktop release"
             RELEASE_HEADING="desktop maker-library release"
             RELEASE_CREATE_FLAGS=(--latest)
-            RELEASE_EDIT_FLAGS=(--latest)
+            RELEASE_EDIT_FLAGS=(--latest --draft=false)
           fi
           ASSET_PREFIX="ModelRack-v${VERSION}"
           if [[ "$TAG" != "v${VERSION}" ]]; then
@@ -312,9 +312,9 @@ jobs:
             }
           } else {
             if ($IsPrerelease) {
-              gh release edit $Tag --title $Title --prerelease --latest=false
+              gh release edit $Tag --title $Title --prerelease --latest=false --draft=false
             } else {
-              gh release edit $Tag --title $Title --latest
+              gh release edit $Tag --title $Title --latest --draft=false
             }
           }
           gh release upload $Tag dist/ModelRack-v*-windows-*.exe dist/ModelRack-v*-windows-*.exe.sha256 dist/ModelRack-v*-windows-*-portable.zip dist/ModelRack-v*-windows-*-portable.zip.sha256 dist/ModelRack-v*-windows-*.msi dist/ModelRack-v*-windows-*.msi.sha256 --clobber
@@ -409,12 +409,12 @@ jobs:
             RELEASE_TITLE="ModelRack ${TAG} desktop alpha"
             RELEASE_NOTES="Cross-platform ModelRack desktop alpha."
             RELEASE_CREATE_FLAGS=(--prerelease --latest=false)
-            RELEASE_EDIT_FLAGS=(--prerelease --latest=false)
+            RELEASE_EDIT_FLAGS=(--prerelease --latest=false --draft=false)
           else
             RELEASE_TITLE="ModelRack ${TAG} desktop release"
             RELEASE_NOTES="Cross-platform ModelRack desktop release."
             RELEASE_CREATE_FLAGS=(--latest)
-            RELEASE_EDIT_FLAGS=(--latest)
+            RELEASE_EDIT_FLAGS=(--latest --draft=false)
           fi
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --title "$RELEASE_TITLE" --notes "$RELEASE_NOTES" "${RELEASE_CREATE_FLAGS[@]}"

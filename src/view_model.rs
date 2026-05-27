@@ -146,6 +146,8 @@ pub struct AppPrefs {
     pub collapsed_tags: Vec<String>,
     #[serde(default)]
     pub standalone_tags: Vec<String>,
+    #[serde(default)]
+    pub tag_order: Vec<String>,
     #[serde(default = "default_use_embedded_3mf_preview")]
     pub use_embedded_3mf_preview: bool,
     #[serde(default = "default_estimate_multicolor")]
@@ -197,6 +199,7 @@ impl Default for AppPrefs {
             collapsed_folders: Vec::new(),
             collapsed_tags: Vec::new(),
             standalone_tags: Vec::new(),
+            tag_order: Vec::new(),
             use_embedded_3mf_preview: default_use_embedded_3mf_preview(),
             estimate_multicolor: default_estimate_multicolor(),
         }
@@ -444,10 +447,11 @@ impl AppViewSnapshot {
             library_label: titlebar_for_library_roots(library_roots, language),
             sidebar: sidebar_summary(entries),
             folders: sidebar_folders(entries, library_roots, &prefs.collapsed_folders),
-            tags: sidebar_tags_with_standalone(
+            tags: sidebar_tags_ordered(
                 entries,
                 &prefs.collapsed_tags,
                 &prefs.standalone_tags,
+                &prefs.tag_order,
             ),
             cards: browser_cards_for_prefs(sliced_displayed, prefs),
             browser: BrowserSummary {
@@ -492,10 +496,11 @@ impl AppViewSnapshot {
             library_label: titlebar_for_library_roots(library_roots, language),
             sidebar: sidebar_summary(entries),
             folders: sidebar_folders(entries, library_roots, &prefs.collapsed_folders),
-            tags: sidebar_tags_with_standalone(
+            tags: sidebar_tags_ordered(
                 entries,
                 &prefs.collapsed_tags,
                 &prefs.standalone_tags,
+                &prefs.tag_order,
             ),
             cards: browser_cards_for_prefs(sliced_displayed, prefs),
             browser: BrowserSummary {
@@ -989,6 +994,15 @@ pub fn sidebar_tags_with_standalone(
     collapsed_tags: &[String],
     standalone_tags: &[String],
 ) -> Vec<SidebarTag> {
+    sidebar_tags_ordered(entries, collapsed_tags, standalone_tags, &[])
+}
+
+pub fn sidebar_tags_ordered(
+    entries: &[scanner::StlFileInfo],
+    collapsed_tags: &[String],
+    standalone_tags: &[String],
+    tag_order: &[String],
+) -> Vec<SidebarTag> {
     let mut counts = BTreeMap::new();
     for tag in standalone_tags {
         counts.entry(tag.clone()).or_insert(0);
@@ -1070,6 +1084,26 @@ pub fn sidebar_tags_with_standalone(
             visible: true,
         },
     );
+
+    if !tag_order.is_empty() {
+        let order_map: std::collections::HashMap<&str, usize> = tag_order
+            .iter()
+            .enumerate()
+            .map(|(i, key)| (key.as_str(), i))
+            .collect();
+        result.sort_by(|a, b| {
+            let oa = order_map
+                .get(a.label.as_str())
+                .copied()
+                .unwrap_or(usize::MAX);
+            let ob = order_map
+                .get(b.label.as_str())
+                .copied()
+                .unwrap_or(usize::MAX);
+            oa.cmp(&ob).then(a.label.cmp(&b.label))
+        });
+    }
+
     result
 }
 
@@ -1768,6 +1802,7 @@ mod tests {
             collapsed_folders: vec![PathBuf::from("/tmp/models/nested")],
             collapsed_tags: vec!["filament/PLA".to_string()],
             standalone_tags: Vec::new(),
+            tag_order: Vec::new(),
             estimate_multicolor: false,
         };
         let json = serde_json::to_string(&prefs).unwrap();
