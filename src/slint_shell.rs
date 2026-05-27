@@ -1511,6 +1511,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                     let snapshot = state.snapshot_done();
                     apply_snapshot(&ui, &snapshot);
                     apply_settings(&ui, &state);
+                    save_prefs_status(&ui, &state);
                     ui.set_status_text(format!("Cleared tags on {} model(s)", cleared).into());
                 } else {
                     ui.set_status_text("No tags to clear".into());
@@ -2706,8 +2707,8 @@ fn is_refresh_relevant_path(path: &Path) -> bool {
         .and_then(|name| name.to_str())
         .unwrap_or_default()
         .to_ascii_lowercase();
-    if file_name.ends_with(".modelrack.json") {
-        return true;
+    if file_name.ends_with(".modelrack.json") || file_name.ends_with(".tmp") {
+        return false;
     }
 
     path.extension()
