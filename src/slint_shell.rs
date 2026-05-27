@@ -364,6 +364,71 @@ pub fn run() -> Result<(), slint::PlatformError> {
                         &language,
                     );
                 }
+                "promote-tag" => {
+                    let tag = key.as_str().strip_prefix("tag:").unwrap_or(key.as_str());
+                    if let Some(slash) = tag.rfind('/') {
+                        let child = &tag[slash + 1..];
+                        let mut state = sidebar_context_state.borrow_mut();
+                        let allow_sidecar_writes = state.sidecar_writes_enabled;
+                        let old_tag = tag.to_string();
+                        let new_tag = child.to_string();
+                        let old_prefix = format!("{}/", old_tag);
+                        let mut updated = 0usize;
+                        for entry in state.entries.iter_mut() {
+                            if let Some(meta) = &mut entry.meta {
+                                let mut changed = false;
+                                let mut new_tags: Vec<String> = meta.tags.iter().map(|t| {
+                                    if t == &old_tag {
+                                        changed = true;
+                                        new_tag.clone()
+                                    } else if let Some(suffix) = t.strip_prefix(&old_prefix) {
+                                        changed = true;
+                                        format!("{}/{}", new_tag, suffix)
+                                    } else {
+                                        t.clone()
+                                    }
+                                }).collect();
+                                new_tags.sort();
+                                new_tags.dedup();
+                                if changed {
+                                    meta.tags = new_tags;
+                                    if allow_sidecar_writes {
+                                        ignore_sidecar_watch(&entry.path);
+                                        let _ = scanner::write_sidecar(&entry.path, meta);
+                                    }
+                                    updated += 1;
+                                }
+                            }
+                        }
+                        for entry in state.displayed.iter_mut() {
+                            if let Some(meta) = &mut entry.meta {
+                                meta.tags = meta.tags.iter().map(|t| {
+                                    if t == &old_tag {
+                                        new_tag.clone()
+                                    } else if let Some(suffix) = t.strip_prefix(&old_prefix) {
+                                        format!("{}/{}", new_tag, suffix)
+                                    } else {
+                                        t.clone()
+                                    }
+                                }).collect();
+                                meta.tags.sort();
+                                meta.tags.dedup();
+                            }
+                        }
+                        for t in state.prefs.standalone_tags.iter_mut() {
+                            if t == &old_tag { *t = new_tag.clone(); }
+                            else if let Some(suffix) = t.strip_prefix(&old_prefix) {
+                                *t = format!("{}/{}", new_tag, suffix);
+                            }
+                        }
+                        let snapshot = state.snapshot_done();
+                        apply_snapshot(&ui, &snapshot);
+                        apply_detail(&ui, &mut state);
+                        apply_settings(&ui, &state);
+                        save_prefs_status(&ui, &state);
+                        ui.set_status_text(format!("Promoted '{}' → '{}'", old_tag, new_tag).into());
+                    }
+                }
                 "delete-tag" => {
                     let tag = key.as_str().strip_prefix("tag:").unwrap_or(key.as_str());
                     let prefix = format!("{}/", tag);

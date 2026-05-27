@@ -395,11 +395,13 @@ component SidebarContextMenu inherits Rectangle {
     in property <string> copy-tag-label;
     in property <string> add-subtag-label;
     in property <string> delete-tag-label;
+    in property <string> promote-tag-label;
+    in property <bool> target-is-child-tag: false;
     in property <string> add-tag-to-folder-label;
     callback action(string);
 
     width: 188px;
-    height: target-is-folder ? 260px : 154px;
+    height: target-is-folder ? 260px : (target-is-child-tag ? 183px : 154px);
     background: Theme.bg-2;
     border-color: Theme.line-2;
     border-width: 1px;
@@ -465,6 +467,13 @@ component SidebarContextMenu inherits Rectangle {
             hint: "";
             icon: @image-url("../assets/icons/plus.svg");
             activated => { root.action("add-subtag"); }
+        }
+
+        if !target-is-folder && target-is-child-tag: ContextMenuItem {
+            label: promote-tag-label;
+            hint: "";
+            icon: @image-url("../assets/icons/chevron-right.svg");
+            activated => { root.action("promote-tag"); }
         }
 
         if !target-is-folder: ContextMenuItem {
@@ -2257,6 +2266,7 @@ export component ModelRackWindow inherits Window {
     property <string> tr-clear-cache: settings-language-key == "ko" ? "캐시 지우기" : settings-language-key == "ja" ? "キャッシュを削除" : "Clear cache";
     property <string> tr-add-subtag: settings-language-key == "ko" ? "하위 태그 추가..." : settings-language-key == "ja" ? "下位タグを追加..." : "Add sub-tag...";
     property <string> tr-delete-tag: settings-language-key == "ko" ? "태그 삭제" : settings-language-key == "ja" ? "タグを削除" : "Delete Tag";
+    property <string> tr-promote-tag: settings-language-key == "ko" ? "상위로 이동" : settings-language-key == "ja" ? "上の階層に移動" : "Move to Parent Level";
     property <string> tr-add-tag-to-folder: settings-language-key == "ko" ? "폴더에 태그 추가..." : settings-language-key == "ja" ? "フォルダにタグを追加..." : "Add tag to folder...";
     property <string> tr-enabled-profiles: settings-language-key == "ko" ? "활성 프로파일" : settings-language-key == "ja" ? "有効なプロファイル" : "Enabled profiles";
     property <string> tr-default-estimate: settings-language-key == "ko" ? "기본 출력 예상" : settings-language-key == "ja" ? "既定の見積" : "Default estimate";
@@ -2338,6 +2348,7 @@ export component ModelRackWindow inherits Window {
     property <string> sidebar-context-key;
     property <string> sidebar-context-label;
     property <bool> sidebar-context-is-folder: false;
+    property <bool> sidebar-context-is-child-tag: false;
     property <length> sidebar-context-x: 0px;
     property <length> sidebar-context-y: 0px;
     in-out property <bool> model-context-open: false;
@@ -2853,6 +2864,7 @@ export component ModelRackWindow inherits Window {
                                 sidebar-context-key = tag.key;
                                 sidebar-context-label = tag.label;
                                 sidebar-context-is-folder = false;
+                                sidebar-context-is-child-tag = tag.depth > 0;
                                 sidebar-context-x = x + 4px;
                                 sidebar-context-y = y + 4px;
                                 sidebar-context-open = true;
@@ -4950,6 +4962,8 @@ export component ModelRackWindow inherits Window {
         copy-tag-label: tr-copy-tag;
         add-subtag-label: tr-add-subtag;
         delete-tag-label: tr-delete-tag;
+        promote-tag-label: tr-promote-tag;
+        target-is-child-tag: sidebar-context-is-child-tag;
         add-tag-to-folder-label: tr-add-tag-to-folder;
         action(action) => {
             shortcut-scope.focus();
