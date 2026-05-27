@@ -246,34 +246,34 @@ component SidebarLine inherits Rectangle {
         font-size: Theme.font-overline;
     }
 
+    ta-line := TouchArea {
+        width: parent.width;
+        height: parent.height;
+        clicked => {
+            if (root.expandable && ta-line.mouse-x < 24px + root.depth * 14px) {
+                root.toggle-requested();
+            } else {
+                root.activated();
+            }
+        }
+        double-clicked => {
+            if (root.expandable) {
+                root.toggle-requested();
+            }
+        }
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                root.context-requested(ta-line.absolute-position.x + ta-line.mouse-x, ta-line.absolute-position.y + ta-line.mouse-y);
+            }
+        }
+    }
+
     DragArea {
         width: parent.width;
         height: parent.height;
         enabled: root.drag-enabled;
         mime-type: root.drag-mime;
         data: root.key;
-
-        ta-line := TouchArea {
-            width: parent.width;
-            height: parent.height;
-            clicked => {
-                if (root.expandable && ta-line.mouse-x < 24px + root.depth * 14px) {
-                    root.toggle-requested();
-                } else {
-                    root.activated();
-                }
-            }
-            double-clicked => {
-                if (root.expandable) {
-                    root.toggle-requested();
-                }
-            }
-            pointer-event(event) => {
-                if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
-                    root.context-requested(ta-line.absolute-position.x + ta-line.mouse-x, ta-line.absolute-position.y + ta-line.mouse-y);
-                }
-            }
-        }
     }
 
     tag-drop := DropArea {
