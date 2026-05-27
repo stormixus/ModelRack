@@ -754,11 +754,31 @@ pub fn sidebar_summary(entries: &[scanner::StlFileInfo]) -> SidebarSummary {
             .iter()
             .filter(|entry| entry.stl_type == scanner::StlType::Unknown)
             .count(),
-        stl: entries.iter().filter(|e| matches!(e.stl_type, scanner::StlType::Binary | scanner::StlType::Ascii | scanner::StlType::LargeStl)).count(),
-        threemf: entries.iter().filter(|e| e.stl_type == scanner::StlType::ThreeMf).count(),
-        step: entries.iter().filter(|e| e.stl_type == scanner::StlType::Step).count(),
-        scad: entries.iter().filter(|e| e.stl_type == scanner::StlType::Scad).count(),
-        obj: entries.iter().filter(|e| e.stl_type == scanner::StlType::Obj).count(),
+        stl: entries
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e.stl_type,
+                    scanner::StlType::Binary | scanner::StlType::Ascii | scanner::StlType::LargeStl
+                )
+            })
+            .count(),
+        threemf: entries
+            .iter()
+            .filter(|e| e.stl_type == scanner::StlType::ThreeMf)
+            .count(),
+        step: entries
+            .iter()
+            .filter(|e| e.stl_type == scanner::StlType::Step)
+            .count(),
+        scad: entries
+            .iter()
+            .filter(|e| e.stl_type == scanner::StlType::Scad)
+            .count(),
+        obj: entries
+            .iter()
+            .filter(|e| e.stl_type == scanner::StlType::Obj)
+            .count(),
     }
 }
 
@@ -1411,7 +1431,12 @@ pub fn entry_matches_filter(
             entry.meta.is_none() || entry.meta.as_ref().is_some_and(|meta| meta.tags.is_empty())
         }
         LibraryFilter::Format(fmt) => {
-            let ext = entry.path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+            let ext = entry
+                .path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase();
             match fmt.as_str() {
                 "stl" => ext == "stl",
                 "3mf" => ext == "3mf",

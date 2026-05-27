@@ -5817,6 +5817,7 @@ export component ModelRackWindow inherits Window {
 
                         if settings-tab == "general": Rectangle {
                             height: 54px;
+                            z: 10;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
                             Text { x: 0; y: 18px; width: 180px; text: tr-language; color: Theme.fg-1; font-size: Theme.font-body; }
                             lang-dropdown := SettingsDropdown {
@@ -5835,6 +5836,7 @@ export component ModelRackWindow inherits Window {
                         }
                         if settings-tab == "general": Rectangle {
                             height: 58px;
+                            z: 9;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
                             Text { x: 0; y: 13px; width: 180px; text: tr-on-startup; color: Theme.fg-1; font-size: Theme.font-body; }
                             Text { x: 0; y: 31px; width: 180px; text: tr-startup-hint; color: Theme.fg-3; font-size: Theme.font-meta; overflow: elide; }
@@ -5842,12 +5844,14 @@ export component ModelRackWindow inherits Window {
                         }
                         if settings-tab == "general": Rectangle {
                             height: 54px;
+                            z: 8;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
                             Text { x: 0; y: 18px; width: 180px; text: tr-default-view; color: Theme.fg-1; font-size: Theme.font-body; }
                             SettingsSegment { x: 196px; y: 12px; button-width: 78px; a-label: tr-grid; a-key: "grid"; b-label: tr-masonry; b-key: "masonry"; c-label: tr-list; c-key: "list"; selected-key: view-mode-label == "Grid" ? "grid" : view-mode-label == "Masonry" ? "masonry" : "list"; activated(key) => { choose-view-mode(key); } }
                         }
                         if settings-tab == "general": Rectangle {
                             height: 54px;
+                            z: 7;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
                             Text { x: 0; y: 18px; width: 180px; text: tr-default-sort; color: Theme.fg-1; font-size: Theme.font-body; }
                             sort-dropdown := SettingsDropdown {
@@ -5871,12 +5875,14 @@ export component ModelRackWindow inherits Window {
                         }
                         if settings-tab == "general": Rectangle {
                             height: 54px;
+                            z: 6;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
                             Text { x: 0; y: 18px; width: 180px; text: tr-date-format; color: Theme.fg-1; font-size: Theme.font-body; }
                             SettingsSegment { x: 196px; y: 12px; button-width: 92px; a-label: tr-auto; a-key: "auto"; b-label: "2026-05-08"; b-key: "iso"; c-label: tr-us-date-example; c-key: "us"; selected-key: settings-date-format-key; activated(key) => { choose-settings-date-format(key); } }
                         }
                         if settings-tab == "general": Rectangle {
                             height: 54px;
+                            z: 5;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
                             Text { x: 0; y: 18px; width: 180px; text: tr-show-file-extensions; color: Theme.fg-1; font-size: Theme.font-body; }
                             SettingsToggle { x: 196px; y: 17px; on: settings-show-file-extensions; toggled(value) => { toggle-settings-show-file-extensions(value); } }

@@ -1896,7 +1896,6 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 group.push(visible_tags[i].clone());
                 i += 1;
             }
-            let group_len = group.len();
 
             let dst = (src as i32 + line_offset).max(0) as usize;
             let dst = dst.min(visible_tags.len().saturating_sub(1));
@@ -1911,17 +1910,21 @@ pub fn run() -> Result<(), slint::PlatformError> {
                     for entry in state.entries.iter_mut() {
                         if let Some(meta) = &mut entry.meta {
                             let mut changed = false;
-                            let new_tags: Vec<String> = meta.tags.iter().map(|t| {
-                                if t == &old_tag {
-                                    changed = true;
-                                    child.to_string()
-                                } else if let Some(suffix) = t.strip_prefix(&old_prefix) {
-                                    changed = true;
-                                    format!("{}/{}", child, suffix)
-                                } else {
-                                    t.clone()
-                                }
-                            }).collect();
+                            let new_tags: Vec<String> = meta
+                                .tags
+                                .iter()
+                                .map(|t| {
+                                    if t == &old_tag {
+                                        changed = true;
+                                        child.to_string()
+                                    } else if let Some(suffix) = t.strip_prefix(&old_prefix) {
+                                        changed = true;
+                                        format!("{}/{}", child, suffix)
+                                    } else {
+                                        t.clone()
+                                    }
+                                })
+                                .collect();
                             if changed {
                                 meta.tags = new_tags;
                                 if allow_sidecar_writes {
@@ -1933,11 +1936,19 @@ pub fn run() -> Result<(), slint::PlatformError> {
                     }
                     for entry in state.displayed.iter_mut() {
                         if let Some(meta) = &mut entry.meta {
-                            meta.tags = meta.tags.iter().map(|t| {
-                                if t == &old_tag { child.to_string() }
-                                else if let Some(suffix) = t.strip_prefix(&old_prefix) { format!("{}/{}", child, suffix) }
-                                else { t.clone() }
-                            }).collect();
+                            meta.tags = meta
+                                .tags
+                                .iter()
+                                .map(|t| {
+                                    if t == &old_tag {
+                                        child.to_string()
+                                    } else if let Some(suffix) = t.strip_prefix(&old_prefix) {
+                                        format!("{}/{}", child, suffix)
+                                    } else {
+                                        t.clone()
+                                    }
+                                })
+                                .collect();
                         }
                     }
                     ui.set_status_text(format!("Promoted '{}' to top level", child).into());
@@ -1953,9 +1964,11 @@ pub fn run() -> Result<(), slint::PlatformError> {
             // If landing exactly ON another tag (not self/children), reparent under it
             if dst != src && dst < visible_tags.len() {
                 let target_tag = &visible_tags[dst];
-                if !target_tag.starts_with(&prefix) && target_tag != key && target_tag != "__untagged__" {
+                if !target_tag.starts_with(&prefix)
+                    && target_tag != key
+                    && target_tag != "__untagged__"
+                {
                     let leaf = key.split('/').last().unwrap_or(key);
-                    let new_tag = format!("{}/{}", target_tag, leaf);
 
                     let allow_sidecar_writes = state.sidecar_writes_enabled;
                     let prefs = state.prefs.clone();
@@ -1968,14 +1981,15 @@ pub fn run() -> Result<(), slint::PlatformError> {
                     ) {
                         Ok(count) => {
                             ui.set_status_text(
-                                format!("Moved '{}' under '{}' ({} models)", leaf, target_tag, count)
-                                    .into(),
+                                format!(
+                                    "Moved '{}' under '{}' ({} models)",
+                                    leaf, target_tag, count
+                                )
+                                .into(),
                             );
                         }
                         Err(err) => {
-                            ui.set_status_text(
-                                format!("Could not reparent tag: {}", err).into(),
-                            );
+                            ui.set_status_text(format!("Could not reparent tag: {}", err).into());
                         }
                     }
                     let snapshot = state.snapshot_done();
