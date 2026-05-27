@@ -2225,13 +2225,16 @@ export component ModelRackWindow inherits Window {
     in-out property <string> tr-add-print-count;
     in-out property <string> tr-add-printer;
     in-out property <string> tr-add-subtag;
+    in-out property <string> tr-add-subtag-title;
     in-out property <string> tr-add-tag;
     in-out property <string> tr-add-tag-to-folder;
+    in-out property <string> tr-add-tags-to-folder-title;
     in-out property <string> tr-added;
     in-out property <string> tr-after-export;
     in-out property <string> tr-all-models;
     in-out property <string> tr-already-added;
     in-out property <string> tr-anti-aliasing;
+    in-out property <string> tr-apply;
     in-out property <string> tr-author;
     in-out property <string> tr-author-heading;
     in-out property <string> tr-author-or-source;
@@ -2241,6 +2244,7 @@ export component ModelRackWindow inherits Window {
     in-out property <string> tr-bulk-edit-placeholder;
     in-out property <string> tr-cache-location;
     in-out property <string> tr-cache-usage;
+    in-out property <string> tr-cancel;
     in-out property <string> tr-card-label;
     in-out property <string> tr-card-label-hint;
     in-out property <string> tr-check;
@@ -2252,6 +2256,7 @@ export component ModelRackWindow inherits Window {
     in-out property <string> tr-copy-file-path;
     in-out property <string> tr-copy-path;
     in-out property <string> tr-copy-tag;
+    in-out property <string> tr-create-new-tag;
     in-out property <string> tr-custom-path;
     in-out property <string> tr-dark;
     in-out property <string> tr-date-format;
@@ -2270,6 +2275,8 @@ export component ModelRackWindow inherits Window {
     in-out property <string> tr-empty-state;
     in-out property <string> tr-enabled-profiles;
     in-out property <string> tr-english;
+    in-out property <string> tr-enter-subtag-name;
+    in-out property <string> tr-enter-tag-name;
     in-out property <string> tr-even;
     in-out property <string> tr-exceeds-build-plate;
     in-out property <string> tr-favorites;
@@ -2280,6 +2287,7 @@ export component ModelRackWindow inherits Window {
     in-out property <string> tr-filename;
     in-out property <string> tr-filter-this-folder;
     in-out property <string> tr-filter-this-tag;
+    in-out property <string> tr-filtering;
     in-out property <string> tr-fits-build-plate;
     in-out property <string> tr-focus-search;
     in-out property <string> tr-folders-heading;
@@ -2321,8 +2329,10 @@ export component ModelRackWindow inherits Window {
     in-out property <string> tr-metadata-storage-hint;
     in-out property <string> tr-model;
     in-out property <string> tr-modified;
+    in-out property <string> tr-multicolor-overhead;
     in-out property <string> tr-my-printers;
     in-out property <string> tr-name;
+    in-out property <string> tr-new-tag-placeholder;
     in-out property <string> tr-no-notes;
     in-out property <string> tr-no-print-records;
     in-out property <string> tr-no-printers;
@@ -2342,6 +2352,7 @@ export component ModelRackWindow inherits Window {
     in-out property <string> tr-open-with-suffix;
     in-out property <string> tr-orbit-hint;
     in-out property <string> tr-parse-errors;
+    in-out property <string> tr-parent-tag-prefix;
     in-out property <string> tr-pick-nozzle;
     in-out property <string> tr-print-estimate;
     in-out property <string> tr-printed;
@@ -2371,6 +2382,9 @@ export component ModelRackWindow inherits Window {
     in-out property <string> tr-reveal-in-finder;
     in-out property <string> tr-rim;
     in-out property <string> tr-save;
+    in-out property <string> tr-search-placeholder;
+    in-out property <string> tr-select-model;
+    in-out property <string> tr-select-model-hint;
     in-out property <string> tr-set-default;
     in-out property <string> tr-settings-about;
     in-out property <string> tr-settings-advanced;
@@ -3025,7 +3039,7 @@ export component ModelRackWindow inherits Window {
                                 y: 0;
                                 width: parent.width - 78px;
                                 height: parent.height;
-                                text: search-text == "" && search-field.preedit-text == "" ? settings-language-key == "ko" ? "파일명, 태그, 메모 검색…" : settings-language-key == "ja" ? "ファイル名、タグ、メモを検索…" : "Search filename, tag, notes…" : "";
+                                text: search-text == "" && search-field.preedit-text == "" ? tr-search-placeholder : "";
                                 color: Theme.fg-2;
                                 font-size: 12px;
                                 vertical-alignment: center;
@@ -3315,7 +3329,7 @@ export component ModelRackWindow inherits Window {
                             add-text := Text {
                                 x: 29px;
                                 y: (parent.height - self.height) / 2;
-                                text: settings-language-key == "ko" ? "폴더 추가" : settings-language-key == "ja" ? "フォルダ追加" : "Add Folder";
+                                text: tr-add-folder;
                                 color: #0e2a32;
                                 font-size: Theme.font-body;
                                 font-weight: 500;
@@ -3343,7 +3357,7 @@ export component ModelRackWindow inherits Window {
                         x: 12px;
                         y: 0;
                         height: parent.height;
-                        text: active-filter-key == "all" ? (settings-language-key == "ko" ? "전체 모델" : settings-language-key == "ja" ? "すべてのモデル" : "All models") : (settings-language-key == "ko" ? "필터링 중" : settings-language-key == "ja" ? "フィルタ中" : "Filtering");
+                        text: active-filter-key == "all" ? tr-all-models : tr-filtering;
                         color: Theme.fg-2;
                         font-size: 11px;
                         font-weight: 500;
@@ -3840,14 +3854,14 @@ export component ModelRackWindow inherits Window {
                     }
 
                     Text {
-                        text: settings-language-key == "ko" ? "모델 선택" : settings-language-key == "ja" ? "モデルを選択" : "Select a model";
+                        text: tr-select-model;
                         color: Theme.fg-1;
                         font-size: Theme.font-body;
                         horizontal-alignment: center;
                     }
 
                     Text {
-                        text: settings-language-key == "ko" ? "썸네일을 클릭하면 상세 정보를 봅니다" : settings-language-key == "ja" ? "サムネイルをクリックして詳細を表示" : "Click a thumbnail to view details";
+                        text: tr-select-model-hint;
                         color: Theme.fg-2;
                         font-size: Theme.font-meta;
                         horizontal-alignment: center;
@@ -4334,7 +4348,7 @@ export component ModelRackWindow inherits Window {
                                 Text {
                                     x: 0px;
                                     y: (parent.height - self.height) / 2;
-                                    text: settings-language-key == "ko" ? "멀티컬러 출력 시간 보정" : settings-language-key == "ja" ? "マルチカラー補正" : "Multi-color overhead";
+                                    text: tr-multicolor-overhead;
                                     color: Theme.fg-1;
                                     font-size: 11px;
                                     font-weight: 500;
@@ -5142,18 +5156,14 @@ export component ModelRackWindow inherits Window {
                 spacing: 12px;
 
                 Text {
-                    text: settings-language-key == "ko" ? "새 태그 만들기" :
-                          settings-language-key == "ja" ? "新しいタグを作成" :
-                          "Create New Tag";
+                    text: tr-create-new-tag;
                     color: Theme.fg-0;
                     font-size: 16px;
                     font-weight: 600;
                 }
 
                 new-tag-dialog-input := LineEdit {
-                    placeholder-text: settings-language-key == "ko" ? "태그 이름 입력" :
-                                     settings-language-key == "ja" ? "タグ名を入力" :
-                                     "Enter tag name";
+                    placeholder-text: tr-enter-tag-name;
                     text <=> new-tag-draft;
                     accepted => {
                         if (new-tag-draft != "") {
@@ -5180,9 +5190,7 @@ export component ModelRackWindow inherits Window {
                             height: parent.height;
                             horizontal-alignment: center;
                             vertical-alignment: center;
-                            text: settings-language-key == "ko" ? "취소" :
-                                  settings-language-key == "ja" ? "キャンセル" :
-                                  "Cancel";
+                            text: tr-cancel;
                             color: Theme.fg-0;
                             font-size: 12px;
                         }
@@ -5203,9 +5211,7 @@ export component ModelRackWindow inherits Window {
                             height: parent.height;
                             horizontal-alignment: center;
                             vertical-alignment: center;
-                            text: settings-language-key == "ko" ? "추가" :
-                                  settings-language-key == "ja" ? "追加" :
-                                  "Add";
+                            text: tr-add;
                             color: #ffffff;
                             font-size: 12px;
                             font-weight: 600;
@@ -5256,27 +5262,21 @@ export component ModelRackWindow inherits Window {
                 spacing: 12px;
 
                 Text {
-                    text: settings-language-key == "ko" ? "하위 태그 추가" :
-                          settings-language-key == "ja" ? "下位タグを追加" :
-                          "Add Sub-tag";
+                    text: tr-add-subtag-title;
                     color: Theme.fg-0;
                     font-size: 16px;
                     font-weight: 600;
                 }
 
                 Text {
-                    text: (settings-language-key == "ko" ? "상위 태그: " :
-                           settings-language-key == "ja" ? "親タグ: " :
-                           "Parent tag: ") + sidebar-context-label;
+                    text: tr-parent-tag-prefix + sidebar-context-label;
                     color: Theme.fg-2;
                     font-size: Theme.font-meta;
                     overflow: elide;
                 }
 
                 subtag-input := LineEdit {
-                    placeholder-text: settings-language-key == "ko" ? "새 태그 이름 입력" :
-                                     settings-language-key == "ja" ? "新しいタグ名を入力" :
-                                     "Enter sub-tag name";
+                    placeholder-text: tr-enter-subtag-name;
                     text <=> subtag-draft;
                     accepted => {
                         if (subtag-draft != "") {
@@ -5302,9 +5302,7 @@ export component ModelRackWindow inherits Window {
                             height: parent.height;
                             horizontal-alignment: center;
                             vertical-alignment: center;
-                            text: settings-language-key == "ko" ? "취소" :
-                                  settings-language-key == "ja" ? "キャンセル" :
-                                  "Cancel";
+                            text: tr-cancel;
                             color: Theme.fg-0;
                             font-size: 12px;
                         }
@@ -5325,9 +5323,7 @@ export component ModelRackWindow inherits Window {
                             height: parent.height;
                             horizontal-alignment: center;
                             vertical-alignment: center;
-                            text: settings-language-key == "ko" ? "추가" :
-                                  settings-language-key == "ja" ? "追加" :
-                                  "Add";
+                            text: tr-add;
                             color: #ffffff;
                             font-size: 12px;
                             font-weight: 600;
@@ -5377,9 +5373,7 @@ export component ModelRackWindow inherits Window {
                 spacing: 10px;
 
                 Text {
-                    text: settings-language-key == "ko" ? "폴더에 태그 추가" :
-                          settings-language-key == "ja" ? "フォルダにタグを追加" :
-                          "Add Tags to Folder";
+                    text: tr-add-tags-to-folder-title;
                     color: Theme.fg-0;
                     font-size: 16px;
                     font-weight: 600;
@@ -5455,9 +5449,7 @@ export component ModelRackWindow inherits Window {
 
                     folder-tag-input := LineEdit {
                         horizontal-stretch: 1;
-                        placeholder-text: settings-language-key == "ko" ? "새 태그 입력" :
-                                         settings-language-key == "ja" ? "新しいタグを入力" :
-                                         "New tag name";
+                        placeholder-text: tr-new-tag-placeholder;
                         text <=> folder-tag-draft;
                         accepted => {
                             if (folder-tag-draft != "") {
@@ -5486,9 +5478,7 @@ export component ModelRackWindow inherits Window {
                             height: parent.height;
                             horizontal-alignment: center;
                             vertical-alignment: center;
-                            text: settings-language-key == "ko" ? "취소" :
-                                  settings-language-key == "ja" ? "キャンセル" :
-                                  "Cancel";
+                            text: tr-cancel;
                             color: Theme.fg-0;
                             font-size: 12px;
                         }
@@ -5509,9 +5499,7 @@ export component ModelRackWindow inherits Window {
                             height: parent.height;
                             horizontal-alignment: center;
                             vertical-alignment: center;
-                            text: settings-language-key == "ko" ? "적용" :
-                                  settings-language-key == "ja" ? "適用" :
-                                  "Apply";
+                            text: tr-apply;
                             color: #ffffff;
                             font-size: 12px;
                             font-weight: 600;

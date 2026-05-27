@@ -55,13 +55,16 @@ pub fn apply_translations(ui: &ModelRackWindow, lang: &str) {
     ui.set_tr_add_print_count(tr("add-print-count", lang).into());
     ui.set_tr_add_printer(tr("add-printer", lang).into());
     ui.set_tr_add_subtag(tr("add-subtag", lang).into());
+    ui.set_tr_add_subtag_title(tr("add-subtag-title", lang).into());
     ui.set_tr_add_tag(tr("add-tag", lang).into());
     ui.set_tr_add_tag_to_folder(tr("add-tag-to-folder", lang).into());
+    ui.set_tr_add_tags_to_folder_title(tr("add-tags-to-folder-title", lang).into());
     ui.set_tr_added(tr("added", lang).into());
     ui.set_tr_after_export(tr("after-export", lang).into());
     ui.set_tr_all_models(tr("all-models", lang).into());
     ui.set_tr_already_added(tr("already-added", lang).into());
     ui.set_tr_anti_aliasing(tr("anti-aliasing", lang).into());
+    ui.set_tr_apply(tr("apply", lang).into());
     ui.set_tr_author(tr("author", lang).into());
     ui.set_tr_author_heading(tr("author-heading", lang).into());
     ui.set_tr_author_or_source(tr("author-or-source", lang).into());
@@ -71,6 +74,7 @@ pub fn apply_translations(ui: &ModelRackWindow, lang: &str) {
     ui.set_tr_bulk_edit_placeholder(tr("bulk-edit-placeholder", lang).into());
     ui.set_tr_cache_location(tr("cache-location", lang).into());
     ui.set_tr_cache_usage(tr("cache-usage", lang).into());
+    ui.set_tr_cancel(tr("cancel", lang).into());
     ui.set_tr_card_label(tr("card-label", lang).into());
     ui.set_tr_card_label_hint(tr("card-label-hint", lang).into());
     ui.set_tr_check(tr("check", lang).into());
@@ -82,6 +86,7 @@ pub fn apply_translations(ui: &ModelRackWindow, lang: &str) {
     ui.set_tr_copy_file_path(tr("copy-file-path", lang).into());
     ui.set_tr_copy_path(tr("copy-path", lang).into());
     ui.set_tr_copy_tag(tr("copy-tag", lang).into());
+    ui.set_tr_create_new_tag(tr("create-new-tag", lang).into());
     ui.set_tr_custom_path(tr("custom-path", lang).into());
     ui.set_tr_dark(tr("dark", lang).into());
     ui.set_tr_date_format(tr("date-format", lang).into());
@@ -100,6 +105,8 @@ pub fn apply_translations(ui: &ModelRackWindow, lang: &str) {
     ui.set_tr_empty_state(tr("empty-state", lang).into());
     ui.set_tr_enabled_profiles(tr("enabled-profiles", lang).into());
     ui.set_tr_english(tr("english", lang).into());
+    ui.set_tr_enter_subtag_name(tr("enter-subtag-name", lang).into());
+    ui.set_tr_enter_tag_name(tr("enter-tag-name", lang).into());
     ui.set_tr_even(tr("even", lang).into());
     ui.set_tr_exceeds_build_plate(tr("exceeds-build-plate", lang).into());
     ui.set_tr_favorites(tr("favorites", lang).into());
@@ -110,6 +117,7 @@ pub fn apply_translations(ui: &ModelRackWindow, lang: &str) {
     ui.set_tr_filename(tr("filename", lang).into());
     ui.set_tr_filter_this_folder(tr("filter-this-folder", lang).into());
     ui.set_tr_filter_this_tag(tr("filter-this-tag", lang).into());
+    ui.set_tr_filtering(tr("filtering", lang).into());
     ui.set_tr_fits_build_plate(tr("fits-build-plate", lang).into());
     ui.set_tr_focus_search(tr("focus-search", lang).into());
     ui.set_tr_folders_heading(tr("folders-heading", lang).into());
@@ -151,8 +159,10 @@ pub fn apply_translations(ui: &ModelRackWindow, lang: &str) {
     ui.set_tr_metadata_storage_hint(tr("metadata-storage-hint", lang).into());
     ui.set_tr_model(tr("model", lang).into());
     ui.set_tr_modified(tr("modified", lang).into());
+    ui.set_tr_multicolor_overhead(tr("multicolor-overhead", lang).into());
     ui.set_tr_my_printers(tr("my-printers", lang).into());
     ui.set_tr_name(tr("name", lang).into());
+    ui.set_tr_new_tag_placeholder(tr("new-tag-placeholder", lang).into());
     ui.set_tr_no_notes(tr("no-notes", lang).into());
     ui.set_tr_no_print_records(tr("no-print-records", lang).into());
     ui.set_tr_no_printers(tr("no-printers", lang).into());
@@ -172,6 +182,7 @@ pub fn apply_translations(ui: &ModelRackWindow, lang: &str) {
     ui.set_tr_open_with_suffix(tr("open-with-suffix", lang).into());
     ui.set_tr_orbit_hint(tr("orbit-hint", lang).into());
     ui.set_tr_parse_errors(tr("parse-errors", lang).into());
+    ui.set_tr_parent_tag_prefix(tr("parent-tag-prefix", lang).into());
     ui.set_tr_pick_nozzle(tr("pick-nozzle", lang).into());
     ui.set_tr_print_estimate(tr("print-estimate", lang).into());
     ui.set_tr_printed(tr("printed", lang).into());
@@ -201,6 +212,9 @@ pub fn apply_translations(ui: &ModelRackWindow, lang: &str) {
     ui.set_tr_reveal_in_finder(tr("reveal-in-finder", lang).into());
     ui.set_tr_rim(tr("rim", lang).into());
     ui.set_tr_save(tr("save", lang).into());
+    ui.set_tr_search_placeholder(tr("search-placeholder", lang).into());
+    ui.set_tr_select_model(tr("select-model", lang).into());
+    ui.set_tr_select_model_hint(tr("select-model-hint", lang).into());
     ui.set_tr_set_default(tr("set-default", lang).into());
     ui.set_tr_settings_about(tr("settings-about", lang).into());
     ui.set_tr_settings_advanced(tr("settings-advanced", lang).into());
