@@ -5962,6 +5962,11 @@ impl ShellState {
         self.prefs.language = match language {
             "ko" => "ko",
             "ja" => "ja",
+            "es" => "es",
+            "zh-CN" => "zh-CN",
+            "zh-TW" => "zh-TW",
+            "pt" => "pt",
+            "ru" => "ru",
             _ => "en",
         }
         .to_string();
@@ -5971,6 +5976,11 @@ impl ShellState {
         self.prefs.language = match self.prefs.language.as_str() {
             "en" => "ko",
             "ko" => "ja",
+            "ja" => "es",
+            "es" => "zh-CN",
+            "zh-CN" => "zh-TW",
+            "zh-TW" => "pt",
+            "pt" => "ru",
             _ => "en",
         }
         .to_string();
