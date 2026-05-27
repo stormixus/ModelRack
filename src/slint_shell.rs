@@ -345,12 +345,14 @@ pub fn run() -> Result<(), slint::PlatformError> {
                         ui.set_status_text("No folder path available for that sidebar item".into());
                         return;
                     };
+                    let language = sidebar_context_state.borrow().prefs.language.clone();
                     move_sidebar_folder_to_trash(
                         &ui,
                         &sidebar_context_state,
                         &sidebar_context_scan,
                         &path,
                         label.as_str(),
+                        &language,
                     );
                 }
                 "copy" => {
@@ -2834,14 +2836,23 @@ fn move_sidebar_folder_to_trash(
     scan_runtime: &Rc<RefCell<LibraryScanRuntime>>,
     folder: &Path,
     label: &str,
+    language: &str,
 ) {
     if !folder.exists() {
         ui.set_status_text(format!("Folder no longer exists: {}", folder.display()).into());
         return;
     }
 
-    if !confirm_move_folder_to_trash(label, folder) {
-        ui.set_status_text("Move to Trash cancelled".into());
+    if !confirm_move_folder_to_trash(label, folder, language) {
+        ui.set_status_text(
+            localized(
+                "Move to Trash cancelled",
+                "휴지통 이동 취소",
+                "ゴミ箱移動キャンセル",
+                language,
+            )
+            .into(),
+        );
         return;
     }
 
@@ -2915,23 +2926,35 @@ fn move_sidebar_folder_to_trash(
     }
 }
 
-fn confirm_move_folder_to_trash(label: &str, folder: &Path) -> bool {
+fn confirm_move_folder_to_trash(label: &str, folder: &Path, language: &str) -> bool {
+    let title = localized("Delete folder?", "폴더 삭제?", "フォルダを削除？", language);
+    let en = format!(
+        "Move '{}' to the Trash and remove it from the library?\n\n{}",
+        label, folder.display()
+    );
+    let ko = format!(
+        "'{}' 폴더를 휴지통으로 이동하고 라이브러리에서 제거할까요?\n\n{}",
+        label, folder.display()
+    );
+    let ja = format!(
+        "'{}' をゴミ箱に移動してライブラリから削除しますか？\n\n{}",
+        label, folder.display()
+    );
+    let desc = localized(&en, &ko, &ja, language);
+    let ok_label = localized("Delete Folder", "폴더 삭제", "フォルダを削除", language);
+    let cancel_label = localized("Cancel", "취소", "キャンセル", language);
     match rfd::MessageDialog::new()
         .set_level(rfd::MessageLevel::Warning)
-        .set_title("Delete folder?")
-        .set_description(format!(
-            "Move “{}” to the Trash and remove it from the library?\n\n{}",
-            label,
-            folder.display()
-        ))
+        .set_title(title)
+        .set_description(desc.to_string())
         .set_buttons(rfd::MessageButtons::OkCancelCustom(
-            "Delete Folder".to_string(),
-            "Cancel".to_string(),
+            ok_label.to_string(),
+            cancel_label.to_string(),
         ))
         .show()
     {
         rfd::MessageDialogResult::Ok => true,
-        rfd::MessageDialogResult::Custom(value) => value == "Delete Folder",
+        rfd::MessageDialogResult::Custom(value) => value == ok_label,
         _ => false,
     }
 }
