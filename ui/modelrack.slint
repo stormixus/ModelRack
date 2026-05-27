@@ -2916,11 +2916,9 @@ export component ModelRackWindow inherits Window {
                             add-requested => { open-folder(); }
                         }
 
-                        for folder in folder-items: Rectangle {
-                            height: section-folders-collapsed ? 0px : (folder.visible ? 26px : 0px);
-                            clip: section-folders-collapsed;
-                            SidebarLine {
-                                width: parent.width;
+                        if !section-folders-collapsed: VerticalLayout {
+                            spacing: 1px;
+                            for folder in folder-items: SidebarLine {
                             key: folder.key;
                             drag-enabled: true;
                             drag-mime: "application/x-modelrack-folder-key";
@@ -2950,8 +2948,7 @@ export component ModelRackWindow inherits Window {
                                 sort-menu-open = false;
                                 preview-plate-menu-open = false;
                             }
-                            }
-                        }
+                        }}
 
                         Rectangle { height: 1px; background: Theme.line; }
 
@@ -3073,7 +3070,11 @@ export component ModelRackWindow inherits Window {
                                 property <bool> is-pressed <=> self.pressed;
                                 changed is-pressed => {
                                     if !is-pressed {
-                                        reorder-tag(tag.key, skip-count);
+                                        if skip-count == 0 && tag.expandable {
+                                            toggle-sidebar-tag(tag.key);
+                                        } else {
+                                            reorder-tag(tag.key, skip-count);
+                                        }
                                         tag-range-down = [-1, -1];
                                         tag-range-up = [-1, -1];
                                     }
