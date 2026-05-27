@@ -2901,7 +2901,7 @@ export component ModelRackWindow inherits Window {
                         if !section-library-collapsed: SidebarLine { icon: @image-url("../assets/icons/duplicate.svg"); label: tr-duplicates; count: duplicates-count; selected: active-filter-key == "duplicates"; activated => { choose-filter("duplicates"); } }
                         if !section-library-collapsed: SidebarLine { icon: @image-url("../assets/icons/error.svg"); label: tr-parse-errors; count: errors-count; selected: active-filter-key == "errors"; activated => { choose-filter("errors"); } }
 
-                        Rectangle {
+                        if !section-library-collapsed: Rectangle {
                             height: 1px;
                             background: Theme.line;
                         }
@@ -2969,6 +2969,7 @@ export component ModelRackWindow inherits Window {
 
                         for tag[index] in tag-items: Rectangle {
                             height: tag.visible && !section-tags-collapsed ? 26px : 0px;
+                            clip: section-tags-collapsed || !tag.visible;
 
                             // Drag-to-reorder pattern
                             property <length> line-h: tag.visible && !section-tags-collapsed ? 26px : 0px;
