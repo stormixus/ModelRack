@@ -307,8 +307,10 @@ component SectionHeader inherits Rectangle {
     in property <string> label;
     in property <bool> inset: false;
     in property <bool> show-add: false;
+    in property <bool> show-reorder: false;
     in property <bool> collapsible: false;
     in-out property <bool> collapsed: false;
+    in-out property <bool> reorder-active: false;
     callback add-requested();
     height: 24px;
 
@@ -332,6 +334,28 @@ component SectionHeader inherits Rectangle {
         font-size: Theme.font-overline;
         font-weight: 600;
         letter-spacing: 0.8px;
+    }
+
+    if show-reorder && !collapsed: Rectangle {
+        x: parent.width - (show-add ? 48px : 24px);
+        y: (parent.height - 16px) / 2;
+        width: 16px;
+        height: 16px;
+        border-radius: 3px;
+        background: reorder-active ? Theme.accent-dim : (reorder-touch.has-hover ? Theme.bg-3 : transparent);
+
+        SvgIcon {
+            x: (parent.width - 12px) / 2;
+            y: (parent.height - 12px) / 2;
+            width: 12px;
+            height: 12px;
+            icon: @image-url("../assets/icons/drag.svg");
+            tint: reorder-active ? Theme.accent : (reorder-touch.has-hover ? Theme.fg-0 : Theme.fg-2);
+        }
+
+        reorder-touch := TouchArea {
+            clicked => { root.reorder-active = !root.reorder-active; }
+        }
     }
 
     if show-add && !collapsed: Rectangle {
@@ -2545,6 +2569,7 @@ export component ModelRackWindow inherits Window {
     property <bool> section-folders-collapsed: false;
     property <bool> section-formats-collapsed: false;
     property <bool> section-tags-collapsed: false;
+    property <bool> tag-reorder-mode: false;
     property <string> new-tag-draft: "";
     property <bool> folder-drag-detected: folder-drag-sensor.contains-drag;
     property <length> grid-viewport-y: 0px;
@@ -3004,8 +3029,10 @@ export component ModelRackWindow inherits Window {
                         SectionHeader {
                             label: tr-tags-heading;
                             show-add: true;
+                            show-reorder: true;
                             collapsible: true;
                             collapsed <=> section-tags-collapsed;
+                            reorder-active <=> tag-reorder-mode;
                             add-requested => { new-tag-dialog-open = true; new-tag-draft = ""; }
                         }
 
@@ -3079,8 +3106,9 @@ export component ModelRackWindow inherits Window {
                             tag-drag-handle := TouchArea {
                                 x: 0;
                                 y: self.pressed ? 0px : passive-y;
-                                width: 22px + tag.depth * 14px;
-                                height: parent.height;
+                                width: tag-reorder-mode ? parent.width : 0px;
+                                height: tag-reorder-mode ? parent.height : 0px;
+                                enabled: tag-reorder-mode;
                                 opacity: self.pressed ? 0 : 1;
                                 animate opacity { duration: 100ms; }
                                 mouse-cursor: self.pressed ? MouseCursor.grabbing : MouseCursor.grab;
