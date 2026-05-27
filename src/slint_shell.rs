@@ -6398,6 +6398,13 @@ fn apply_snapshot(ui: &ModelRackWindow, snapshot: &AppViewSnapshot) {
     ui.set_duplicates_count(snapshot.sidebar.duplicates as i32);
     ui.set_ready_count(snapshot.sidebar.ready as i32);
     ui.set_errors_count(snapshot.sidebar.errors as i32);
+
+    ui.set_stl_count(snapshot.sidebar.stl as i32);
+    ui.set_threemf_count(snapshot.sidebar.threemf as i32);
+    ui.set_step_count(snapshot.sidebar.step as i32);
+    ui.set_scad_count(snapshot.sidebar.scad as i32);
+    ui.set_obj_count(snapshot.sidebar.obj as i32);
+
     ui.set_active_filter_key(to_nfc(&snapshot.active_filter_key).into());
     ui.set_total_matching_cards(snapshot.browser.displayed as i32);
 

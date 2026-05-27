@@ -31,6 +31,7 @@ pub enum LibraryFilter {
     Folder(PathBuf),
     Tag(String),
     Untagged,
+    Format(String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -354,6 +355,11 @@ pub struct SidebarSummary {
     pub duplicates: usize,
     pub ready: usize,
     pub errors: usize,
+    pub stl: usize,
+    pub threemf: usize,
+    pub step: usize,
+    pub scad: usize,
+    pub obj: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -748,6 +754,11 @@ pub fn sidebar_summary(entries: &[scanner::StlFileInfo]) -> SidebarSummary {
             .iter()
             .filter(|entry| entry.stl_type == scanner::StlType::Unknown)
             .count(),
+        stl: entries.iter().filter(|e| matches!(e.stl_type, scanner::StlType::Binary | scanner::StlType::Ascii | scanner::StlType::LargeStl)).count(),
+        threemf: entries.iter().filter(|e| e.stl_type == scanner::StlType::ThreeMf).count(),
+        step: entries.iter().filter(|e| e.stl_type == scanner::StlType::Step).count(),
+        scad: entries.iter().filter(|e| e.stl_type == scanner::StlType::Scad).count(),
+        obj: entries.iter().filter(|e| e.stl_type == scanner::StlType::Obj).count(),
     }
 }
 
@@ -1331,6 +1342,7 @@ pub fn filter_key(filter: &LibraryFilter) -> String {
         LibraryFilter::Folder(path) => format!("folder:{}", path.display()),
         LibraryFilter::Tag(tag) => format!("tag:{}", tag),
         LibraryFilter::Untagged => "untagged".to_string(),
+        LibraryFilter::Format(fmt) => format!("format:{}", fmt),
     }
 }
 
@@ -1349,6 +1361,9 @@ pub fn smart_filter_from_key(key: &str) -> Option<LibraryFilter> {
         }
         _ if key.starts_with("tag:") => {
             LibraryFilter::Tag(key.trim_start_matches("tag:").to_string())
+        }
+        _ if key.starts_with("format:") => {
+            LibraryFilter::Format(key.trim_start_matches("format:").to_string())
         }
         _ => return None,
     })
@@ -1394,6 +1409,17 @@ pub fn entry_matches_filter(
         }),
         LibraryFilter::Untagged => {
             entry.meta.is_none() || entry.meta.as_ref().is_some_and(|meta| meta.tags.is_empty())
+        }
+        LibraryFilter::Format(fmt) => {
+            let ext = entry.path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+            match fmt.as_str() {
+                "stl" => ext == "stl",
+                "3mf" => ext == "3mf",
+                "step" => ext == "step" || ext == "stp",
+                "scad" => ext == "scad",
+                "obj" => ext == "obj",
+                _ => false,
+            }
         }
     }
 }
@@ -1525,6 +1551,7 @@ pub fn filter_label_for_language(filter: &LibraryFilter, language: &str) -> Opti
             tag
         )),
         LibraryFilter::Untagged => Some(crate::i18n::tr("untagged", language).to_string()),
+        LibraryFilter::Format(fmt) => Some(fmt.to_ascii_uppercase()),
     }
 }
 

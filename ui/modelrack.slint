@@ -307,20 +307,34 @@ component SectionHeader inherits Rectangle {
     in property <string> label;
     in property <bool> inset: false;
     in property <bool> show-add: false;
+    in property <bool> collapsible: false;
+    in-out property <bool> collapsed: false;
     callback add-requested();
     height: 24px;
 
+    if collapsible: SvgIcon {
+        x: 0px;
+        y: (parent.height - 8px) / 2;
+        width: 8px;
+        height: 8px;
+        icon: @image-url("../assets/icons/chevron-right.svg");
+        tint: Theme.fg-3;
+        transform-origin: { x: 4px, y: 4px };
+        transform-rotation: collapsed ? 0deg : 90deg;
+        animate transform-rotation { duration: 150ms; easing: ease-in-out; }
+    }
+
     Text {
-        x: inset || show-add ? 8px : 0px;
+        x: collapsible ? 14px : (inset || show-add ? 8px : 0px);
         y: (parent.height - self.height) / 2;
         text: label;
-        color: Theme.fg-2;
+        color: section-touch.has-hover ? Theme.fg-1 : Theme.fg-2;
         font-size: Theme.font-overline;
         font-weight: 600;
         letter-spacing: 0.8px;
     }
 
-    if show-add: Rectangle {
+    if show-add && !collapsed: Rectangle {
         x: parent.width - 24px;
         y: (parent.height - 16px) / 2;
         width: 16px;
@@ -340,6 +354,13 @@ component SectionHeader inherits Rectangle {
         plus-touch := TouchArea {
             clicked => { root.add-requested(); }
         }
+    }
+
+    section-touch := TouchArea {
+        width: collapsible ? parent.width - (show-add ? 24px : 0px) : 0px;
+        height: parent.height;
+        enabled: collapsible;
+        clicked => { collapsed = !collapsed; }
     }
 }
 
@@ -2168,6 +2189,13 @@ export component ModelRackWindow inherits Window {
     in property <int> ready-count;
     in property <int> errors-count;
 
+    // Format counts
+    in property <int> stl-count;
+    in property <int> threemf-count;
+    in property <int> step-count;
+    in property <int> scad-count;
+    in property <int> obj-count;
+
     // Data models
     in property <[BrowserCard]> model-cards;
     in property <[SidebarItem]> folder-items;
@@ -2504,6 +2532,10 @@ export component ModelRackWindow inherits Window {
     property <bool> rename-editing: false;
     property <string> rename-draft: "";
     property <bool> new-tag-dialog-open: false;
+    property <bool> section-library-collapsed: false;
+    property <bool> section-folders-collapsed: false;
+    property <bool> section-formats-collapsed: false;
+    property <bool> section-tags-collapsed: false;
     property <string> new-tag-draft: "";
     property <bool> folder-drag-detected: folder-drag-sensor.contains-drag;
     property <length> grid-viewport-y: 0px;
@@ -2859,15 +2891,15 @@ export component ModelRackWindow inherits Window {
                         property <[int]> tag-range-down: [-1, -1];
                         property <[int]> tag-range-up: [-1, -1];
 
-                        SectionHeader { label: tr-library-heading; inset: true; }
+                        SectionHeader { label: tr-library-heading; inset: true; collapsible: true; collapsed <=> section-library-collapsed; }
 
-                        SidebarLine { icon: @image-url("../assets/icons/layers.svg"); label: tr-all-models; count: all-count; selected: active-filter-key == "all"; activated => { choose-filter("all"); } }
-                        SidebarLine { icon: @image-url("../assets/icons/clock.svg"); label: tr-recent; count: recent-count; selected: active-filter-key == "recent"; activated => { choose-filter("recent"); } }
-                        SidebarLine { icon: @image-url("../assets/icons/star.svg"); label: tr-favorites; count: favorites-count; selected: active-filter-key == "favorites"; activated => { choose-filter("favorites"); } }
-                        SidebarLine { icon: @image-url("../assets/icons/print.svg"); label: tr-printed; count: printed-count; selected: active-filter-key == "printed"; activated => { choose-filter("printed"); } }
-                        SidebarLine { icon: @image-url("../assets/icons/box.svg"); label: tr-ready-to-print; count: ready-count; selected: active-filter-key == "ready"; activated => { choose-filter("ready"); } }
-                        SidebarLine { icon: @image-url("../assets/icons/duplicate.svg"); label: tr-duplicates; count: duplicates-count; selected: active-filter-key == "duplicates"; activated => { choose-filter("duplicates"); } }
-                        SidebarLine { icon: @image-url("../assets/icons/error.svg"); label: tr-parse-errors; count: errors-count; selected: active-filter-key == "errors"; activated => { choose-filter("errors"); } }
+                        if !section-library-collapsed: SidebarLine { icon: @image-url("../assets/icons/layers.svg"); label: tr-all-models; count: all-count; selected: active-filter-key == "all"; activated => { choose-filter("all"); } }
+                        if !section-library-collapsed: SidebarLine { icon: @image-url("../assets/icons/clock.svg"); label: tr-recent; count: recent-count; selected: active-filter-key == "recent"; activated => { choose-filter("recent"); } }
+                        if !section-library-collapsed: SidebarLine { icon: @image-url("../assets/icons/star.svg"); label: tr-favorites; count: favorites-count; selected: active-filter-key == "favorites"; activated => { choose-filter("favorites"); } }
+                        if !section-library-collapsed: SidebarLine { icon: @image-url("../assets/icons/print.svg"); label: tr-printed; count: printed-count; selected: active-filter-key == "printed"; activated => { choose-filter("printed"); } }
+                        if !section-library-collapsed: SidebarLine { icon: @image-url("../assets/icons/box.svg"); label: tr-ready-to-print; count: ready-count; selected: active-filter-key == "ready"; activated => { choose-filter("ready"); } }
+                        if !section-library-collapsed: SidebarLine { icon: @image-url("../assets/icons/duplicate.svg"); label: tr-duplicates; count: duplicates-count; selected: active-filter-key == "duplicates"; activated => { choose-filter("duplicates"); } }
+                        if !section-library-collapsed: SidebarLine { icon: @image-url("../assets/icons/error.svg"); label: tr-parse-errors; count: errors-count; selected: active-filter-key == "errors"; activated => { choose-filter("errors"); } }
 
                         Rectangle {
                             height: 1px;
@@ -2877,10 +2909,13 @@ export component ModelRackWindow inherits Window {
                         if folder-items.length > 0: SectionHeader {
                             label: tr-folders-heading;
                             show-add: true;
+                            collapsible: true;
+                            collapsed <=> section-folders-collapsed;
                             add-requested => { open-folder(); }
                         }
 
                         for folder in folder-items: folder-row := SidebarLine {
+                            row-visible: folder.visible && !section-folders-collapsed;
                             key: folder.key;
                             drag-enabled: true;
                             drag-mime: "application/x-modelrack-folder-key";
@@ -2891,7 +2926,6 @@ export component ModelRackWindow inherits Window {
                             reserve-leading: true;
                             expandable: folder.expandable;
                             expanded: folder.expanded;
-                            row-visible: folder.visible;
                             selected: active-filter-key == folder.key;
                             activated => {
                                 sidebar-context-open = false;
@@ -2914,16 +2948,30 @@ export component ModelRackWindow inherits Window {
                         }
 
                         SectionHeader {
+                            label: tr-format;
+                            collapsible: true;
+                            collapsed <=> section-formats-collapsed;
+                        }
+
+                        if !section-formats-collapsed && stl-count > 0: SidebarLine { icon: @image-url("../assets/icons/document.svg"); label: "STL"; count: stl-count; selected: active-filter-key == "format:stl"; activated => { choose-filter("format:stl"); } }
+                        if !section-formats-collapsed && threemf-count > 0: SidebarLine { icon: @image-url("../assets/icons/document.svg"); label: "3MF"; count: threemf-count; selected: active-filter-key == "format:3mf"; activated => { choose-filter("format:3mf"); } }
+                        if !section-formats-collapsed && step-count > 0: SidebarLine { icon: @image-url("../assets/icons/document.svg"); label: "STEP"; count: step-count; selected: active-filter-key == "format:step"; activated => { choose-filter("format:step"); } }
+                        if !section-formats-collapsed && scad-count > 0: SidebarLine { icon: @image-url("../assets/icons/document.svg"); label: "SCAD"; count: scad-count; selected: active-filter-key == "format:scad"; activated => { choose-filter("format:scad"); } }
+                        if !section-formats-collapsed && obj-count > 0: SidebarLine { icon: @image-url("../assets/icons/document.svg"); label: "OBJ"; count: obj-count; selected: active-filter-key == "format:obj"; activated => { choose-filter("format:obj"); } }
+
+                        SectionHeader {
                             label: tr-tags-heading;
                             show-add: true;
+                            collapsible: true;
+                            collapsed <=> section-tags-collapsed;
                             add-requested => { new-tag-dialog-open = true; new-tag-draft = ""; }
                         }
 
                         for tag[index] in tag-items: Rectangle {
-                            height: tag.visible ? 26px : 0px;
+                            height: tag.visible && !section-tags-collapsed ? 26px : 0px;
 
                             // Drag-to-reorder pattern
-                            property <length> line-h: tag.visible ? 26px : 0px;
+                            property <length> line-h: tag.visible && !section-tags-collapsed ? 26px : 0px;
                             property <PositionShift> pos-shift: {
                                 if (index >= tag-range-down[0] && index < tag-range-down[1]) {
                                     return PositionShift.OneDown;
