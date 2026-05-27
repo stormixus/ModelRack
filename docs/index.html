@@ -1,0 +1,1021 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ModelRack - Gorgeous, Desktop-Native 3D Model Manager for Makers</title>
+  
+  <!-- SEO Meta Tags -->
+  <meta name="description" content="ModelRack is a blazing-fast, gorgeous desktop-native 3D model library for makers. Manage STL, 3MF, STEP, and SCAD files locally with high-fidelity B-rep CAD meshing, 3D orbit viewer, and instant slicer integration.">
+  <meta name="keywords" content="3D printing, STL viewer, 3MF plate manager, STEP mesher, local-first model library, OrcaSlicer launcher, Slint UI, Rust app">
+  <meta name="author" content="ModelRack Project Team">
+  <meta name="robots" content="index, follow">
+  
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="ModelRack - Desktop-Native 3D Model Manager">
+  <meta property="og:description" content="A gorgeous, local-first, blazing-fast desktop 3D model organizer with native B-rep STEP parsing, 3D orbit previewing, and automatic slicer launching.">
+  
+  <!-- Modern Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;700;800&display=swap" rel="stylesheet">
+  
+  <style>
+    /* Modern Reset and Design Variables */
+    :root {
+      --bg-dark: #090d16;
+      --bg-card: rgba(18, 24, 38, 0.7);
+      --bg-card-hover: rgba(26, 34, 54, 0.85);
+      --border-color: rgba(255, 255, 255, 0.08);
+      --border-glow: rgba(13, 148, 136, 0.3);
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      
+      /* HSL tailored Accent Colors (Teal, Amber, Blue, Coral, Emerald, Purple) */
+      --accent-hue: 174; /* Default Teal */
+      --accent: hsl(var(--accent-hue), 85%, 45%);
+      --accent-hover: hsl(var(--accent-hue), 85%, 55%);
+      --accent-dim: rgba(13, 148, 136, 0.15);
+      
+      --font-body: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --font-title: 'Outfit', sans-serif;
+      
+      --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      font-family: var(--font-body);
+      line-height: 1.6;
+      overflow-x: hidden;
+      background-image: 
+        radial-gradient(circle at 10% 20%, rgba(13, 148, 136, 0.05) 0%, transparent 40%),
+        radial-gradient(circle at 90% 80%, rgba(99, 102, 241, 0.05) 0%, transparent 40%);
+    }
+    
+    /* Layout & Utilities */
+    .container {
+      width: 100%;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+    
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+    
+    /* Sleek Sticky Navbar */
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      background: rgba(9, 13, 22, 0.7);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border-color);
+      transition: var(--transition-smooth);
+    }
+    
+    .nav-wrapper {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      height: 70px;
+    }
+    
+    .logo-area {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    
+    .logo-area img {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+    }
+    
+    .logo-text {
+      font-family: var(--font-title);
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      background: linear-gradient(135deg, #fff 0%, hsl(var(--accent-hue), 85%, 70%) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 32px;
+      font-weight: 500;
+      font-size: 15px;
+      color: var(--text-muted);
+    }
+    
+    .nav-links a {
+      transition: var(--transition-smooth);
+    }
+    
+    .nav-links a:hover {
+      color: var(--text-main);
+    }
+    
+    .nav-btn {
+      background: var(--accent-dim);
+      border: 1px solid var(--accent);
+      color: var(--text-main);
+      padding: 8px 18px;
+      border-radius: 6px;
+      font-weight: 600;
+      transition: var(--transition-smooth);
+    }
+    
+    .nav-btn:hover {
+      background: var(--accent);
+      box-shadow: 0 0 15px var(--border-glow);
+    }
+    
+    /* Hero Section with Glassmorphic Elements */
+    .hero {
+      position: relative;
+      padding: 100px 0 80px 0;
+      text-align: center;
+      background: radial-gradient(circle at 50% 30%, rgba(var(--accent-hue), 148, 136, 0.04) 0%, transparent 60%);
+    }
+    
+    .tagline-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border-color);
+      padding: 6px 14px;
+      border-radius: 100px;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 24px;
+    }
+    
+    .hero h1 {
+      font-family: var(--font-title);
+      font-size: 64px;
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: -2px;
+      max-width: 900px;
+      margin: 0 auto 24px auto;
+    }
+    
+    .hero h1 span {
+      background: linear-gradient(135deg, var(--accent) 0%, hsl(var(--accent-hue), 85%, 65%) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    
+    .hero p {
+      font-size: 20px;
+      color: var(--text-muted);
+      max-width: 680px;
+      margin: 0 auto 40px auto;
+    }
+    
+    .hero-ctas {
+      display: flex;
+      justify-content: center;
+      gap: 16px;
+      margin-bottom: 60px;
+    }
+    
+    .btn-primary {
+      background: var(--accent);
+      color: var(--text-main);
+      font-size: 16px;
+      font-weight: 600;
+      padding: 14px 32px;
+      border-radius: 8px;
+      box-shadow: 0 4px 20px rgba(13, 148, 136, 0.2);
+      transition: var(--transition-smooth);
+      border: 1px solid transparent;
+    }
+    
+    .btn-primary:hover {
+      background: var(--accent-hover);
+      box-shadow: 0 0 25px var(--border-glow);
+      transform: translateY(-2px);
+    }
+    
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      font-size: 16px;
+      font-weight: 600;
+      padding: 14px 32px;
+      border-radius: 8px;
+      transition: var(--transition-smooth);
+    }
+    
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.08);
+      transform: translateY(-2px);
+    }
+    
+    /* Interactive Interactive Sandbox Frame (WOW factor) */
+    .sandbox-container {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 32px;
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 40px;
+      text-align: left;
+      margin: 0 auto;
+      max-width: 1000px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+      backdrop-filter: blur(12px);
+    }
+    
+    .sandbox-visual {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: #03070e;
+      border-radius: 12px;
+      height: 380px;
+      position: relative;
+      overflow: hidden;
+      border: 1px solid var(--border-color);
+    }
+    
+    /* Live 3D Rotating Cube Emulator */
+    .cube-viewport {
+      perspective: 800px;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: grab;
+    }
+    
+    .cube-viewport:active {
+      cursor: grabbing;
+    }
+    
+    .cube {
+      width: 120px;
+      height: 120px;
+      position: relative;
+      transform-style: preserve-3d;
+      transform: rotateX(-20deg) rotateY(30deg);
+      transition: transform 0.1s ease;
+    }
+    
+    .cube-face {
+      position: absolute;
+      width: 120px;
+      height: 120px;
+      background: rgba(13, 148, 136, 0.15);
+      border: 2px solid var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      color: #fff;
+      font-size: 14px;
+      box-sizing: border-box;
+      border-radius: 2px;
+      box-shadow: inset 0 0 15px rgba(13, 148, 136, 0.3);
+    }
+    
+    /* Positioning faces */
+    .face-front  { transform: rotateY(0deg) translateZ(60px); }
+    .face-back   { transform: rotateY(180deg) translateZ(60px); }
+    .face-right  { transform: rotateY(90deg) translateZ(60px); }
+    .face-left   { transform: rotateY(-90deg) translateZ(60px); }
+    .face-top    { transform: rotateX(90deg) translateZ(60px); }
+    .face-bottom { transform: rotateX(-90deg) translateZ(60px); }
+    
+    .grid-lines {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      background-image: 
+        linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+      background-size: 20px 20px;
+      pointer-events: none;
+      z-index: 0;
+    }
+    
+    .sandbox-controls {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 24px;
+    }
+    
+    .sandbox-controls h3 {
+      font-family: var(--font-title);
+      font-size: 22px;
+      font-weight: 700;
+    }
+    
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    
+    .control-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    
+    /* Theme color switchers */
+    .color-swatches {
+      display: flex;
+      gap: 10px;
+    }
+    
+    .swatch {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 2px solid transparent;
+      cursor: pointer;
+      transition: var(--transition-smooth);
+    }
+    
+    .swatch.active {
+      border-color: #fff;
+      transform: scale(1.15);
+    }
+    
+    .swatch-teal { background: #0d9488; }
+    .swatch-amber { background: #d97706; }
+    .swatch-blue { background: #2563eb; }
+    .swatch-coral { background: #ea580c; }
+    .swatch-emerald { background: #059669; }
+    .swatch-purple { background: #7c3aed; }
+    
+    /* Slider styling */
+    .slider {
+      -webkit-appearance: none;
+      width: 100%;
+      height: 4px;
+      border-radius: 2px;
+      background: rgba(255, 255, 255, 0.1);
+      outline: none;
+      transition: background 0.3s;
+    }
+    
+    .slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer;
+      transition: transform 0.1s ease;
+      box-shadow: 0 0 10px var(--accent);
+    }
+    
+    .slider::-webkit-slider-thumb:hover {
+      transform: scale(1.2);
+    }
+    
+    /* Features Grid */
+    .features {
+      padding: 100px 0;
+      position: relative;
+    }
+    
+    .section-title {
+      text-align: center;
+      margin-bottom: 60px;
+    }
+    
+    .section-title h2 {
+      font-family: var(--font-title);
+      font-size: 40px;
+      font-weight: 800;
+      letter-spacing: -1px;
+      margin-bottom: 16px;
+    }
+    
+    .section-title p {
+      color: var(--text-muted);
+      font-size: 18px;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 24px;
+    }
+    
+    .feature-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      padding: 36px;
+      border-radius: 12px;
+      transition: var(--transition-smooth);
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .feature-card:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--border-glow);
+      transform: translateY(-4px);
+    }
+    
+    .feature-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 8px;
+      background: var(--accent-dim);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 24px;
+      margin-bottom: 24px;
+      border: 1px solid rgba(13, 148, 136, 0.2);
+    }
+    
+    .feature-card h3 {
+      font-family: var(--font-title);
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+    
+    .feature-card p {
+      color: var(--text-muted);
+      font-size: 15px;
+      line-height: 1.6;
+    }
+    
+    /* Stats & Performance Counter Section */
+    .metrics {
+      padding: 60px 0;
+      border-top: 1px solid var(--border-color);
+      border-bottom: 1px solid var(--border-color);
+      background: rgba(255, 255, 255, 0.01);
+    }
+    
+    .metrics-wrapper {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 32px;
+      text-align: center;
+    }
+    
+    .metric-item h4 {
+      font-family: var(--font-title);
+      font-size: 40px;
+      font-weight: 800;
+      color: var(--accent);
+      margin-bottom: 8px;
+    }
+    
+    .metric-item p {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    
+    /* Tech Stack Panel */
+    .tech-stack {
+      padding: 100px 0;
+    }
+    
+    .tech-wrapper {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 48px;
+      align-items: center;
+    }
+    
+    .tech-content h2 {
+      font-family: var(--font-title);
+      font-size: 36px;
+      font-weight: 800;
+      margin-bottom: 16px;
+      letter-spacing: -0.5px;
+    }
+    
+    .tech-content p {
+      color: var(--text-muted);
+      margin-bottom: 24px;
+    }
+    
+    .tech-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    
+    .tech-badge {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--border-color);
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .tech-badge svg {
+      width: 16px;
+      height: 16px;
+    }
+    
+    .tech-visual {
+      background: linear-gradient(135deg, rgba(13, 148, 136, 0.15) 0%, rgba(99, 102, 241, 0.15) 100%);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    
+    .stack-metric {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    
+    .stack-metric-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 14px;
+      font-weight: 600;
+    }
+    
+    .stack-bar-bg {
+      width: 100%;
+      height: 8px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    
+    .stack-bar-fg {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 4px;
+      transition: width 1s ease-in-out;
+    }
+    
+    /* Footer */
+    footer {
+      background: #03070e;
+      padding: 48px 0;
+      border-top: 1px solid var(--border-color);
+      color: var(--text-muted);
+      font-size: 14px;
+      text-align: center;
+    }
+    
+    .footer-links {
+      display: flex;
+      justify-content: center;
+      gap: 24px;
+      margin-bottom: 24px;
+      font-weight: 500;
+    }
+    
+    .footer-links a:hover {
+      color: var(--text-main);
+    }
+    
+    @media (max-width: 768px) {
+      .hero h1 { font-size: 44px; }
+      .sandbox-container { grid-template-columns: 1fr; }
+      .metrics-wrapper { grid-template-columns: repeat(2, 1fr); }
+      .tech-wrapper { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Sleek Sticky Header -->
+  <header>
+    <div class="container nav-wrapper">
+      <a href="#" class="logo-area">
+        <img src="../assets/AppIcon.iconset/icon_128x128.png" alt="ModelRack Logo">
+        <span class="logo-text">ModelRack</span>
+      </a>
+      <nav class="nav-links">
+        <a href="#features">Features</a>
+        <a href="#tech">Tech Stack</a>
+        <a href="https://github.com/stormixus/ModelRack" target="_blank">GitHub</a>
+        <a href="https://github.com/stormixus/ModelRack/releases" class="nav-btn" target="_blank" id="nav-download-btn">Download</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero">
+    <div class="container">
+      <div class="tagline-badge" id="locale-badge">✨ Gorgeous local-first organizer</div>
+      <h1 id="hero-heading">Desktop-Native <span>3D Model Library</span> for Makers</h1>
+      <p id="hero-subheading">Organize your STL, 3MF, STEP, and SCAD files locally with blazing-fast GPU-accelerated previews, mesh analysis, and instant slicer loading.</p>
+      
+      <div class="hero-ctas">
+        <a href="https://github.com/stormixus/ModelRack/releases/latest" class="btn-primary" id="hero-dl-btn">Download v0.2.0</a>
+        <a href="https://github.com/stormixus/ModelRack" class="btn-secondary" target="_blank" id="hero-git-btn">View on GitHub</a>
+      </div>
+      
+      <!-- Interactive Sandbox Panel -->
+      <div class="sandbox-container">
+        <div class="sandbox-visual">
+          <div class="grid-lines"></div>
+          <div class="cube-viewport" id="cube-viewport">
+            <div class="cube" id="orbit-cube">
+              <div class="cube-face face-front">STL</div>
+              <div class="cube-face face-back">3MF</div>
+              <div class="cube-face face-right">STEP</div>
+              <div class="cube-face face-left">SCAD</div>
+              <div class="cube-face face-top">OBJ</div>
+              <div class="cube-face face-bottom">RUST</div>
+            </div>
+          </div>
+        </div>
+        <div class="sandbox-controls">
+          <div>
+            <h3 id="sandbox-title">Interactive 3D Orbit Viewer</h3>
+            <p style="font-size: 14px; color: var(--text-muted); margin-top: 6px;" id="sandbox-desc">Interact with the CSS 3D viewport by adjusting rotation values or choosing a built-in theme color matching ModelRack.</p>
+          </div>
+          
+          <div class="control-group">
+            <span class="control-label" id="label-accent">App Accent Color</span>
+            <div class="color-swatches">
+              <div class="swatch swatch-teal active" data-hue="174" title="Teal"></div>
+              <div class="swatch swatch-amber" data-hue="35" title="Amber"></div>
+              <div class="swatch swatch-blue" data-hue="220" title="Blue"></div>
+              <div class="swatch swatch-coral" data-hue="16" title="Coral"></div>
+              <div class="swatch swatch-emerald" data-hue="150" title="Emerald"></div>
+              <div class="swatch swatch-purple" data-hue="265" title="Purple"></div>
+            </div>
+          </div>
+          
+          <div class="control-group">
+            <span class="control-label" id="label-rotation-x">Rotation X: <span id="rot-x-val">20deg</span></span>
+            <input type="range" min="-180" max="180" value="20" class="slider" id="slider-x">
+          </div>
+          
+          <div class="control-group">
+            <span class="control-label" id="label-rotation-y">Rotation Y: <span id="rot-y-val">-30deg</span></span>
+            <input type="range" min="-180" max="180" value="-30" class="slider" id="slider-y">
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Metrics Bar -->
+  <section class="metrics">
+    <div class="container metrics-wrapper">
+      <div class="metric-item">
+        <h4 id="metric-rust">100%</h4>
+        <p id="label-rust">Pure Rust Core</p>
+      </div>
+      <div class="metric-item">
+        <h4 id="metric-time">0.72s</h4>
+        <p id="label-time">Test Execution</p>
+      </div>
+      <div class="metric-item">
+        <h4 id="metric-sec">100%</h4>
+        <p id="label-sec">Local Privacy</p>
+      </div>
+      <div class="metric-item">
+        <h4 id="metric-formats">5+</h4>
+        <p id="label-formats">3D File Formats</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features Section -->
+  <section class="features" id="features">
+    <div class="container">
+      <div class="section-title">
+        <h2 id="features-title">Engineered for Maker Workflows</h2>
+        <p id="features-desc">Forget ordinary file browsers. ModelRack provides the visual feedback and automation that makers actually need.</p>
+      </div>
+      
+      <div class="features-grid">
+        <div class="feature-card">
+          <div class="feature-icon">📐</div>
+          <h3 id="feat-cad-title">High-Fidelity CAD Mesher</h3>
+          <p id="feat-cad-desc">Native parsing of complex STEP B-rep loops. Intelligent polygon decimation resolves starbursting and edge tearing on tiny mechanical pegs.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🖥️</div>
+          <h3 id="feat-slint-title">Slint UI Desktop Shell</h3>
+          <p id="feat-slint-desc">Gorgeous glassmorphism, responsive navigation drawers, dynamic color theme preferences, and butter-smooth sliding sidebar animations.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🏷️</div>
+          <h3 id="feat-metadata-title">Privacy-First metadata</h3>
+          <p id="feat-metadata-desc">No accounts, no telemetry, no cloud sync. All tags, favorites, and printed count metrics are saved locally in standard .modelrack.json sidecar files.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🚀</div>
+          <h3 id="feat-slicer-title">One-Click Slicer Loading</h3>
+          <p id="feat-slicer-desc">Auto-discovers installed slicers like OrcaSlicer, Bambu Studio, PrusaSlicer, and SuperSlicer to load your files in a single click.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">📦</div>
+          <h3 id="feat-wix-title">Clean Native Packages</h3>
+          <p id="feat-wix-desc">Fully Apple-notarized macOS DMGs, Windows MSI packages built statically without VCRuntime DLL dependencies, and Debian tarballs.</p>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon">🌐</div>
+          <h3 id="feat-i18n-title">Automatic Locale Detection</h3>
+          <p id="feat-i18n-desc">Integrates seamlessly with your operating system language. Translates into 8 languages out of the box with zero configuration required.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Technical Stack Section -->
+  <section class="tech-stack" id="tech">
+    <div class="container tech-wrapper">
+      <div class="tech-content">
+        <h2 id="tech-title">Blazing Fast GPU Rendering Stack</h2>
+        <p id="tech-desc">ModelRack couples the absolute reliability and type-safety of a Rust engine with the modern UI graphics pipeline of Slint UI, bypassing the bloat of web-tech wrappers like Electron.</p>
+        <div class="tech-badges">
+          <div class="tech-badge">🦀 Rust 2021</div>
+          <div class="tech-badge">🎨 Slint UI 1.16</div>
+          <div class="tech-badge">💾 SQLite</div>
+          <div class="tech-badge">🛡️ Apple Notarized</div>
+        </div>
+      </div>
+      
+      <div class="tech-visual">
+        <div class="stack-metric">
+          <div class="stack-metric-header">
+            <span>RUST PERFORMANCE ENVELOPE</span>
+            <span>100%</span>
+          </div>
+          <div class="stack-bar-bg">
+            <div class="stack-bar-fg" style="width: 100%;"></div>
+          </div>
+        </div>
+        <div class="stack-metric">
+          <div class="stack-metric-header">
+            <span>UI RENDERING (SLINT GPU FLOW)</span>
+            <span>60 FPS</span>
+          </div>
+          <div class="stack-bar-bg">
+            <div class="stack-bar-fg" style="width: 95%;"></div>
+          </div>
+        </div>
+        <div class="stack-metric">
+          <div class="stack-metric-header">
+            <span>MEMORY CONSUMPTION (vs ELECTRON)</span>
+            <span>< 40MB</span>
+          </div>
+          <div class="stack-bar-bg">
+            <div class="stack-bar-fg" style="width: 15%;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="container">
+      <div class="footer-links">
+        <a href="https://github.com/stormixus/ModelRack" target="_blank">GitHub</a> •
+        <a href="https://github.com/stormixus/ModelRack/releases" target="_blank">Downloads</a> •
+        <a href="https://slint.dev" target="_blank" rel="nofollow">Slint UI</a> •
+        <a href="https://rust-lang.org" target="_blank" rel="nofollow">Rust Core</a>
+      </div>
+      <p id="footer-cr">&copy; 2026 ModelRack Project. Gorgeous Desktop 3D Model pegboard for Makers.</p>
+    </div>
+  </footer>
+
+  <script>
+    // Theme Customizer & Color Switcher Logic
+    const swatches = document.querySelectorAll('.swatch');
+    
+    swatches.forEach(swatch => {
+      swatch.addEventListener('click', () => {
+        // Toggle Active Class
+        document.querySelector('.swatch.active').classList.remove('active');
+        swatch.classList.add('active');
+        
+        // Update Accent Hue
+        const hue = swatch.getAttribute('data-hue');
+        document.documentElement.style.setProperty('--accent-hue', hue);
+      });
+    });
+
+    // 3D Cube Rotation via Range Sliders
+    const cube = document.getElementById('orbit-cube');
+    const sliderX = document.getElementById('slider-x');
+    const sliderY = document.getElementById('slider-y');
+    const rotXVal = document.getElementById('rot-x-val');
+    const rotYVal = document.getElementById('rot-y-val');
+    
+    function updateCubeRotation() {
+      const rx = sliderX.value;
+      const ry = sliderY.value;
+      
+      rotXVal.textContent = `${rx}deg`;
+      rotYVal.textContent = `${ry}deg`;
+      
+      cube.style.transform = `rotateX(${rx}deg) rotateY(${ry}deg)`;
+    }
+    
+    sliderX.addEventListener('input', updateCubeRotation);
+    sliderY.addEventListener('input', updateCubeRotation);
+
+    // Draggable Cube functionality (mouse orbit emulator)
+    let isDragging = false;
+    let startX, startY;
+    let rotX = 20;
+    let rotY = -30;
+    
+    const viewport = document.getElementById('cube-viewport');
+    
+    viewport.addEventListener('mousedown', (e) => {
+      isDragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      viewport.style.cursor = 'grabbing';
+    });
+    
+    window.addEventListener('mouseup', () => {
+      if (isDragging) {
+        isDragging = false;
+        viewport.style.cursor = 'grab';
+      }
+    });
+    
+    window.addEventListener('mousemove', (e) => {
+      if (!isDragging) return;
+      
+      const deltaX = e.clientX - startX;
+      const deltaY = e.clientY - startY;
+      
+      rotY += deltaX * 0.5;
+      rotX -= deltaY * 0.5;
+      
+      // Bound X rotation to prevent flipping upside down completely
+      rotX = Math.max(-90, Math.min(90, rotX));
+      
+      // Update inputs & visual cube
+      sliderX.value = Math.round(rotX);
+      sliderY.value = Math.round(rotY);
+      
+      updateCubeRotation();
+      
+      startX = e.clientX;
+      startY = e.clientY;
+    });
+
+    // OS Language Translation Logic (Auto OS Localizer)
+    const translations = {
+      "en": {
+        "badge": "✨ Gorgeous local-first organizer",
+        "heading": "Desktop-Native <span>3D Model Library</span> for Makers",
+        "subheading": "Organize your STL, 3MF, STEP, and SCAD files locally with blazing-fast GPU-accelerated previews, mesh analysis, and instant slicer loading.",
+        "sandbox-title": "Interactive 3D Orbit Viewer",
+        "sandbox-desc": "Interact with the CSS 3D viewport by adjusting rotation values or choosing a built-in theme color matching ModelRack.",
+        "features-title": "Engineered for Maker Workflows",
+        "features-desc": "Forget ordinary file browsers. ModelRack provides the visual feedback and automation that makers actually need.",
+        "feat-cad-title": "High-Fidelity CAD Mesher",
+        "feat-cad-desc": "Native parsing of complex STEP B-rep loops. Intelligent polygon decimation resolves starbursting and edge tearing on tiny mechanical pegs.",
+        "feat-slint-title": "Slint UI Desktop Shell",
+        "feat-slint-desc": "Gorgeous glassmorphism, responsive navigation drawers, dynamic color theme preferences, and butter-smooth sliding sidebar animations.",
+        "feat-metadata-title": "Privacy-First Metadata",
+        "feat-metadata-desc": "No accounts, no telemetry, no cloud sync. All tags, favorites, and printed count metrics are saved locally in standard .modelrack.json sidecar files.",
+        "feat-slicer-title": "One-Click Slicer Loading",
+        "feat-slicer-desc": "Auto-discovers installed slicers like OrcaSlicer, Bambu Studio, PrusaSlicer, and SuperSlicer to load your files in a single click.",
+        "feat-wix-title": "Clean Native Packages",
+        "feat-wix-desc": "Fully Apple-notarized macOS DMGs, Windows MSI packages built statically without VCRuntime DLL dependencies, and Debian tarballs.",
+        "feat-i18n-title": "Automatic Locale Detection",
+        "feat-i18n-desc": "Integrates seamlessly with your operating system language. Translates into 8 languages out of the box with zero configuration required.",
+        "tech-title": "Blazing Fast GPU Rendering Stack",
+        "tech-desc": "ModelRack couples the absolute reliability and type-safety of a Rust engine with the modern UI graphics pipeline of Slint UI, bypassing the bloat of web-tech wrappers like Electron.",
+        "label-accent": "App Accent Color",
+        "label-rust": "Pure Rust Core",
+        "label-time": "Test Execution",
+        "label-sec": "Local Privacy",
+        "label-formats": "3D File Formats"
+      },
+      "ko": {
+        "badge": "✨ 아름다운 로컬 우선 3D 모델 매니저",
+        "heading": "메이커를 위한 데스크톱 네이티브 <span>3D 모델 라이브러리</span>",
+        "subheading": "STL, 3MF, STEP, SCAD 파일을 업로드 없이 로컬에서 초고속 GPU 가속 프리뷰, 메쉬 분석, 원클릭 슬라이서 기동으로 스마트하게 정리하세요.",
+        "sandbox-title": "대화형 3D Orbit 뷰어 에뮬레이터",
+        "sandbox-desc": "슬라이더를 조절하거나 직접 드래그하여 3D 뷰포트를 회전시키고, ModelRack 앱 내부와 동일한 화려한 테마 컬러를 직접 골라보세요.",
+        "features-title": "메이커의 워크플로우에 맞춤 설계",
+        "features-desc": "단순한 파일 브라우저는 잊으세요. ModelRack은 메이커가 실제로 가려워하는 지점들을 해결하는 시각적 피드백과 편의 기능을 제공합니다.",
+        "feat-cad-title": "초정밀 CAD 메쉬 엔진",
+        "feat-cad-desc": "복잡한 STEP B-rep 루프의 원천 네이티브 삼각 변환. 지능형 다각형 세분화를 통해 미세한 볼트 체결용 Peg이나 홀의 스타버스트/찢어짐 현상을 완벽히 해결합니다.",
+        "feat-slint-title": "Slint UI 데스크톱 셸",
+        "feat-slint-desc": "수려한 글래스모피즘(반투명 블러), 직관적인 네비게이션 드로어, 실시간 테마 컬러 적용 및 물 흐르듯 부드러운 사이드바 접힘 애니메이션.",
+        "feat-metadata-title": "로컬 최우선 메타데이터",
+        "feat-metadata-desc": "로그인도, 정보 수집도, 클라우드 전송도 없습니다. 모든 태그와 출력 횟수는 원본 파일 옆에 `.modelrack.json` 파일로 온전히 안전하게 저장됩니다.",
+        "feat-slicer-title": "원클릭 슬라이서 즉시 연동",
+        "feat-slicer-desc": "오카슬라이서(OrcaSlicer), 밤부 스튜디오, 프루사 슬라이서 등을 자동으로 탐색하여 원클릭으로 해당 슬라이서에 즉시 모델을 불러옵니다.",
+        "feat-wix-title": "정돈된 네이티브 패키지",
+        "feat-wix-desc": "공식 Apple 공증 및 서명이 완비된 macOS DMG 파일과 MSVC 런타임 의존성이 완전히 제거된 정적 빌드 방식의 윈도우 MSI 패키지 배포.",
+        "feat-i18n-title": "네이티브 언어 자동 감지",
+        "feat-i18n-desc": "사용자 운영체제(OS)의 기본 설정 언어를 최초 구동 시 스스로 감지하여 별도 설정 없이 8개국 다국어 번역 언어 환경을 즉시 세팅합니다.",
+        "tech-title": "초고속 GPU 렌더링 기술 스택",
+        "tech-desc": "Electron 등의 무겁고 비대화된 웹 래퍼 기술을 배제하고, Rust 엔진의 극대화된 경량/고안정성 핵심부 위에 Slint GPU 그래픽스 렌더러 파이프라인을 밀착 설계했습니다.",
+        "label-accent": "앱 테마 액센트 컬러",
+        "label-rust": "순수 Rust 코어",
+        "label-time": "자가 테스트 시간",
+        "label-sec": "완벽한 로컬 프라이버시",
+        "label-formats": "지원 3D 파일 포맷"
+      }
+    };
+
+    function applyLocale() {
+      // Auto Detect OS language
+      const userLang = navigator.language || navigator.userLanguage;
+      const isKorean = userLang && userLang.toLowerCase().startsWith('ko');
+      const activeLocale = isKorean ? 'ko' : 'en';
+      const dict = translations[activeLocale];
+      
+      // Update UI texts
+      document.getElementById('locale-badge').textContent = dict["badge"];
+      document.getElementById('hero-heading').innerHTML = dict["heading"];
+      document.getElementById('hero-subheading').textContent = dict["subheading"];
+      document.getElementById('sandbox-title').textContent = dict["sandbox-title"];
+      document.getElementById('sandbox-desc').textContent = dict["sandbox-desc"];
+      document.getElementById('features-title').textContent = dict["features-title"];
+      document.getElementById('features-desc').textContent = dict["features-desc"];
+      
+      document.getElementById('feat-cad-title').textContent = dict["feat-cad-title"];
+      document.getElementById('feat-cad-desc').textContent = dict["feat-cad-desc"];
+      document.getElementById('feat-slint-title').textContent = dict["feat-slint-title"];
+      document.getElementById('feat-slint-desc').textContent = dict["feat-slint-desc"];
+      document.getElementById('feat-metadata-title').textContent = dict["feat-metadata-title"];
+      document.getElementById('feat-metadata-desc').textContent = dict["feat-metadata-desc"];
+      document.getElementById('feat-slicer-title').textContent = dict["feat-slicer-title"];
+      document.getElementById('feat-slicer-desc').textContent = dict["feat-slicer-desc"];
+      document.getElementById('feat-wix-title').textContent = dict["feat-wix-title"];
+      document.getElementById('feat-wix-desc').textContent = dict["feat-wix-desc"];
+      document.getElementById('feat-i18n-title').textContent = dict["feat-i18n-title"];
+      document.getElementById('feat-i18n-desc').textContent = dict["feat-i18n-desc"];
+      
+      document.getElementById('tech-title').textContent = dict["tech-title"];
+      document.getElementById('tech-desc').textContent = dict["tech-desc"];
+      
+      document.getElementById('label-accent').textContent = dict["label-accent"];
+      document.getElementById('label-rust').textContent = dict["label-rust"];
+      document.getElementById('label-time').textContent = dict["label-time"];
+      document.getElementById('label-sec').textContent = dict["label-sec"];
+      document.getElementById('label-formats').textContent = dict["label-formats"];
+      
+      if (isKorean) {
+        document.getElementById('hero-dl-btn').textContent = "무료 다운로드 v0.2.0";
+        document.getElementById('hero-git-btn').textContent = "깃허브 저장소 보기";
+        document.getElementById('nav-download-btn').textContent = "다운로드";
+        document.getElementById('footer-cr').textContent = "© 2026 ModelRack Project. 메이커를 위한 가장 직관적이고 아름다운 3D 모델 pegboard 라이브러리.";
+      }
+    }
+    
+    // Trigger localization on load
+    applyLocale();
+  </script>
+</body>
+</html>
