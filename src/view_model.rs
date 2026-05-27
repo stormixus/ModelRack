@@ -220,7 +220,32 @@ fn default_accent_color() -> String {
 }
 
 fn default_language() -> String {
-    "en".to_string()
+    #[cfg(test)]
+    {
+        "en".to_string()
+    }
+    #[cfg(not(test))]
+    {
+        if let Some(locale) = sys_locale::get_locale() {
+            let lower = locale.to_lowercase();
+            if lower.starts_with("ko") {
+                return "ko".to_string();
+            } else if lower.starts_with("ja") {
+                return "ja".to_string();
+            } else if lower.starts_with("es") {
+                return "es".to_string();
+            } else if lower.starts_with("pt") {
+                return "pt".to_string();
+            } else if lower.starts_with("ru") {
+                return "ru".to_string();
+            } else if lower.contains("hant") || lower.contains("tw") || lower.contains("hk") {
+                return "zh-TW".to_string();
+            } else if lower.starts_with("zh") {
+                return "zh-CN".to_string();
+            }
+        }
+        "en".to_string()
+    }
 }
 
 fn default_view_mode() -> String {

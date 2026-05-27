@@ -2949,6 +2949,7 @@ dependencies = [
  "slint",
  "slint-build",
  "stl_io",
+ "sys-locale",
  "unicode-normalization",
  "unicode-segmentation",
  "ureq",
