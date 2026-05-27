@@ -2,6 +2,7 @@
 
 mod db;
 mod fonts;
+mod i18n;
 mod macos;
 mod scanner;
 mod strings;

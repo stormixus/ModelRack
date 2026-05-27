@@ -444,7 +444,11 @@ impl AppViewSnapshot {
             library_label: titlebar_for_library_roots(library_roots, language),
             sidebar: sidebar_summary(entries),
             folders: sidebar_folders(entries, library_roots, &prefs.collapsed_folders),
-            tags: sidebar_tags_with_standalone(entries, &prefs.collapsed_tags, &prefs.standalone_tags),
+            tags: sidebar_tags_with_standalone(
+                entries,
+                &prefs.collapsed_tags,
+                &prefs.standalone_tags,
+            ),
             cards: browser_cards_for_prefs(sliced_displayed, prefs),
             browser: BrowserSummary {
                 displayed: displayed.len(),
@@ -488,7 +492,11 @@ impl AppViewSnapshot {
             library_label: titlebar_for_library_roots(library_roots, language),
             sidebar: sidebar_summary(entries),
             folders: sidebar_folders(entries, library_roots, &prefs.collapsed_folders),
-            tags: sidebar_tags_with_standalone(entries, &prefs.collapsed_tags, &prefs.standalone_tags),
+            tags: sidebar_tags_with_standalone(
+                entries,
+                &prefs.collapsed_tags,
+                &prefs.standalone_tags,
+            ),
             cards: browser_cards_for_prefs(sliced_displayed, prefs),
             browser: BrowserSummary {
                 displayed: displayed.len(),
@@ -569,7 +577,7 @@ pub fn browser_cards_for_prefs(
                     .meta
                     .as_ref()
                     .and_then(|meta| (!meta.author.is_empty()).then(|| meta.author.clone()))
-                    .unwrap_or_else(|| localized("You", "나", "自分", language).to_string()),
+                    .unwrap_or_else(|| crate::i18n::tr("author-you", language).to_string()),
                 relative_modified: format_modified_label(entry.modified, date_mode, language),
                 thumb_key: thumbnail_key(&entry.filename).to_string(),
                 thumb_path,
@@ -1073,14 +1081,6 @@ fn language_key(language: &str) -> &str {
     }
 }
 
-fn localized<'a>(en: &'a str, ko: &'a str, ja: &'a str, language: &str) -> &'a str {
-    match language_key(language) {
-        "ko" => ko,
-        "ja" => ja,
-        _ => en,
-    }
-}
-
 pub fn browser_count_label_for_language(displayed: usize, total: usize, language: &str) -> String {
     if displayed == total {
         match language_key(language) {
@@ -1099,7 +1099,7 @@ pub fn browser_count_label_for_language(displayed: usize, total: usize, language
 
 pub fn scan_status_text_for_language(status: &ScanStatus, language: &str) -> String {
     match status {
-        ScanStatus::Idle => localized("Ready", "준비됨", "準備完了", language).to_string(),
+        ScanStatus::Idle => crate::i18n::tr("ready", language).to_string(),
         ScanStatus::Scanning {
             found,
             scanned,
@@ -1139,14 +1139,14 @@ pub fn scan_status_text_for_language(status: &ScanStatus, language: &str) -> Str
 
 pub fn sort_label_for_language(sort_by: SortBy, ascending: bool, language: &str) -> String {
     let field = match sort_by {
-        SortBy::Name => localized("Name", "이름", "名前", language),
-        SortBy::Modified => localized("Modified", "수정일", "更新日", language),
-        SortBy::Added => localized("Added", "추가일", "追加日", language),
-        SortBy::Format => localized("Format", "형식", "形式", language),
-        SortBy::Size => localized("Size", "크기", "サイズ", language),
-        SortBy::Triangles => localized("Triangles", "삼각형", "三角形", language),
-        SortBy::Dimensions => localized("Dimensions", "치수", "寸法", language),
-        SortBy::Volume => localized("Volume", "부피", "体積", language),
+        SortBy::Name => crate::i18n::tr("name", language),
+        SortBy::Modified => crate::i18n::tr("modified", language),
+        SortBy::Added => crate::i18n::tr("added", language),
+        SortBy::Format => crate::i18n::tr("format", language),
+        SortBy::Size => crate::i18n::tr("size", language),
+        SortBy::Triangles => crate::i18n::tr("triangles", language),
+        SortBy::Dimensions => crate::i18n::tr("dimensions", language),
+        SortBy::Volume => crate::i18n::tr("volume", language),
     };
     let direction = if ascending { "↑" } else { "↓" };
     format!("{} {}", field, direction)
@@ -1188,14 +1188,14 @@ fn relative_modified_label_for_language(
     language: &str,
 ) -> String {
     let Some(modified) = modified else {
-        return localized("unknown", "알 수 없음", "不明", language).to_string();
+        return crate::i18n::tr("date-unknown", language).to_string();
     };
     let Ok(elapsed) = std::time::SystemTime::now().duration_since(modified) else {
-        return localized("today", "오늘", "今日", language).to_string();
+        return crate::i18n::tr("date-today", language).to_string();
     };
     let days = elapsed.as_secs() / 86400;
     if days < 1 {
-        localized("today", "오늘", "今日", language).to_string()
+        crate::i18n::tr("date-today", language).to_string()
     } else if days < 7 {
         match language_key(language) {
             "ko" => format!("{}일 전", days),
@@ -1221,7 +1221,7 @@ fn relative_modified_label_for_language(
             _ => format!("{}y ago", days / 365),
         }
     } else {
-        localized("unknown", "알 수 없음", "不明", language).to_string()
+        crate::i18n::tr("date-unknown", language).to_string()
     }
 }
 
@@ -1231,7 +1231,7 @@ fn absolute_modified_label(
     mode: DateFormatMode,
 ) -> String {
     let Some(modified) = modified else {
-        return localized("unknown", "알 수 없음", "不明", language).to_string();
+        return crate::i18n::tr("date-unknown", language).to_string();
     };
     let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH) else {
         return relative_modified_label_for_language(Some(modified), language);
@@ -1389,21 +1389,9 @@ fn empty_message(
     language: &str,
 ) -> String {
     if entries.is_empty() {
-        localized(
-            "No models yet",
-            "아직 모델 없음",
-            "モデルがまだありません",
-            language,
-        )
-        .to_string()
+        crate::i18n::tr("no-models-yet", language).to_string()
     } else if displayed.is_empty() {
-        localized(
-            "No matching models",
-            "일치하는 모델 없음",
-            "一致するモデルがありません",
-            language,
-        )
-        .to_string()
+        crate::i18n::tr("no-matching-models", language).to_string()
     } else {
         match language_key(language) {
             "ko" => format!("{}개 모델 표시 중", displayed.len()),
@@ -1415,13 +1403,7 @@ fn empty_message(
 
 fn titlebar_for_library_roots(roots: &[PathBuf], language: &str) -> String {
     match roots.len() {
-        0 => localized(
-            "Sample library",
-            "샘플 라이브러리",
-            "サンプルライブラリ",
-            language,
-        )
-        .to_string(),
+        0 => crate::i18n::tr("sample-library", language).to_string(),
         1 => display_path_label(&roots[0]),
         n => {
             let joined = roots
@@ -1464,7 +1446,7 @@ fn stl_type_label(stl_type: scanner::StlType) -> &'static str {
 }
 
 fn format_triangle_count_for_language(count: usize, language: &str) -> String {
-    let unit = localized("tris", "삼각형", "三角形", language);
+    let unit = crate::i18n::tr("tris", language);
     if count >= 1_000_000 {
         format!("{:.1}M {}", count as f64 / 1_000_000.0, unit)
     } else if count >= 1_000 {
@@ -1489,38 +1471,26 @@ fn format_size(bytes: u64) -> String {
 pub fn filter_label_for_language(filter: &LibraryFilter, language: &str) -> Option<String> {
     match filter {
         LibraryFilter::All => None,
-        LibraryFilter::Recent => Some(localized("Recent", "최근", "最近", language).to_string()),
-        LibraryFilter::Favorites => {
-            Some(localized("Favorites", "즐겨찾기", "お気に入り", language).to_string())
-        }
-        LibraryFilter::Printed => {
-            Some(localized("Printed", "출력됨", "印刷済み", language).to_string())
-        }
-        LibraryFilter::Duplicates => {
-            Some(localized("Duplicates", "중복", "重複", language).to_string())
-        }
-        LibraryFilter::Ready => {
-            Some(localized("Ready", "출력 준비", "印刷準備完了", language).to_string())
-        }
-        LibraryFilter::Errors => {
-            Some(localized("Unparseable", "파싱 오류", "解析エラー", language).to_string())
-        }
+        LibraryFilter::Recent => Some(crate::i18n::tr("recent", language).to_string()),
+        LibraryFilter::Favorites => Some(crate::i18n::tr("favorites", language).to_string()),
+        LibraryFilter::Printed => Some(crate::i18n::tr("printed", language).to_string()),
+        LibraryFilter::Duplicates => Some(crate::i18n::tr("duplicates", language).to_string()),
+        LibraryFilter::Ready => Some(crate::i18n::tr("ready", language).to_string()),
+        LibraryFilter::Errors => Some(crate::i18n::tr("filter-unparseable", language).to_string()),
         LibraryFilter::Folder(folder) => Some(format!(
             "{}: {}",
-            localized("Folder", "폴더", "フォルダ", language),
+            crate::i18n::tr("filter-folder", language),
             folder
                 .file_name()
                 .and_then(|name| name.to_str())
-                .unwrap_or(localized("Library", "라이브러리", "ライブラリ", language))
+                .unwrap_or(crate::i18n::tr("filter-library", language))
         )),
         LibraryFilter::Tag(tag) => Some(format!(
             "{}: {}",
-            localized("Tag", "태그", "タグ", language),
+            crate::i18n::tr("filter-tag", language),
             tag
         )),
-        LibraryFilter::Untagged => {
-            Some(localized("Untagged", "태그 없음", "タグなし", language).to_string())
-        }
+        LibraryFilter::Untagged => Some(crate::i18n::tr("untagged", language).to_string()),
     }
 }
 

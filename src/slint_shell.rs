@@ -1739,12 +1739,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
             let mut state = subtag_state.borrow_mut();
             let Some(path) = state.selected_model_path() else {
                 let language = state.prefs.language.clone();
-                let msg = localized(
-                    "Please select a model first to attach the sub-tag.",
-                    "하위 태그를 추가할 모델을 먼저 선택해 주세요.",
-                    "下位タグを追加するモデルをまず選択してください。",
-                    &language,
-                );
+                let msg = crate::i18n::tr("select-model-for-subtag", &language);
                 ui.set_status_text(msg.into());
                 return;
             };
@@ -2710,15 +2705,7 @@ fn set_watch_status(
 ) {
     let language = ui.get_settings_language_key().to_string();
     match watcher_runtime.borrow_mut().watch_folder(folder) {
-        Ok(()) => ui.set_status_text(
-            localized(
-                "Watching library for changes",
-                "라이브러리 변경 감시 중",
-                "ライブラリの変更を監視中",
-                &language,
-            )
-            .into(),
-        ),
+        Ok(()) => ui.set_status_text(crate::i18n::tr("watching-library", &language).into()),
         Err(err) => ui.set_status_text(
             match language_key(&language) {
                 "ko" => format!("{err}; 새로고침을 수동으로 사용하세요"),
@@ -2975,15 +2962,7 @@ fn move_sidebar_folder_to_trash(
     }
 
     if !confirm_move_folder_to_trash(label, folder, language) {
-        ui.set_status_text(
-            localized(
-                "Move to Trash cancelled",
-                "휴지통 이동 취소",
-                "ゴミ箱移動キャンセル",
-                language,
-            )
-            .into(),
-        );
+        ui.set_status_text(crate::i18n::tr("move-to-trash-cancelled", language).into());
         return;
     }
 
@@ -3058,22 +3037,25 @@ fn move_sidebar_folder_to_trash(
 }
 
 fn confirm_move_folder_to_trash(label: &str, folder: &Path, language: &str) -> bool {
-    let title = localized("Delete folder?", "폴더 삭제?", "フォルダを削除？", language);
+    let title = crate::i18n::tr("delete-folder-confirm", language);
     let en = format!(
         "Move '{}' to the Trash and remove it from the library?\n\n{}",
-        label, folder.display()
+        label,
+        folder.display()
     );
     let ko = format!(
         "'{}' 폴더를 휴지통으로 이동하고 라이브러리에서 제거할까요?\n\n{}",
-        label, folder.display()
+        label,
+        folder.display()
     );
     let ja = format!(
         "'{}' をゴミ箱に移動してライブラリから削除しますか？\n\n{}",
-        label, folder.display()
+        label,
+        folder.display()
     );
     let desc = localized(&en, &ko, &ja, language);
-    let ok_label = localized("Delete Folder", "폴더 삭제", "フォルダを削除", language);
-    let cancel_label = localized("Cancel", "취소", "キャンセル", language);
+    let ok_label = crate::i18n::tr("delete-folder-ok", language);
+    let cancel_label = crate::i18n::tr("cancel", language);
     match rfd::MessageDialog::new()
         .set_level(rfd::MessageLevel::Warning)
         .set_title(title)
@@ -3765,12 +3747,7 @@ fn save_prefs_status(ui: &ModelRackWindow, state: &ShellState) {
     if let Err(err) = save_app_prefs(&state.prefs) {
         let path = app_prefs_path();
         ui.set_status_text(
-            format!(
-                "Could not save settings to {}: {}",
-                path.display(),
-                err
-            )
-            .into(),
+            format!("Could not save settings to {}: {}", path.display(), err).into(),
         );
     }
 }
@@ -5429,13 +5406,7 @@ impl ShellState {
                 found: self.entries.len(),
                 scanned: self.entries.len(),
                 skipped: self.skipped,
-                current: localized(
-                    "loading models",
-                    "모델 불러오는 중",
-                    "モデルを読み込み中",
-                    &self.prefs.language,
-                )
-                .to_string(),
+                current: crate::i18n::tr("loading-models", &self.prefs.language).to_string(),
             },
             |progress| ScanStatus::Scanning {
                 found: self.entries.len(),
@@ -6142,7 +6113,7 @@ impl ShellState {
         } else {
             (
                 scanner::arranged_three_mf_overview_mesh(&plates)?,
-                localized("All plates", "전체 플레이트", "全プレート", &language).to_string(),
+                crate::i18n::tr("all-plates", &language).to_string(),
             )
         };
         let triangle_count = if selected_plate_index.is_some() {
@@ -6152,7 +6123,7 @@ impl ShellState {
         };
         let mut tab_rows = Vec::with_capacity(plates.len() + 1);
         tab_rows.push(PreviewPlateTab {
-            label: localized("All plates", "전체 플레이트", "全プレート", &language).to_string(),
+            label: crate::i18n::tr("all-plates", &language).to_string(),
             index: -1,
             selected: selected_plate_index.is_none(),
         });
@@ -6252,7 +6223,7 @@ fn apply_snapshot(ui: &ModelRackWindow, snapshot: &AppViewSnapshot) {
         .map(|tag| {
             if tag.label == "__untagged__" {
                 let language = ui.get_settings_language_key().to_string();
-                let display = localized("Untagged", "태그 없음", "タグなし", &language);
+                let display = crate::i18n::tr("untagged", &language);
                 SidebarItem {
                     key: "untagged".into(),
                     label: display.into(),
@@ -6407,24 +6378,13 @@ fn settings_folder_label(state: &ShellState) -> String {
     if state.sidecar_writes_enabled {
         let roots = &state.prefs.library_folders;
         if roots.is_empty() {
-            localized(
-                "No folder selected",
-                "선택한 폴더 없음",
-                "フォルダ未選択",
-                &state.prefs.language,
-            )
-            .to_string()
+            crate::i18n::tr("no-folder-selected", &state.prefs.language).to_string()
         } else if roots.len() == 1 {
             display_path_label(&roots[0])
         } else {
             format!(
                 "{} ({})",
-                localized(
-                    "Multiple folders",
-                    "여러 폴더",
-                    "複数フォルダ",
-                    &state.prefs.language
-                ),
+                crate::i18n::tr("multiple-folders", &state.prefs.language),
                 roots
                     .iter()
                     .map(|p| display_path_label(p))
@@ -6433,13 +6393,7 @@ fn settings_folder_label(state: &ShellState) -> String {
             )
         }
     } else {
-        localized(
-            "Sample library (demo, memory-only)",
-            "샘플 라이브러리 (데모, 메모리 전용)",
-            "サンプルライブラリ（デモ、メモリのみ）",
-            &state.prefs.language,
-        )
-        .to_string()
+        crate::i18n::tr("sample-library-demo", &state.prefs.language).to_string()
     }
 }
 
@@ -6643,6 +6597,7 @@ fn toggle_sidebar_tag(ui: &ModelRackWindow, state: &Rc<RefCell<ShellState>>, key
 
 fn apply_settings(ui: &ModelRackWindow, state: &ShellState) {
     apply_theme(ui, &state.prefs.theme, &state.prefs.accent_color);
+    crate::i18n::apply_translations(ui, &state.prefs.language);
     let discovered_slicers = discover_slicer_candidates();
     let slicer_rows = slicer_choice_rows(&state.prefs.slicer_path, &discovered_slicers);
     let (selected_slicer_icon, selected_slicer_icon_ready) = slicer_rows

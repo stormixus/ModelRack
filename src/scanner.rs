@@ -731,9 +731,7 @@ fn which_openscad() -> Result<PathBuf> {
         }
     }
     // Try PATH
-    let output = Command::new("which")
-        .arg("openscad")
-        .output()?;
+    let output = Command::new("which").arg("openscad").output()?;
     if output.status.success() {
         let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if !path.is_empty() {
