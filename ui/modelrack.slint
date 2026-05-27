@@ -1563,53 +1563,7 @@ component SettingsDropdown inherits Rectangle {
     property <length> row-h: 28px;
     property <length> menu-h: min(200px, options.length * row-h + 4px);
     width: 220px;
-    height: 28px;
-
-    // Menu opens UPWARD to avoid z-order clipping
-    if open: TouchArea {
-        x: -3000px;
-        y: -3000px;
-        width: 7000px;
-        height: 7000px;
-        clicked => { root.active-dropdown-id = ""; }
-    }
-
-    if open: Rectangle {
-        y: -menu-h - 2px;
-        width: parent.width;
-        height: menu-h;
-        background: Theme.bg-2;
-        border-color: Theme.line-2;
-        border-width: 1px;
-        border-radius: 6px;
-        clip: true;
-
-        VerticalLayout {
-            padding: 2px;
-            spacing: 0px;
-            for opt in options: Rectangle {
-                height: root.row-h;
-                background: dd-opt-touch.has-hover ? Theme.bg-4 : (opt.key == root.selected-key ? Theme.bg-3 : transparent);
-                border-radius: 4px;
-
-                Text {
-                    x: 10px;
-                    y: (parent.height - self.height) / 2;
-                    text: opt.label;
-                    color: opt.key == root.selected-key ? Theme.accent : Theme.fg-1;
-                    font-size: Theme.font-body;
-                    font-weight: opt.key == root.selected-key ? 600 : 400;
-                }
-
-                dd-opt-touch := TouchArea {
-                    clicked => {
-                        root.activated(opt.key);
-                        root.active-dropdown-id = "";
-                    }
-                }
-            }
-        }
-    }
+    height: open ? 30px + menu-h : 28px;
 
     Rectangle {
         width: parent.width;
@@ -1644,6 +1598,51 @@ component SettingsDropdown inherits Rectangle {
                     root.active-dropdown-id = "";
                 } else {
                     root.active-dropdown-id = root.dropdown-id;
+                }
+            }
+        }
+    }
+
+    if open: TouchArea {
+        x: -3000px;
+        y: -3000px;
+        width: 7000px;
+        height: 7000px;
+        clicked => { root.active-dropdown-id = ""; }
+    }
+
+    if open: Rectangle {
+        y: 30px;
+        width: parent.width;
+        height: menu-h;
+        background: Theme.bg-2;
+        border-color: Theme.line-2;
+        border-width: 1px;
+        border-radius: 6px;
+        clip: true;
+
+        VerticalLayout {
+            padding: 2px;
+            spacing: 0px;
+            for opt in options: Rectangle {
+                height: root.row-h;
+                background: dd-opt-touch.has-hover ? Theme.bg-4 : (opt.key == root.selected-key ? Theme.bg-3 : transparent);
+                border-radius: 4px;
+
+                Text {
+                    x: 10px;
+                    y: (parent.height - self.height) / 2;
+                    text: opt.label;
+                    color: opt.key == root.selected-key ? Theme.accent : Theme.fg-1;
+                    font-size: Theme.font-body;
+                    font-weight: opt.key == root.selected-key ? 600 : 400;
+                }
+
+                dd-opt-touch := TouchArea {
+                    clicked => {
+                        root.activated(opt.key);
+                        root.active-dropdown-id = "";
+                    }
                 }
             }
         }
