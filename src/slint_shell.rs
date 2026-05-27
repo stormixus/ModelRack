@@ -1751,18 +1751,23 @@ pub fn run() -> Result<(), slint::PlatformError> {
     ui.on_add_subtag_path(move |parent_key, subtag_draft| {
         if let Some(ui) = weak.upgrade() {
             let mut state = subtag_state.borrow_mut();
-            let Some(path) = state.selected_model_path() else {
-                let language = state.prefs.language.clone();
-                let msg = crate::i18n::tr("select-model-for-subtag", &language);
-                ui.set_status_text(msg.into());
-                return;
-            };
-
             let parent_path = parent_key
                 .as_str()
                 .strip_prefix("tag:")
                 .unwrap_or(parent_key.as_str());
             let full_tag = format!("{}/{}", parent_path, subtag_draft.as_str().trim());
+
+            let Some(path) = state.selected_model_path() else {
+                if !state.prefs.standalone_tags.contains(&full_tag) {
+                    state.prefs.standalone_tags.push(full_tag.clone());
+                }
+                let snapshot = state.snapshot_done();
+                apply_snapshot(&ui, &snapshot);
+                apply_settings(&ui, &state);
+                save_prefs_status(&ui, &state);
+                ui.set_status_text(format!("Sub-tag created: {}", full_tag).into());
+                return;
+            };
 
             let allow_sidecar_writes = state.sidecar_writes_enabled;
             let prefs = state.prefs.clone();
