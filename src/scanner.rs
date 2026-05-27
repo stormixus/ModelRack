@@ -247,6 +247,10 @@ pub fn scan_folder_stream(path: &Path, tx: crossbeam_channel::Sender<ScanEvent>)
                     .to_string(),
             });
 
+            if ext == "obj" && is_binary_file_quick(&file_path) {
+                return;
+            }
+
             match parse_supported_file(&file_path, &ext) {
                 Ok((info, mesh_opt)) => {
                     let _ = tx.send(ScanEvent::Entry {
@@ -255,9 +259,6 @@ pub fn scan_folder_stream(path: &Path, tx: crossbeam_channel::Sender<ScanEvent>)
                     });
                 }
                 Err(err) => {
-                    if ext == "obj" && is_binary_file_quick(&file_path) {
-                        return;
-                    }
                     eprintln!("Parse error for {}: {}", file_path.display(), err);
 
                     let fallback_info = metadata_only_file(&file_path, StlType::Unknown)
