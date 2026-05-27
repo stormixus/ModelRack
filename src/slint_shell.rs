@@ -2904,7 +2904,14 @@ fn move_sidebar_folder_to_trash(
                 }
             }
         }
-        Err(err) => ui.set_status_text(format!("Could not move folder to Trash: {err}").into()),
+        Err(err) => {
+            let hint = if cfg!(target_os = "macos") {
+                " — check System Settings → Privacy & Security → Automation and allow ModelRack to control Finder"
+            } else {
+                ""
+            };
+            ui.set_status_text(format!("Could not move folder to Trash: {err}{hint}").into());
+        }
     }
 }
 
@@ -3602,7 +3609,15 @@ fn save_app_prefs_to_path(path: &Path, prefs: &AppPrefs) -> io::Result<()> {
 
 fn save_prefs_status(ui: &ModelRackWindow, state: &ShellState) {
     if let Err(err) = save_app_prefs(&state.prefs) {
-        ui.set_status_text(format!("Could not save settings: {}", err).into());
+        let path = app_prefs_path();
+        ui.set_status_text(
+            format!(
+                "Could not save settings to {}: {}",
+                path.display(),
+                err
+            )
+            .into(),
+        );
     }
 }
 
