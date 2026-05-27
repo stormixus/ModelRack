@@ -2364,6 +2364,8 @@ export component ModelRackWindow inherits Window {
     property <length> resize-start-width: 0px;
     property <bool> rename-editing: false;
     property <string> rename-draft: "";
+    property <bool> new-tag-input-visible: false;
+    property <string> new-tag-draft: "";
     property <bool> folder-drag-detected: folder-drag-sensor.contains-drag;
     property <length> grid-viewport-y: 0px;
     property <length> grid-viewport-height: 0px;
@@ -2429,6 +2431,7 @@ export component ModelRackWindow inherits Window {
     callback toggle-sidebar-folder(string);
     callback toggle-sidebar-tag(string);
     callback add-tag-sidebar-clicked();
+    callback create-empty-tag(string);
     callback add-subtag-path(string, string);
     callback tag-dropped-on-tag(string, string);
     callback folder-dropped-on-tag(string, string);
@@ -2766,10 +2769,43 @@ export component ModelRackWindow inherits Window {
                             }
                         }
 
-                        if tag-items.length > 0: SectionHeader {
+                        SectionHeader {
                             label: tr-tags-heading;
                             show-add: true;
-                            add-requested => { add-tag-sidebar-clicked(); }
+                            add-requested => { new-tag-input-visible = !new-tag-input-visible; new-tag-draft = ""; }
+                        }
+
+                        if new-tag-input-visible: Rectangle {
+                            height: 30px;
+                            HorizontalLayout {
+                                padding-left: 8px;
+                                padding-right: 8px;
+                                spacing: 6px;
+
+                                SvgIcon {
+                                    width: 14px;
+                                    height: 14px;
+                                    y: (parent.height - self.height) / 2;
+                                    icon: @image-url("../assets/icons/tag.svg");
+                                    tint: Theme.fg-2;
+                                }
+
+                                new-tag-input := LineEdit {
+                                    horizontal-stretch: 1;
+                                    placeholder-text: settings-language-key == "ko" ? "새 태그 이름" :
+                                                     settings-language-key == "ja" ? "新しいタグ名" :
+                                                     "New tag name";
+                                    text: new-tag-draft;
+                                    edited(val) => { new-tag-draft = val; }
+                                    accepted => {
+                                        if (new-tag-draft != "") {
+                                            create-empty-tag(new-tag-draft);
+                                            new-tag-draft = "";
+                                            new-tag-input-visible = false;
+                                        }
+                                    }
+                                }
+                            }
                         }
 
                         for tag in tag-items: tag-row := SidebarLine {

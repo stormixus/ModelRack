@@ -281,16 +281,25 @@ pub fn run() -> Result<(), slint::PlatformError> {
 
     let weak = ui.as_weak();
     let add_tag_sidebar_state = state.clone();
-    ui.on_add_tag_sidebar_clicked(move || {
+    ui.on_add_tag_sidebar_clicked(move || {});
+
+    let weak = ui.as_weak();
+    let create_tag_state = state.clone();
+    ui.on_create_empty_tag(move |tag_name| {
         if let Some(ui) = weak.upgrade() {
-            let language = add_tag_sidebar_state.borrow().prefs.language.clone();
-            let msg = localized(
-                "To create a new tag, select a model and add tags in the right-hand detail panel.",
-                "태그를 새로 만들려면 모델을 선택하고 오른쪽 상세 패널에서 태그를 추가해 주세요.",
-                "新しいタグを追加するには、モデルを選択して右側の詳細パネルからタグを追加してください。",
-                &language
-            );
-            ui.set_status_text(msg.into());
+            let mut state = create_tag_state.borrow_mut();
+            let tag = tag_name.to_string().trim().to_string();
+            if tag.is_empty() {
+                return;
+            }
+            if !state.prefs.standalone_tags.contains(&tag) {
+                state.prefs.standalone_tags.push(tag.clone());
+            }
+            let snapshot = state.snapshot_done();
+            apply_snapshot(&ui, &snapshot);
+            apply_settings(&ui, &state);
+            save_prefs_status(&ui, &state);
+            ui.set_status_text(format!("Tag created: {tag}").into());
         }
     });
 
@@ -9157,6 +9166,7 @@ mod tests {
             excluded_folders: vec![root.join("models/archived")],
             collapsed_folders: vec![root.join("models/nested")],
             collapsed_tags: vec!["filament/PLA".to_string()],
+            standalone_tags: Vec::new(),
             use_embedded_3mf_preview: true,
             estimate_multicolor: false,
         };

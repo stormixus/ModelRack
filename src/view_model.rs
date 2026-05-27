@@ -144,6 +144,8 @@ pub struct AppPrefs {
     pub collapsed_folders: Vec<PathBuf>,
     #[serde(default)]
     pub collapsed_tags: Vec<String>,
+    #[serde(default)]
+    pub standalone_tags: Vec<String>,
     #[serde(default = "default_use_embedded_3mf_preview")]
     pub use_embedded_3mf_preview: bool,
     #[serde(default = "default_estimate_multicolor")]
@@ -194,6 +196,7 @@ impl Default for AppPrefs {
             excluded_folders: Vec::new(),
             collapsed_folders: Vec::new(),
             collapsed_tags: Vec::new(),
+            standalone_tags: Vec::new(),
             use_embedded_3mf_preview: default_use_embedded_3mf_preview(),
             estimate_multicolor: default_estimate_multicolor(),
         }
@@ -441,7 +444,7 @@ impl AppViewSnapshot {
             library_label: titlebar_for_library_roots(library_roots, language),
             sidebar: sidebar_summary(entries),
             folders: sidebar_folders(entries, library_roots, &prefs.collapsed_folders),
-            tags: sidebar_tags(entries, &prefs.collapsed_tags),
+            tags: sidebar_tags_with_standalone(entries, &prefs.collapsed_tags, &prefs.standalone_tags),
             cards: browser_cards_for_prefs(sliced_displayed, prefs),
             browser: BrowserSummary {
                 displayed: displayed.len(),
@@ -485,7 +488,7 @@ impl AppViewSnapshot {
             library_label: titlebar_for_library_roots(library_roots, language),
             sidebar: sidebar_summary(entries),
             folders: sidebar_folders(entries, library_roots, &prefs.collapsed_folders),
-            tags: sidebar_tags(entries, &prefs.collapsed_tags),
+            tags: sidebar_tags_with_standalone(entries, &prefs.collapsed_tags, &prefs.standalone_tags),
             cards: browser_cards_for_prefs(sliced_displayed, prefs),
             browser: BrowserSummary {
                 displayed: displayed.len(),
@@ -970,7 +973,18 @@ pub fn sidebar_tags(
     entries: &[scanner::StlFileInfo],
     collapsed_tags: &[String],
 ) -> Vec<SidebarTag> {
+    sidebar_tags_with_standalone(entries, collapsed_tags, &[])
+}
+
+pub fn sidebar_tags_with_standalone(
+    entries: &[scanner::StlFileInfo],
+    collapsed_tags: &[String],
+    standalone_tags: &[String],
+) -> Vec<SidebarTag> {
     let mut counts = BTreeMap::new();
+    for tag in standalone_tags {
+        counts.entry(tag.clone()).or_insert(0);
+    }
     let mut unique_ancestors = std::collections::HashSet::new();
     for entry in entries {
         if let Some(meta) = &entry.meta {
@@ -1783,6 +1797,7 @@ mod tests {
             excluded_folders: vec![PathBuf::from("/tmp/models/archived")],
             collapsed_folders: vec![PathBuf::from("/tmp/models/nested")],
             collapsed_tags: vec!["filament/PLA".to_string()],
+            standalone_tags: Vec::new(),
             estimate_multicolor: false,
         };
         let json = serde_json::to_string(&prefs).unwrap();
