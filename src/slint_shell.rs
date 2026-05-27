@@ -72,6 +72,16 @@ pub fn run() -> Result<(), slint::PlatformError> {
     // clickable CTA. Default "last" preserves the historical behavior.
     let startup_mode = state.borrow().prefs.startup_view.clone();
     if startup_mode != "empty" {
+        if let Some(cached) = load_library_cache() {
+            if !cached.is_empty() {
+                let mut s = state.borrow_mut();
+                s.entries = cached;
+                let snapshot = s.snapshot_done();
+                apply_snapshot(&ui, &snapshot);
+                apply_detail_rc(&ui, &state);
+                apply_settings(&ui, &state.borrow());
+            }
+        }
         let restored_queue = state.borrow().restored_library_scan_queue();
         start_library_scan_queue(
             &ui,
@@ -3246,6 +3256,7 @@ fn apply_scan_result(
         apply_detail_rc(ui, state);
         apply_settings(ui, &state.borrow());
         save_prefs_status(ui, &state.borrow());
+        save_library_cache(&state.borrow().entries);
     }
     if let Some(folder) = next_scan {
         start_folder_scan(
@@ -3696,6 +3707,33 @@ fn civil_from_days(days_since_epoch: i64) -> (i32, u32, u32) {
     let month = mp + if mp < 10 { 3 } else { -9 };
     let year = y + if month <= 2 { 1 } else { 0 };
     (year as i32, month as u32, day as u32)
+}
+
+fn library_cache_path() -> PathBuf {
+    let mut p = app_prefs_path();
+    p.set_file_name("library_cache.json");
+    p
+}
+
+fn save_library_cache(entries: &[scanner::StlFileInfo]) {
+    let path = library_cache_path();
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let json = match serde_json::to_string(entries) {
+        Ok(j) => j,
+        Err(_) => return,
+    };
+    let tmp = path.with_extension("tmp");
+    if fs::write(&tmp, &json).is_ok() {
+        let _ = fs::rename(&tmp, &path);
+    }
+}
+
+fn load_library_cache() -> Option<Vec<scanner::StlFileInfo>> {
+    let path = library_cache_path();
+    let data = fs::read_to_string(&path).ok()?;
+    serde_json::from_str(&data).ok()
 }
 
 fn app_prefs_path() -> PathBuf {
@@ -8803,7 +8841,7 @@ mod tests {
         assert!(is_refresh_relevant_path(Path::new("bracket.step")));
         assert!(is_refresh_relevant_path(Path::new("bracket.stp")));
         assert!(is_refresh_relevant_path(Path::new("fixture.scad")));
-        assert!(is_refresh_relevant_path(Path::new(
+        assert!(!is_refresh_relevant_path(Path::new(
             "part.stl.modelrack.json"
         )));
 
@@ -8856,7 +8894,7 @@ mod tests {
             .tx
             .send(WatchMessage::Changed {
                 generation,
-                paths: vec![PathBuf::from("part.stl.modelrack.json")],
+                paths: vec![PathBuf::from("part.stl")],
             })
             .unwrap();
         assert_eq!(

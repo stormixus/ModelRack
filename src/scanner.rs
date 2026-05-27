@@ -129,7 +129,7 @@ pub struct ThreeMfPlate {
     pub mesh: MeshData,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct StlFileInfo {
     pub path: PathBuf,
     pub filename: String,
@@ -144,7 +144,7 @@ pub struct StlFileInfo {
     pub meta: Option<SidecarMeta>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StlType {
     Binary,
     Ascii,
