@@ -1466,11 +1466,7 @@ pub(crate) fn parse_stl_file(path: &Path) -> Result<(StlFileInfo, Option<MeshDat
             (StlType::LargeStl, tri_header, None, None)
         }
     } else {
-        let parsed = parse_binary_stl_fast(&data);
-        if parsed.is_none() && size > 8 * 1024 * 1024 {
-            eprintln!("parse_binary_stl_fast returned None for {} ({} bytes)", path.display(), size);
-        }
-        let parsed = parsed.unwrap_or_else(|| parse_ascii_stl(&data));
+        let parsed = parse_binary_stl_fast(&data).unwrap_or_else(|| parse_ascii_stl(&data));
         if parsed.0 == StlType::Unknown || parsed.3.is_none() {
             if size <= MAX_STL_IO_FALLBACK_BYTES {
                 parse_stl_io_mesh(&data).unwrap_or(parsed)
