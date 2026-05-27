@@ -252,26 +252,26 @@ component SidebarLine inherits Rectangle {
         enabled: root.drag-enabled;
         mime-type: root.drag-mime;
         data: root.key;
-    }
 
-    ta-line := TouchArea {
-        width: parent.width;
-        height: parent.height;
-        clicked => {
-            if (root.expandable && ta-line.mouse-x < 24px + root.depth * 14px) {
-                root.toggle-requested();
-            } else {
-                root.activated();
+        ta-line := TouchArea {
+            width: parent.width;
+            height: parent.height;
+            pointer-event(event) => {
+                if (event.button == PointerEventButton.left && event.kind == PointerEventKind.up) {
+                    if (root.expandable && ta-line.mouse-x < 24px + root.depth * 14px) {
+                        root.toggle-requested();
+                    } else {
+                        root.activated();
+                    }
+                }
+                if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                    root.context-requested(ta-line.absolute-position.x + ta-line.mouse-x, ta-line.absolute-position.y + ta-line.mouse-y);
+                }
             }
-        }
-        double-clicked => {
-            if (root.expandable) {
-                root.toggle-requested();
-            }
-        }
-        pointer-event(event) => {
-            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
-                root.context-requested(ta-line.absolute-position.x + ta-line.mouse-x, ta-line.absolute-position.y + ta-line.mouse-y);
+            double-clicked => {
+                if (root.expandable) {
+                    root.toggle-requested();
+                }
             }
         }
     }
