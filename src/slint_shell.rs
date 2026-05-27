@@ -1861,6 +1861,154 @@ pub fn run() -> Result<(), slint::PlatformError> {
     });
 
     let weak = ui.as_weak();
+    let reorder_tag_state = state.clone();
+    ui.on_reorder_tag(move |tag_key, line_offset| {
+        if line_offset == 0 {
+            return;
+        }
+        if let Some(ui) = weak.upgrade() {
+            let mut state = reorder_tag_state.borrow_mut();
+            let key = tag_key
+                .as_str()
+                .strip_prefix("tag:")
+                .unwrap_or(tag_key.as_str());
+
+            // Build current visible tag order from the snapshot tags
+            let visible_tags: Vec<String> = view_model::sidebar_tags_ordered(
+                &state.entries,
+                &state.prefs.collapsed_tags,
+                &state.prefs.standalone_tags,
+                &state.prefs.tag_order,
+            )
+            .iter()
+            .map(|t| t.label.clone())
+            .collect();
+
+            let Some(src) = visible_tags.iter().position(|t| t == key) else {
+                return;
+            };
+
+            let prefix = format!("{}/", key);
+            let mut group: Vec<String> = Vec::new();
+            group.push(key.to_string());
+            let mut i = src + 1;
+            while i < visible_tags.len() && visible_tags[i].starts_with(&prefix) {
+                group.push(visible_tags[i].clone());
+                i += 1;
+            }
+            let group_len = group.len();
+
+            let dst = (src as i32 + line_offset).max(0) as usize;
+            let dst = dst.min(visible_tags.len().saturating_sub(1));
+
+            // If landing on __untagged__ or beyond list, promote to top-level
+            if dst != src && dst < visible_tags.len() && visible_tags[dst] == "__untagged__" {
+                if let Some(slash) = key.rfind('/') {
+                    let child = &key[slash + 1..];
+                    let old_tag = key.to_string();
+                    let old_prefix = format!("{}/", old_tag);
+                    let allow_sidecar_writes = state.sidecar_writes_enabled;
+                    for entry in state.entries.iter_mut() {
+                        if let Some(meta) = &mut entry.meta {
+                            let mut changed = false;
+                            let new_tags: Vec<String> = meta.tags.iter().map(|t| {
+                                if t == &old_tag {
+                                    changed = true;
+                                    child.to_string()
+                                } else if let Some(suffix) = t.strip_prefix(&old_prefix) {
+                                    changed = true;
+                                    format!("{}/{}", child, suffix)
+                                } else {
+                                    t.clone()
+                                }
+                            }).collect();
+                            if changed {
+                                meta.tags = new_tags;
+                                if allow_sidecar_writes {
+                                    ignore_sidecar_watch(&entry.path);
+                                    let _ = scanner::write_sidecar(&entry.path, meta);
+                                }
+                            }
+                        }
+                    }
+                    for entry in state.displayed.iter_mut() {
+                        if let Some(meta) = &mut entry.meta {
+                            meta.tags = meta.tags.iter().map(|t| {
+                                if t == &old_tag { child.to_string() }
+                                else if let Some(suffix) = t.strip_prefix(&old_prefix) { format!("{}/{}", child, suffix) }
+                                else { t.clone() }
+                            }).collect();
+                        }
+                    }
+                    ui.set_status_text(format!("Promoted '{}' to top level", child).into());
+                    let snapshot = state.snapshot_done();
+                    apply_snapshot(&ui, &snapshot);
+                    apply_detail(&ui, &mut state);
+                    apply_settings(&ui, &state);
+                    save_prefs_status(&ui, &state);
+                    return;
+                }
+            }
+
+            // If landing exactly ON another tag (not self/children), reparent under it
+            if dst != src && dst < visible_tags.len() {
+                let target_tag = &visible_tags[dst];
+                if !target_tag.starts_with(&prefix) && target_tag != key && target_tag != "__untagged__" {
+                    let leaf = key.split('/').last().unwrap_or(key);
+                    let new_tag = format!("{}/{}", target_tag, leaf);
+
+                    let allow_sidecar_writes = state.sidecar_writes_enabled;
+                    let prefs = state.prefs.clone();
+                    match persist_tag_reparent(
+                        &prefs,
+                        &mut state.entries,
+                        allow_sidecar_writes,
+                        key,
+                        target_tag,
+                    ) {
+                        Ok(count) => {
+                            ui.set_status_text(
+                                format!("Moved '{}' under '{}' ({} models)", leaf, target_tag, count)
+                                    .into(),
+                            );
+                        }
+                        Err(err) => {
+                            ui.set_status_text(
+                                format!("Could not reparent tag: {}", err).into(),
+                            );
+                        }
+                    }
+                    let snapshot = state.snapshot_done();
+                    apply_snapshot(&ui, &snapshot);
+                    apply_detail(&ui, &mut state);
+                    apply_settings(&ui, &state);
+                    save_prefs_status(&ui, &state);
+                    return;
+                }
+            }
+
+            if src == dst {
+                return;
+            }
+
+            let mut order: Vec<String> = visible_tags
+                .into_iter()
+                .filter(|t| !group.contains(t))
+                .collect();
+            let insert_at = dst.min(order.len());
+            for (j, tag) in group.into_iter().enumerate() {
+                order.insert(insert_at + j, tag);
+            }
+
+            state.prefs.tag_order = order;
+            let snapshot = state.snapshot_done();
+            apply_snapshot(&ui, &snapshot);
+            apply_settings(&ui, &state);
+            save_prefs_status(&ui, &state);
+        }
+    });
+
+    let weak = ui.as_weak();
     let open_dialog_state = state.clone();
     ui.on_open_folder_tag_dialog(move |folder_key, folder_label| {
         if let Some(ui) = weak.upgrade() {
