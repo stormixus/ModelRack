@@ -1524,6 +1524,104 @@ component SettingsMakerOptionRow inherits Rectangle {
     }
 }
 
+component SettingsDropdown inherits Rectangle {
+    in property <[SidebarItem]> options;
+    in property <string> selected-key;
+    callback activated(string);
+
+    property <bool> open: false;
+    in property <string> display-label;
+    property <length> row-h: 28px;
+
+    width: 220px;
+    height: open ? 30px + min(200px, options.length * row-h + 4px) : 28px;
+
+    Rectangle {
+        width: parent.width;
+        height: 28px;
+        background: dd-touch.has-hover || root.open ? Theme.bg-3 : Theme.bg-2;
+        border-color: root.open ? Theme.accent-line : Theme.line-2;
+        border-width: 1px;
+        border-radius: 6px;
+
+        Text {
+            x: 10px;
+            y: (parent.height - self.height) / 2;
+            width: parent.width - 30px;
+            text: root.display-label;
+            color: Theme.fg-1;
+            font-size: Theme.font-body;
+            overflow: elide;
+        }
+
+        Text {
+            x: parent.width - 20px;
+            y: (parent.height - self.height) / 2 - 1px;
+            text: root.open ? "⌃" : "⌄";
+            color: Theme.fg-2;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        dd-touch := TouchArea {
+            clicked => { root.open = !root.open; }
+        }
+    }
+
+    if open: TouchArea {
+        x: -3000px;
+        y: -3000px;
+        width: 7000px;
+        height: 7000px;
+        z: 10;
+        clicked => { root.open = false; }
+    }
+
+    if open: Rectangle {
+        y: 30px;
+        width: parent.width;
+        height: min(200px, options.length * row-h + 4px);
+        background: Theme.bg-2;
+        border-color: Theme.line-2;
+        border-width: 1px;
+        border-radius: 6px;
+        z: 20;
+        clip: true;
+
+        ScrollView {
+            x: 2px;
+            y: 2px;
+            width: parent.width - 4px;
+            height: parent.height - 4px;
+
+            VerticalLayout {
+                spacing: 0px;
+                for opt in options: Rectangle {
+                    height: root.row-h;
+                    background: dd-opt-touch.has-hover ? Theme.bg-4 : (opt.key == root.selected-key ? Theme.bg-3 : transparent);
+                    border-radius: 4px;
+
+                    Text {
+                        x: 10px;
+                        y: (parent.height - self.height) / 2;
+                        text: opt.label;
+                        color: opt.key == root.selected-key ? Theme.accent : Theme.fg-1;
+                        font-size: Theme.font-body;
+                        font-weight: opt.key == root.selected-key ? 600 : 400;
+                    }
+
+                    dd-opt-touch := TouchArea {
+                        clicked => {
+                            root.activated(opt.key);
+                            root.open = false;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 component SettingsSegment inherits Rectangle {
     in property <string> a-label;
     in property <string> a-key;
@@ -5600,7 +5698,17 @@ export component ModelRackWindow inherits Window {
                             height: 54px;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
                             Text { x: 0; y: 18px; width: 180px; text: tr-language; color: Theme.fg-1; font-size: Theme.font-body; }
-                            SettingsSegment { x: 196px; y: 12px; button-width: 74px; a-label: tr-english; a-key: "en"; b-label: "한국어"; b-key: "ko"; c-label: "日本語"; c-key: "ja"; selected-key: settings-language-key; activated(key) => { choose-settings-language(key); } }
+                            SettingsDropdown {
+                                x: 196px; y: 10px;
+                                selected-key: settings-language-key;
+                                display-label: settings-language-key == "ko" ? "한국어" : settings-language-key == "ja" ? "日本語" : "English";
+                                options: [
+                                    { key: "en", label: "English" },
+                                    { key: "ko", label: "한국어" },
+                                    { key: "ja", label: "日本語" },
+                                ];
+                                activated(key) => { choose-settings-language(key); }
+                            }
                         }
                         if settings-tab == "general": Rectangle {
                             height: 58px;
@@ -5619,7 +5727,22 @@ export component ModelRackWindow inherits Window {
                             height: 54px;
                             Rectangle { x: 0; y: parent.height - 1px; width: parent.width; height: 1px; background: Theme.line; }
                             Text { x: 0; y: 18px; width: 180px; text: tr-default-sort; color: Theme.fg-1; font-size: Theme.font-body; }
-                            SettingsSegment { x: 196px; y: 12px; button-width: 88px; a-label: tr-name; a-key: "name"; b-label: tr-sort-modified; b-key: "modified"; c-label: tr-sort-added; c-key: "added"; d-label: tr-triangles; d-key: "triangles"; selected-key: settings-sort-key; activated(key) => { choose-settings-sort(key); } }
+                            SettingsDropdown {
+                                x: 196px; y: 10px;
+                                selected-key: settings-sort-key;
+                                display-label: settings-sort-key == "modified" ? tr-sort-modified : settings-sort-key == "added" ? tr-sort-added : settings-sort-key == "format" ? tr-format : settings-sort-key == "size" ? tr-file-size : settings-sort-key == "triangles" ? tr-triangles : settings-sort-key == "dimensions" ? tr-dimensions : settings-sort-key == "volume" ? tr-volume-est : tr-name;
+                                options: [
+                                    { key: "name", label: tr-name },
+                                    { key: "modified", label: tr-sort-modified },
+                                    { key: "added", label: tr-sort-added },
+                                    { key: "format", label: tr-format },
+                                    { key: "size", label: tr-file-size },
+                                    { key: "triangles", label: tr-triangles },
+                                    { key: "dimensions", label: tr-dimensions },
+                                    { key: "volume", label: tr-volume-est },
+                                ];
+                                activated(key) => { choose-settings-sort(key); }
+                            }
                         }
                         if settings-tab == "general": Rectangle {
                             height: 54px;
