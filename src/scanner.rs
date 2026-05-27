@@ -2097,9 +2097,11 @@ fn parse_binary_stl_fast(data: &[u8]) -> Option<ParsedStl> {
                 read_f32_le(data, start + 4)?,
                 read_f32_le(data, start + 8)?,
             ];
-            if !vertex.iter().all(|value| value.is_finite()) {
-                return None;
-            }
+            let vertex = if vertex.iter().all(|v| v.is_finite()) {
+                vertex
+            } else {
+                [0.0, 0.0, 0.0]
+            };
             for axis in 0..3 {
                 min[axis] = min[axis].min(vertex[axis]);
                 max[axis] = max[axis].max(vertex[axis]);
