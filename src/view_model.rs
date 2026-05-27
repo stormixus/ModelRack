@@ -977,13 +977,6 @@ pub fn sidebar_folders(
     result
 }
 
-pub fn sidebar_tags(
-    entries: &[scanner::StlFileInfo],
-    collapsed_tags: &[String],
-) -> Vec<SidebarTag> {
-    sidebar_tags_with_standalone(entries, collapsed_tags, &[])
-}
-
 pub fn sidebar_tags_with_standalone(
     entries: &[scanner::StlFileInfo],
     collapsed_tags: &[String],

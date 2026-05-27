@@ -290,9 +290,6 @@ pub fn run() -> Result<(), slint::PlatformError> {
             toggle_sidebar_tag(&ui, &toggle_tag_state, key.as_str());
         }
     });
-
-    let weak = ui.as_weak();
-    let add_tag_sidebar_state = state.clone();
     ui.on_add_tag_sidebar_clicked(move || {});
 
     let weak = ui.as_weak();
@@ -396,7 +393,6 @@ pub fn run() -> Result<(), slint::PlatformError> {
                         let old_tag = tag.to_string();
                         let new_tag = child.to_string();
                         let old_prefix = format!("{}/", old_tag);
-                        let mut updated = 0usize;
                         for entry in state.entries.iter_mut() {
                             if let Some(meta) = &mut entry.meta {
                                 let mut changed = false;
@@ -419,7 +415,6 @@ pub fn run() -> Result<(), slint::PlatformError> {
                                         ignore_sidecar_watch(&entry.path);
                                         let _ = scanner::write_sidecar(&entry.path, meta);
                                     }
-                                    updated += 1;
                                 }
                             }
                         }
