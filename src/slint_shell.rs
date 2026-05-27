@@ -1461,6 +1461,20 @@ pub fn run() -> Result<(), slint::PlatformError> {
                     vec![path.clone()]
                 };
                 let mut cleared = 0usize;
+                let tags_to_preserve: Vec<String> = paths.iter()
+                    .flat_map(|p| {
+                        state.entries.iter()
+                            .find(|e| e.path == *p)
+                            .and_then(|e| e.meta.as_ref())
+                            .map(|m| m.tags.clone())
+                            .unwrap_or_default()
+                    })
+                    .collect();
+                for tag in &tags_to_preserve {
+                    if !state.prefs.standalone_tags.contains(tag) {
+                        state.prefs.standalone_tags.push(tag.clone());
+                    }
+                }
                 for p in &paths {
                     ignore_sidecar_watch(p);
                     let clear_in = |entries: &mut [scanner::StlFileInfo]| -> bool {
@@ -2017,6 +2031,16 @@ pub fn run() -> Result<(), slint::PlatformError> {
             };
 
             let allow_sidecar_writes = state.sidecar_writes_enabled;
+            let tag_to_preserve = state.entries.iter()
+                .find(|e| e.path == path)
+                .and_then(|e| e.meta.as_ref())
+                .and_then(|m| m.tags.get(index as usize))
+                .cloned();
+            if let Some(tag) = &tag_to_preserve {
+                if !state.prefs.standalone_tags.contains(tag) {
+                    state.prefs.standalone_tags.push(tag.clone());
+                }
+            }
             let prefs = state.prefs.clone();
             match persist_remove_tag(
                 &prefs,
