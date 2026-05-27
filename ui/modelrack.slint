@@ -394,11 +394,12 @@ component SidebarContextMenu inherits Rectangle {
     in property <string> copy-path-label;
     in property <string> copy-tag-label;
     in property <string> add-subtag-label;
+    in property <string> delete-tag-label;
     in property <string> add-tag-to-folder-label;
     callback action(string);
 
     width: 188px;
-    height: target-is-folder ? 260px : 125px;
+    height: target-is-folder ? 260px : 154px;
     background: Theme.bg-2;
     border-color: Theme.line-2;
     border-width: 1px;
@@ -464,6 +465,13 @@ component SidebarContextMenu inherits Rectangle {
             hint: "";
             icon: @image-url("../assets/icons/plus.svg");
             activated => { root.action("add-subtag"); }
+        }
+
+        if !target-is-folder: ContextMenuItem {
+            label: delete-tag-label;
+            hint: "";
+            icon: @image-url("../assets/icons/trash.svg");
+            activated => { root.action("delete-tag"); }
         }
 
         ContextMenuItem {
@@ -2248,6 +2256,7 @@ export component ModelRackWindow inherits Window {
     property <string> tr-regenerate-thumbnails: settings-language-key == "ko" ? "썸네일 재생성" : settings-language-key == "ja" ? "サムネイルを再生成" : "Regenerate thumbnails";
     property <string> tr-clear-cache: settings-language-key == "ko" ? "캐시 지우기" : settings-language-key == "ja" ? "キャッシュを削除" : "Clear cache";
     property <string> tr-add-subtag: settings-language-key == "ko" ? "하위 태그 추가..." : settings-language-key == "ja" ? "下位タグを追加..." : "Add sub-tag...";
+    property <string> tr-delete-tag: settings-language-key == "ko" ? "태그 삭제" : settings-language-key == "ja" ? "タグを削除" : "Delete Tag";
     property <string> tr-add-tag-to-folder: settings-language-key == "ko" ? "폴더에 태그 추가..." : settings-language-key == "ja" ? "フォルダにタグを追加..." : "Add tag to folder...";
     property <string> tr-enabled-profiles: settings-language-key == "ko" ? "활성 프로파일" : settings-language-key == "ja" ? "有効なプロファイル" : "Enabled profiles";
     property <string> tr-default-estimate: settings-language-key == "ko" ? "기본 출력 예상" : settings-language-key == "ja" ? "既定の見積" : "Default estimate";
@@ -4940,6 +4949,7 @@ export component ModelRackWindow inherits Window {
         copy-path-label: tr-copy-path;
         copy-tag-label: tr-copy-tag;
         add-subtag-label: tr-add-subtag;
+        delete-tag-label: tr-delete-tag;
         add-tag-to-folder-label: tr-add-tag-to-folder;
         action(action) => {
             shortcut-scope.focus();

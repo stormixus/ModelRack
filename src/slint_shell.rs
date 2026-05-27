@@ -364,6 +364,48 @@ pub fn run() -> Result<(), slint::PlatformError> {
                         &language,
                     );
                 }
+                "delete-tag" => {
+                    let tag = key.as_str().strip_prefix("tag:").unwrap_or(key.as_str());
+                    let prefix = format!("{}/", tag);
+                    let mut state = sidebar_context_state.borrow_mut();
+                    let allow_sidecar_writes = state.sidecar_writes_enabled;
+                    let mut removed = 0usize;
+                    for entry in state.entries.iter_mut() {
+                        if let Some(meta) = &mut entry.meta {
+                            let before = meta.tags.len();
+                            meta.tags.retain(|t| {
+                                t != tag
+                                    && !t.starts_with(&prefix)
+                            });
+                            if meta.tags.len() < before {
+                                if allow_sidecar_writes {
+                                    ignore_sidecar_watch(&entry.path);
+                                    let _ = scanner::write_sidecar(&entry.path, meta);
+                                }
+                                removed += 1;
+                            }
+                        }
+                    }
+                    for entry in state.displayed.iter_mut() {
+                        if let Some(meta) = &mut entry.meta {
+                            meta.tags.retain(|t| t != tag && !t.starts_with(&prefix));
+                        }
+                    }
+                    state.prefs.standalone_tags.retain(|t| t != tag && !t.starts_with(&prefix));
+                    if matches!(&state.filter, LibraryFilter::Tag(active) if active == tag || active.starts_with(&prefix)) {
+                        state.filter = LibraryFilter::All;
+                    }
+                    let snapshot = state.snapshot_done();
+                    apply_snapshot(&ui, &snapshot);
+                    apply_detail(&ui, &mut state);
+                    apply_settings(&ui, &state);
+                    save_prefs_status(&ui, &state);
+                    if removed > 0 {
+                        ui.set_status_text(format!("Deleted tag '{}' from {} model(s)", tag, removed).into());
+                    } else {
+                        ui.set_status_text(format!("Deleted tag '{}'", tag).into());
+                    }
+                }
                 "copy" => {
                     let text = folder_path_from_filter_key(key.as_str())
                         .map(|path| path.display().to_string())
