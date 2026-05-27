@@ -246,6 +246,14 @@ component SidebarLine inherits Rectangle {
         font-size: Theme.font-overline;
     }
 
+    DragArea {
+        width: parent.width;
+        height: parent.height;
+        enabled: root.drag-enabled;
+        mime-type: root.drag-mime;
+        data: root.key;
+    }
+
     ta-line := TouchArea {
         width: parent.width;
         height: parent.height;
@@ -266,14 +274,6 @@ component SidebarLine inherits Rectangle {
                 root.context-requested(ta-line.absolute-position.x + ta-line.mouse-x, ta-line.absolute-position.y + ta-line.mouse-y);
             }
         }
-    }
-
-    DragArea {
-        width: parent.width;
-        height: parent.height;
-        enabled: root.drag-enabled;
-        mime-type: root.drag-mime;
-        data: root.key;
     }
 
     tag-drop := DropArea {
