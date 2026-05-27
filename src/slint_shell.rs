@@ -1484,9 +1484,12 @@ pub fn run() -> Result<(), slint::PlatformError> {
                     vec![path.clone()]
                 };
                 let mut cleared = 0usize;
-                let tags_to_preserve: Vec<String> = paths.iter()
+                let tags_to_preserve: Vec<String> = paths
+                    .iter()
                     .flat_map(|p| {
-                        state.entries.iter()
+                        state
+                            .entries
+                            .iter()
                             .find(|e| e.path == *p)
                             .and_then(|e| e.meta.as_ref())
                             .map(|m| m.tags.clone())
@@ -2043,7 +2046,9 @@ pub fn run() -> Result<(), slint::PlatformError> {
             };
 
             let allow_sidecar_writes = state.sidecar_writes_enabled;
-            let tag_to_preserve = state.entries.iter()
+            let tag_to_preserve = state
+                .entries
+                .iter()
                 .find(|e| e.path == path)
                 .and_then(|e| e.meta.as_ref())
                 .and_then(|m| m.tags.get(index as usize))

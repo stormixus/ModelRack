@@ -2930,7 +2930,7 @@ dependencies = [
 
 [[package]]
 name = "modelrack"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "anyhow",
  "blake3",

@@ -1126,7 +1126,6 @@ mod tests {
         assert_eq!(CACHE_VERSION, "v12");
     }
 
-
     #[test]
     fn clear_in_removes_on_disk_thumbnails_and_is_idempotent() {
         let root = temp_dir("clear");
