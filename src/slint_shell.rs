@@ -288,18 +288,29 @@ pub fn run() -> Result<(), slint::PlatformError> {
     ui.on_create_empty_tag(move |tag_name| {
         if let Some(ui) = weak.upgrade() {
             let mut state = create_tag_state.borrow_mut();
-            let tag = tag_name.to_string().trim().to_string();
-            if tag.is_empty() {
+            let tags: Vec<String> = tag_name
+                .as_str()
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            if tags.is_empty() {
                 return;
             }
-            if !state.prefs.standalone_tags.contains(&tag) {
-                state.prefs.standalone_tags.push(tag.clone());
+            for tag in &tags {
+                if !state.prefs.standalone_tags.contains(tag) {
+                    state.prefs.standalone_tags.push(tag.clone());
+                }
             }
             let snapshot = state.snapshot_done();
             apply_snapshot(&ui, &snapshot);
             apply_settings(&ui, &state);
             save_prefs_status(&ui, &state);
-            ui.set_status_text(format!("Tag created: {tag}").into());
+            if tags.len() == 1 {
+                ui.set_status_text(format!("Tag created: {}", tags[0]).into());
+            } else {
+                ui.set_status_text(format!("{} tags created", tags.len()).into());
+            }
         }
     });
 
@@ -1755,22 +1766,37 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 .as_str()
                 .strip_prefix("tag:")
                 .unwrap_or(parent_key.as_str());
-            let full_tag = format!("{}/{}", parent_path, subtag_draft.as_str().trim());
+            let subtags: Vec<String> = subtag_draft
+                .as_str()
+                .split(',')
+                .map(|s| format!("{}/{}", parent_path, s.trim()))
+                .filter(|s| !s.ends_with('/'))
+                .collect();
+            if subtags.is_empty() {
+                return;
+            }
 
             let Some(path) = state.selected_model_path() else {
-                if !state.prefs.standalone_tags.contains(&full_tag) {
-                    state.prefs.standalone_tags.push(full_tag.clone());
+                for tag in &subtags {
+                    if !state.prefs.standalone_tags.contains(tag) {
+                        state.prefs.standalone_tags.push(tag.clone());
+                    }
                 }
                 let snapshot = state.snapshot_done();
                 apply_snapshot(&ui, &snapshot);
                 apply_settings(&ui, &state);
                 save_prefs_status(&ui, &state);
-                ui.set_status_text(format!("Sub-tag created: {}", full_tag).into());
+                if subtags.len() == 1 {
+                    ui.set_status_text(format!("Sub-tag created: {}", subtags[0]).into());
+                } else {
+                    ui.set_status_text(format!("{} sub-tags created", subtags.len()).into());
+                }
                 return;
             };
 
             let allow_sidecar_writes = state.sidecar_writes_enabled;
             let prefs = state.prefs.clone();
+            for full_tag in &subtags {
             match persist_add_tags(
                 &prefs,
                 &mut state.entries,
@@ -1789,6 +1815,7 @@ pub fn run() -> Result<(), slint::PlatformError> {
                     ui.set_status_text(format!("Could not add sub-tag: {}", err).into());
                     return;
                 }
+            }
             }
 
             let snapshot = state.snapshot_done();
