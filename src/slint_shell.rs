@@ -1476,13 +1476,13 @@ pub fn run() -> Result<(), slint::PlatformError> {
                     }
                 }
                 for p in &paths {
-                    ignore_sidecar_watch(p);
-                    let clear_in = |entries: &mut [scanner::StlFileInfo]| -> bool {
+                    let clear_in = |entries: &mut [scanner::StlFileInfo], write: bool| -> bool {
                         if let Some(entry) = entries.iter_mut().find(|e| e.path == *p) {
                             if let Some(meta) = &mut entry.meta {
                                 if !meta.tags.is_empty() {
                                     meta.tags.clear();
-                                    if allow_sidecar_writes {
+                                    if write && allow_sidecar_writes {
+                                        ignore_sidecar_watch(p);
                                         let _ = scanner::write_sidecar(p, meta);
                                     }
                                     return true;
@@ -1491,8 +1491,8 @@ pub fn run() -> Result<(), slint::PlatformError> {
                         }
                         false
                     };
-                    if clear_in(&mut state.entries) {
-                        clear_in(&mut state.displayed);
+                    if clear_in(&mut state.entries, true) {
+                        clear_in(&mut state.displayed, false);
                         cleared += 1;
                     }
                 }
