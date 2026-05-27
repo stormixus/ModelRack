@@ -1776,53 +1776,20 @@ pub fn run() -> Result<(), slint::PlatformError> {
                 return;
             }
 
-            let Some(path) = state.selected_model_path() else {
-                for tag in &subtags {
-                    if !state.prefs.standalone_tags.contains(tag) {
-                        state.prefs.standalone_tags.push(tag.clone());
-                    }
-                }
-                let snapshot = state.snapshot_done();
-                apply_snapshot(&ui, &snapshot);
-                apply_settings(&ui, &state);
-                save_prefs_status(&ui, &state);
-                if subtags.len() == 1 {
-                    ui.set_status_text(format!("Sub-tag created: {}", subtags[0]).into());
-                } else {
-                    ui.set_status_text(format!("{} sub-tags created", subtags.len()).into());
-                }
-                return;
-            };
-
-            let allow_sidecar_writes = state.sidecar_writes_enabled;
-            let prefs = state.prefs.clone();
-            for full_tag in &subtags {
-            match persist_add_tags(
-                &prefs,
-                &mut state.entries,
-                &path,
-                allow_sidecar_writes,
-                &full_tag,
-            ) {
-                Ok(Some(count)) if allow_sidecar_writes => {
-                    ui.set_status_text(format!("Sub-tag added: {}", full_tag).into())
-                }
-                Ok(Some(_)) => {
-                    ui.set_status_text(format!("Demo sub-tag added: {}", full_tag).into())
-                }
-                Ok(None) => ui.set_status_text("Selected model is no longer available".into()),
-                Err(err) => {
-                    ui.set_status_text(format!("Could not add sub-tag: {}", err).into());
-                    return;
+            for tag in &subtags {
+                if !state.prefs.standalone_tags.contains(tag) {
+                    state.prefs.standalone_tags.push(tag.clone());
                 }
             }
-            }
-
             let snapshot = state.snapshot_done();
-            state.reselect_path(&path);
             apply_snapshot(&ui, &snapshot);
-            apply_detail(&ui, &mut state);
             apply_settings(&ui, &state);
+            save_prefs_status(&ui, &state);
+            if subtags.len() == 1 {
+                ui.set_status_text(format!("Sub-tag created: {}", subtags[0]).into());
+            } else {
+                ui.set_status_text(format!("{} sub-tags created", subtags.len()).into());
+            }
         }
     });
 
