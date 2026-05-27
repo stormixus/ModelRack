@@ -705,10 +705,38 @@ fn parse_scad_file(path: &Path) -> Result<(StlFileInfo, Option<MeshData>)> {
 /// OpenSCAD CLI used for `.scad` preview meshes. Override with `OPENSCAD_PATH` when the binary
 /// is not on `PATH` (for example the macOS `.app` bundle binary).
 fn openscad_program() -> PathBuf {
-    std::env::var_os("OPENSCAD_PATH")
-        .filter(|s| !s.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("openscad"))
+    if let Some(path) = std::env::var_os("OPENSCAD_PATH").filter(|s| !s.is_empty()) {
+        return PathBuf::from(path);
+    }
+    if let Ok(path) = which_openscad() {
+        return path;
+    }
+    PathBuf::from("openscad")
+}
+
+fn which_openscad() -> Result<PathBuf> {
+    let candidates = [
+        "/Applications/OpenSCAD.app/Contents/MacOS/OpenSCAD",
+        "/usr/local/bin/openscad",
+        "/opt/homebrew/bin/openscad",
+    ];
+    for c in &candidates {
+        let p = PathBuf::from(c);
+        if p.exists() {
+            return Ok(p);
+        }
+    }
+    // Try PATH
+    let output = Command::new("which")
+        .arg("openscad")
+        .output()?;
+    if output.status.success() {
+        let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !path.is_empty() {
+            return Ok(PathBuf::from(path));
+        }
+    }
+    anyhow::bail!("OpenSCAD not found")
 }
 
 /// Max wall-clock time for a single OpenSCAD export (`openscad -o … file.scad`).
