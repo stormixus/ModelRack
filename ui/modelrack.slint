@@ -770,6 +770,8 @@ component PlateDropdown inherits Rectangle {
     background: transparent;
 
     Rectangle {
+        x: 0px;
+        y: 0px;
         width: parent.width;
         height: 28px;
         background: plate-dropdown-touch.has-hover || root.open ? Theme.bg-3 : Theme.bg-2;
@@ -789,13 +791,14 @@ component PlateDropdown inherits Rectangle {
             overflow: elide;
         }
 
-        Text {
-            x: parent.width - 20px;
-            y: (parent.height - self.height) / 2 - 1px;
-            text: root.open ? "⌃" : "⌄";
-            color: Theme.fg-2;
-            font-size: 12px;
-            font-weight: 700;
+        SvgIcon {
+            x: parent.width - 18px;
+            y: (parent.height - 8px) / 2;
+            width: 8px;
+            height: 8px;
+            icon: @image-url("../assets/icons/chevron-right.svg");
+            tint: Theme.fg-2;
+            transform-rotation: root.open ? -90deg : 90deg;
         }
 
         plate-dropdown-touch := TouchArea {
@@ -912,6 +915,8 @@ component EstimatePrinterDropdown inherits Rectangle {
     background: transparent;
 
     Rectangle {
+        x: 0px;
+        y: 0px;
         width: parent.width;
         height: 26px;
         background: printer-dropdown-touch.has-hover || root.open ? Theme.bg-4 : Theme.bg-2;
@@ -931,13 +936,14 @@ component EstimatePrinterDropdown inherits Rectangle {
             overflow: elide;
         }
 
-        Text {
-            x: parent.width - 20px;
-            y: (parent.height - self.height) / 2 - 1px;
-            text: root.open ? "⌃" : "⌄";
-            color: Theme.fg-2;
-            font-size: 12px;
-            font-weight: 700;
+        SvgIcon {
+            x: parent.width - 18px;
+            y: (parent.height - 8px) / 2;
+            width: 8px;
+            height: 8px;
+            icon: @image-url("../assets/icons/chevron-right.svg");
+            tint: Theme.fg-2;
+            transform-rotation: root.open ? -90deg : 90deg;
         }
 
         printer-dropdown-touch := TouchArea {
@@ -1566,6 +1572,8 @@ component SettingsDropdown inherits Rectangle {
     height: open ? 30px + menu-h : 28px;
 
     Rectangle {
+        x: 0px;
+        y: 0px;
         width: parent.width;
         height: 28px;
         background: dd-touch.has-hover || root.open ? Theme.bg-3 : Theme.bg-2;
@@ -1583,13 +1591,14 @@ component SettingsDropdown inherits Rectangle {
             overflow: elide;
         }
 
-        Text {
-            x: parent.width - 20px;
-            y: (parent.height - self.height) / 2 - 1px;
-            text: root.open ? "⌃" : "⌄";
-            color: Theme.fg-2;
-            font-size: 12px;
-            font-weight: 700;
+        SvgIcon {
+            x: parent.width - 18px;
+            y: (parent.height - 8px) / 2;
+            width: 8px;
+            height: 8px;
+            icon: @image-url("../assets/icons/chevron-right.svg");
+            tint: Theme.fg-2;
+            transform-rotation: root.open ? -90deg : 90deg;
         }
 
         dd-touch := TouchArea {
@@ -2877,7 +2886,7 @@ export component ModelRackWindow inherits Window {
                     background: Theme.line;
                 }
 
-                if left-sidebar-open: sidebar-scroll := ScrollView {
+                sidebar-scroll := ScrollView {
                     x: 6px;
                     y: 0;
                     width: max(0px, parent.width - 12px);
@@ -2893,17 +2902,26 @@ export component ModelRackWindow inherits Window {
 
                         SectionHeader { label: tr-library-heading; inset: true; collapsible: true; collapsed <=> section-library-collapsed; }
 
-                        if !section-library-collapsed: SidebarLine { icon: @image-url("../assets/icons/layers.svg"); label: tr-all-models; count: all-count; selected: active-filter-key == "all"; activated => { choose-filter("all"); } }
-                        if !section-library-collapsed: SidebarLine { icon: @image-url("../assets/icons/clock.svg"); label: tr-recent; count: recent-count; selected: active-filter-key == "recent"; activated => { choose-filter("recent"); } }
-                        if !section-library-collapsed: SidebarLine { icon: @image-url("../assets/icons/star.svg"); label: tr-favorites; count: favorites-count; selected: active-filter-key == "favorites"; activated => { choose-filter("favorites"); } }
-                        if !section-library-collapsed: SidebarLine { icon: @image-url("../assets/icons/print.svg"); label: tr-printed; count: printed-count; selected: active-filter-key == "printed"; activated => { choose-filter("printed"); } }
-                        if !section-library-collapsed: SidebarLine { icon: @image-url("../assets/icons/box.svg"); label: tr-ready-to-print; count: ready-count; selected: active-filter-key == "ready"; activated => { choose-filter("ready"); } }
-                        if !section-library-collapsed: SidebarLine { icon: @image-url("../assets/icons/duplicate.svg"); label: tr-duplicates; count: duplicates-count; selected: active-filter-key == "duplicates"; activated => { choose-filter("duplicates"); } }
-                        if !section-library-collapsed: SidebarLine { icon: @image-url("../assets/icons/error.svg"); label: tr-parse-errors; count: errors-count; selected: active-filter-key == "errors"; activated => { choose-filter("errors"); } }
+                        Rectangle {
+                            height: section-library-collapsed ? 0px : 189px;
+                            clip: true;
+                            animate height { duration: 180ms; easing: ease-in-out; }
 
-                        if !section-library-collapsed: Rectangle {
-                            height: 1px;
-                            background: Theme.line;
+                            VerticalLayout {
+                                spacing: 1px;
+                                SidebarLine { icon: @image-url("../assets/icons/layers.svg"); label: tr-all-models; count: all-count; selected: active-filter-key == "all"; activated => { choose-filter("all"); } }
+                                SidebarLine { icon: @image-url("../assets/icons/clock.svg"); label: tr-recent; count: recent-count; selected: active-filter-key == "recent"; activated => { choose-filter("recent"); } }
+                                SidebarLine { icon: @image-url("../assets/icons/star.svg"); label: tr-favorites; count: favorites-count; selected: active-filter-key == "favorites"; activated => { choose-filter("favorites"); } }
+                                SidebarLine { icon: @image-url("../assets/icons/print.svg"); label: tr-printed; count: printed-count; selected: active-filter-key == "printed"; activated => { choose-filter("printed"); } }
+                                SidebarLine { icon: @image-url("../assets/icons/box.svg"); label: tr-ready-to-print; count: ready-count; selected: active-filter-key == "ready"; activated => { choose-filter("ready"); } }
+                                SidebarLine { icon: @image-url("../assets/icons/duplicate.svg"); label: tr-duplicates; count: duplicates-count; selected: active-filter-key == "duplicates"; activated => { choose-filter("duplicates"); } }
+                                SidebarLine { icon: @image-url("../assets/icons/error.svg"); label: tr-parse-errors; count: errors-count; selected: active-filter-key == "errors"; activated => { choose-filter("errors"); } }
+
+                                Rectangle {
+                                    height: 1px;
+                                    background: Theme.line;
+                                }
+                            }
                         }
 
                         Rectangle { height: 1px; background: Theme.line; }
@@ -2916,39 +2934,46 @@ export component ModelRackWindow inherits Window {
                             add-requested => { open-folder(); }
                         }
 
-                        if !section-folders-collapsed: VerticalLayout {
-                            spacing: 1px;
-                            for folder in folder-items: SidebarLine {
-                            key: folder.key;
-                            drag-enabled: true;
-                            drag-mime: "application/x-modelrack-folder-key";
-                            icon: folder.depth == 0 ? @image-url("../assets/icons/folder-open.svg") : @image-url("../assets/icons/folder.svg");
-                            label: folder.label;
-                            count: folder.count;
-                            depth: folder.depth;
-                            reserve-leading: true;
-                            expandable: folder.expandable;
-                            expanded: folder.expanded;
-                            selected: active-filter-key == folder.key;
-                            activated => {
-                                sidebar-context-open = false;
-                                model-context-open = false;
-                                choose-filter(folder.key);
+                        Rectangle {
+                            height: section-folders-collapsed ? 0px : max(0px, folder-items.length * 27px - 1px);
+                            clip: true;
+                            animate height { duration: 180ms; easing: ease-in-out; }
+
+                            VerticalLayout {
+                                spacing: 1px;
+                                for folder in folder-items: SidebarLine {
+                                    key: folder.key;
+                                    drag-enabled: true;
+                                    drag-mime: "application/x-modelrack-folder-key";
+                                    icon: folder.depth == 0 ? @image-url("../assets/icons/folder-open.svg") : @image-url("../assets/icons/folder.svg");
+                                    label: folder.label;
+                                    count: folder.count;
+                                    depth: folder.depth;
+                                    reserve-leading: true;
+                                    expandable: folder.expandable;
+                                    expanded: folder.expanded;
+                                    selected: active-filter-key == folder.key;
+                                    activated => {
+                                        sidebar-context-open = false;
+                                        model-context-open = false;
+                                        choose-filter(folder.key);
+                                    }
+                                    toggle-requested => { toggle-sidebar-folder(folder.key); }
+                                    context-requested(x, y) => {
+                                        sidebar-context-key = folder.key;
+                                        sidebar-context-label = folder.label;
+                                        sidebar-context-is-folder = true;
+                                        sidebar-context-x = x + 4px;
+                                        sidebar-context-y = y + 4px;
+                                        sidebar-context-open = true;
+                                        model-context-open = false;
+                                        slicer-menu-open = false;
+                                        sort-menu-open = false;
+                                        preview-plate-menu-open = false;
+                                    }
+                                }
                             }
-                            toggle-requested => { toggle-sidebar-folder(folder.key); }
-                            context-requested(x, y) => {
-                                sidebar-context-key = folder.key;
-                                sidebar-context-label = folder.label;
-                                sidebar-context-is-folder = true;
-                                sidebar-context-x = x + 4px;
-                                sidebar-context-y = y + 4px;
-                                sidebar-context-open = true;
-                                model-context-open = false;
-                                slicer-menu-open = false;
-                                sort-menu-open = false;
-                                preview-plate-menu-open = false;
-                            }
-                        }}
+                        }
 
                         Rectangle { height: 1px; background: Theme.line; }
 
@@ -2958,11 +2983,21 @@ export component ModelRackWindow inherits Window {
                             collapsed <=> section-formats-collapsed;
                         }
 
-                        if !section-formats-collapsed && stl-count > 0: SidebarLine { icon: @image-url("../assets/icons/box.svg"); label: "STL"; count: stl-count; selected: active-filter-key == "format:stl"; activated => { choose-filter("format:stl"); } }
-                        if !section-formats-collapsed && threemf-count > 0: SidebarLine { icon: @image-url("../assets/icons/box.svg"); label: "3MF"; count: threemf-count; selected: active-filter-key == "format:3mf"; activated => { choose-filter("format:3mf"); } }
-                        if !section-formats-collapsed && step-count > 0: SidebarLine { icon: @image-url("../assets/icons/box.svg"); label: "STEP"; count: step-count; selected: active-filter-key == "format:step"; activated => { choose-filter("format:step"); } }
-                        if !section-formats-collapsed && scad-count > 0: SidebarLine { icon: @image-url("../assets/icons/box.svg"); label: "SCAD"; count: scad-count; selected: active-filter-key == "format:scad"; activated => { choose-filter("format:scad"); } }
-                        if !section-formats-collapsed && obj-count > 0: SidebarLine { icon: @image-url("../assets/icons/box.svg"); label: "OBJ"; count: obj-count; selected: active-filter-key == "format:obj"; activated => { choose-filter("format:obj"); } }
+                        Rectangle {
+                            property <int> visible-formats-count: (stl-count > 0 ? 1 : 0) + (threemf-count > 0 ? 1 : 0) + (step-count > 0 ? 1 : 0) + (scad-count > 0 ? 1 : 0) + (obj-count > 0 ? 1 : 0);
+                            height: section-formats-collapsed ? 0px : max(0px, self.visible-formats-count * 27px - 1px);
+                            clip: true;
+                            animate height { duration: 180ms; easing: ease-in-out; }
+
+                            VerticalLayout {
+                                spacing: 1px;
+                                if stl-count > 0: SidebarLine { icon: @image-url("../assets/icons/box.svg"); label: "STL"; count: stl-count; selected: active-filter-key == "format:stl"; activated => { choose-filter("format:stl"); } }
+                                if threemf-count > 0: SidebarLine { icon: @image-url("../assets/icons/box.svg"); label: "3MF"; count: threemf-count; selected: active-filter-key == "format:3mf"; activated => { choose-filter("format:3mf"); } }
+                                if step-count > 0: SidebarLine { icon: @image-url("../assets/icons/box.svg"); label: "STEP"; count: step-count; selected: active-filter-key == "format:step"; activated => { choose-filter("format:step"); } }
+                                if scad-count > 0: SidebarLine { icon: @image-url("../assets/icons/box.svg"); label: "SCAD"; count: scad-count; selected: active-filter-key == "format:scad"; activated => { choose-filter("format:scad"); } }
+                                if obj-count > 0: SidebarLine { icon: @image-url("../assets/icons/box.svg"); label: "OBJ"; count: obj-count; selected: active-filter-key == "format:obj"; activated => { choose-filter("format:obj"); } }
+                            }
+                        }
 
                         Rectangle { height: 1px; background: Theme.line; }
 
@@ -2977,6 +3012,7 @@ export component ModelRackWindow inherits Window {
                         for tag[index] in tag-items: Rectangle {
                             height: tag.visible && !section-tags-collapsed ? 26px : 0px;
                             clip: section-tags-collapsed || !tag.visible;
+                            animate height { duration: 180ms; easing: ease-in-out; }
 
                             // Drag-to-reorder pattern
                             property <length> line-h: tag.visible && !section-tags-collapsed ? 26px : 0px;
@@ -3088,9 +3124,11 @@ export component ModelRackWindow inherits Window {
                 }
             }
 
-            if left-sidebar-open: Rectangle {
-                width: 6px;
+            Rectangle {
+                width: left-sidebar-open ? 6px : 0px;
+                clip: true;
                 background: left-resize-touch.has-hover || left-sidebar-resizing ? Theme.accent-dim : Theme.bg-2;
+                animate width { duration: left-sidebar-resizing ? 0ms : 180ms; easing: ease-in-out; }
 
                 Rectangle {
                     x: 2px;

@@ -145,8 +145,13 @@ def main():
     dark_png = draw_icon("dark")
     dark_png.save("./assets/AppIcon_Dark.png", "PNG")
     
+    # Generate Windows ICO files
+    print("Generating Windows ICO assets...")
+    dark_png.save("./assets/AppIcon.ico", format="ICO", sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+    
     light_png = draw_icon("light")
     light_png.save("./assets/AppIcon_Light.png", "PNG")
+    light_png.save("./assets/AppIcon_Light.ico", format="ICO", sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
     
     # Generate SVG files
     print("Generating SVG vector assets...")
