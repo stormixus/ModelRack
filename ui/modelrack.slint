@@ -2916,8 +2916,11 @@ export component ModelRackWindow inherits Window {
                             add-requested => { open-folder(); }
                         }
 
-                        for folder in folder-items: folder-row := SidebarLine {
-                            row-visible: folder.visible && !section-folders-collapsed;
+                        for folder in folder-items: Rectangle {
+                            height: section-folders-collapsed ? 0px : (folder.visible ? 26px : 0px);
+                            clip: section-folders-collapsed;
+                            SidebarLine {
+                                width: parent.width;
                             key: folder.key;
                             drag-enabled: true;
                             drag-mime: "application/x-modelrack-folder-key";
@@ -2946,6 +2949,7 @@ export component ModelRackWindow inherits Window {
                                 slicer-menu-open = false;
                                 sort-menu-open = false;
                                 preview-plate-menu-open = false;
+                            }
                             }
                         }
 
