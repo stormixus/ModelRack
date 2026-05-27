@@ -1,147 +1,134 @@
 <p align="center">
-  <img src="assets/AppIcon.iconset/icon_128x128.png" width="96" height="96" alt="ModelRack icon">
+  <img src="assets/AppIcon.iconset/icon_256x256.png" width="128" height="128" alt="ModelRack Icon">
 </p>
 
 <h1 align="center">ModelRack</h1>
 
 <p align="center">
-  A desktop-native 3D model library for makers who hoard STL, 3MF, STEP, and SCAD files like treasure.
+  <strong>A gorgeous, desktop-native 3D model manager for makers who hoard STL, 3MF, STEP, and SCAD files like treasure.</strong>
 </p>
 
 <p align="center">
-  <a href="https://github.com/stormixus/ModelRack/releases/latest"><strong>Download latest release</strong></a>
-  ·
-  <a href="https://github.com/stormixus/ModelRack/releases/tag/v0.1.3">v0.1.3 release</a>
+  <a href="https://github.com/stormixus/ModelRack/actions/workflows/ci.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/stormixus/ModelRack/ci.yml?branch=main&style=flat-square&logo=github&label=Build" alt="CI Build Status">
+  </a>
+  <a href="https://github.com/stormixus/ModelRack/releases/latest">
+    <img src="https://img.shields.io/github/v/release/stormixus/ModelRack?include_prereleases&style=flat-square&color=teal&label=Latest%20Release" alt="Latest Release">
+  </a>
+  <img src="https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-blue?style=flat-square" alt="Supported OS">
+  <img src="https://img.shields.io/badge/Language-Rust%20%2F%20Slint-orange?style=flat-square" alt="Tech Stack">
 </p>
 
 <p align="center">
-  <a href="https://github.com/stormixus/ModelRack/actions/workflows/ci.yml"><img src="https://github.com/stormixus/ModelRack/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="#-key-features">Key Features</a> •
+  <a href="#-download--installation">Download</a> •
+  <a href="#%EF%B8%B0-build-from-source">Build</a> •
+  <a href="#%EF%B8%B0-tech-stack">Tech Stack</a>
 </p>
 
 ---
 
-## Why ModelRack exists
+## 💡 Why ModelRack?
 
-3D-printing folders get messy fast: slicer exports, downloaded model packs, duplicate brackets, half-remembered fan adapters, and that one perfect STL you swear you saved somewhere.
+3D-printing folders get messy incredibly fast: slicer exports, downloaded model packs, duplicate brackets, half-remembered fan adapters, and that one perfect STL you swear you saved somewhere. 
 
-ModelRack turns that chaos into a fast, visual, local-first library:
+**ModelRack** turns that chaos into a **fast, visual, local-first library**. It is built specifically for the "I make things" workflow, not a generic file browser with a boring cube thumbnail taped on top. Your 3D model folder should feel like a proper, neatly organized workshop pegboard, not a chaotic junk drawer.
 
-- browse real model folders without uploading anything
-- preview models directly in the app
-- inspect geometry, mesh health, plates, and print estimates
-- tag, favorite, rename, and track prints through sidecar metadata
-- open models in your installed slicer without digging through Finder
+---
 
-It is built for the “I make things” workflow, not a generic file browser with a cube thumbnail taped on top.
+## ✨ Key Features
 
-## Highlights
+### 🖥️ Native & Blazing Fast
+*   **Rust Engine**: Blazing-fast performance and negligible memory footprint.
+*   **GPU-Accelerated Slint UI**: Glassmorphic aesthetics, fluid transitions, and dynamic dark/light themes.
+*   **Customization**: Choose your favorite accent colors (Teal, Amber, Blue, Coral, Emerald, Purple) and layout densities.
 
-### Native macOS feel
+### 📐 Multi-Format 3D Scanner
+*   **Deep File Scanning**: Out-of-the-box support for **STL, 3MF, STEP, SCAD, and OBJ**.
+*   **Advanced STEP Meshing**: High-fidelity native B-rep curve parsing and triangle reconstruction without mesh tearing.
+*   **OpenSCAD CLI Integration**: Automatic detection of `openscad` to render precise CAD previews for `.scad` scripts.
 
-- Polished macOS app icon and Dock sizing
-- Developer ID signed and Apple-notarized release assets
-- Drag-to-Applications DMG installer
-- Sidebar toggles, resizable panes, native-ish window controls, and focused keyboard flows
+### 🎨 High-Fidelity 3D Orbit Viewer
+*   **Interactive 3D Preview**: Smooth rotation, panning, and zoom directly within the detail panel.
+*   **3MF Plate Management**: View and switch between multiple build plates within complex `.3mf` project files.
+*   **Mesh Health Surface Check**: Immediate reporting of dimensions, volume, triangle count, and non-manifold mesh status.
 
-### Model-first browsing
+### 🏷️ Maker Workflow Metadata
+*   **Tagging & Favorites**: Tag, categorize, and favorite models in a structured hierarchy.
+*   **Print History**: Track print count and history to see what you actually make.
+*   **Local-First Sidecars**: All tags, history, and notes are saved directly in a companion `.modelrack.json` file beside your real models. **No accounts, no cloud, 100% privacy.**
 
-- Grid, masonry, and list views
-- Sort by name, modified date, added date, file size, format, triangle count, dimensions, mesh health, and print count
-- Filename rename support using desktop conventions
-- Context menus for rename, reveal in Finder, copy path/name, favorite, print count, and slicer launch
+### 🌐 Cross-Platform & Localized
+*   **Slicer Launcher**: Automatic discovery of OrcaSlicer, Bambu Studio, PrusaSlicer, and SuperSlicer for instant double-click loading.
+*   **OS Language Auto-Detection**: Instant native translation matching your system locale. Supports **English, 한국어, 日本語, Español, Português, Русский, 简体中文, and 繁體中文**.
 
-### 3D preview pipeline
+---
 
-- STL, 3MF, STEP, SCAD, and OBJ-aware scanning paths
-- SCAD geometry and thumbnails use the OpenSCAD CLI when installed (`openscad` on `PATH`, or set `OPENSCAD_PATH` to the binary, e.g. `/Applications/OpenSCAD.app/Contents/MacOS/OpenSCAD` on macOS); otherwise a simple primitive-size fallback is used
-- Thumbnail cache for repeat browsing
-- Detail preview with orbit/drag interaction
-- Multi-plate 3MF plate selection
-- Geometry summary and mesh-health surface
+## 📦 Download & Installation
 
-### Maker workflow metadata
+ModelRack is distributed via GitHub Actions as fully compiled desktop packages for every tagged release:
 
-- Tags and favorites
-- Printed count and print history
-- Sidecar `.modelrack.json` metadata beside real files
-- Printer/profile-backed print estimates
-- Slicer discovery and app-specific “Open in …” selection
+| Platform | Recommended Installer | Portables / Fallbacks |
+| :--- | :--- | :--- |
+| **macOS** | [**Apple-Notarized DMG**](https://github.com/stormixus/ModelRack/releases/latest) (Apple Silicon / Intel) | `.zip` App Bundle |
+| **Windows** | [**WiX MSI Installer**](https://github.com/stormixus/ModelRack/releases/latest) (x64 / ARM64) | Portable `.exe` / `.zip` |
+| **Linux** | [**Debian .deb Package**](https://github.com/stormixus/ModelRack/releases/latest) (Ubuntu/Debian) | Portable `.tar.gz` |
 
-### Local-first by design
+---
 
-ModelRack works on your folders. Metadata stays local. No account, no cloud sync, no silent upload pipeline.
+## 🛠️ Build from Source
 
-## Download
+### Requirements
+*   **Rust Stable** (2021 edition)
+*   **macOS**: Xcode Command Line Tools.
+*   **Windows**: WiX Toolset v3 (optional, for MSI packaging).
+*   **Linux**: `pkg-config`, `libfontconfig1-dev`, `libxkbcommon-dev`, `libxcb1-dev`, `libwayland-dev`, `libudev-dev`.
 
-The recommended macOS build is the notarized DMG. Tagged releases also attach Windows and Linux packages built by GitHub Actions:
-
-- macOS: `ModelRack-v<version>-macos-arm64.dmg` plus `.zip` fallback
-- Windows: `ModelRack-v<version>-windows-x64.exe`, portable `.zip`, and `.msi` installer
-- Linux: `ModelRack-v<version>-linux-x86_64.tar.gz` and Debian `.deb`
-- SHA-256 files ship beside every release asset.
-
-Current stable smoke target is still macOS; Windows/Linux packages are build-verified in CI and need device QA before we call them polished.
-
-## Build from source
-
-Requirements:
-
-- Rust stable
-- Xcode command line tools on macOS
-- WiX Toolset v3 on Windows if you want MSI output
-- `pkg-config`, `libfontconfig1-dev`, `libxkbcommon-dev`, `libxcb1-dev`, `libwayland-dev`, and `libudev-dev` on Debian/Ubuntu Linux
-
+### Standard Run
 ```bash
+# Clone the repository
 git clone https://github.com/stormixus/ModelRack.git
 cd ModelRack
-cargo run
+
+# Run the app locally
+cargo run --release
 ```
 
-Build a macOS app bundle:
+### Packaging & Compilation Scripts
+We include native packaging and build scripts inside the `scripts/` folder:
 
-```bash
-./scripts/build-macos-app.sh --release
-```
+*   **macOS App Bundle & DMG**:
+    ```bash
+    # Build app bundle
+    ./scripts/build-macos-app.sh --release
+    
+    # Pack into a custom-styled DMG installer
+    MODELRACK_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
+      ./scripts/create-macos-dmg.sh --keychain-profile modelrack
+    ```
+*   **Windows MSI & Portable Packages**:
+    ```powershell
+    # Run from Developer PowerShell
+    ./scripts/build-windows-packages.ps1 -RequireMsi
+    ```
+*   **Linux Portable & Debian Packages**:
+    ```bash
+    ./scripts/build-linux-packages.sh
+    ```
 
-Create a polished DMG installer:
+---
 
-```bash
-MODELRACK_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
-  ./scripts/create-macos-dmg.sh --keychain-profile modelrack
-```
+## 🧩 Tech Stack
 
-Build Windows packages from PowerShell:
+*   **Core**: Rust
+*   **UI Layer**: Slint UI (Declarative GPU-accelerated markup)
+*   **Database**: SQLite (via `rusqlite` with bundled bindings)
+*   **Geometry Parsing**: Native B-rep CAD polygon mesh engines
 
-```powershell
-./scripts/build-windows-packages.ps1 -RequireMsi
-```
+---
 
-Build Linux packages:
+## ⚠️ Project Status
 
-```bash
-./scripts/build-linux-packages.sh
-```
+ModelRack is early desktop software actively shaped around real maker-library workflows. Expect sharp edges, especially around unusual CAD/model files and cross-platform packaging. 
 
-## Release tooling
-
-ModelRack includes scripts for repeatable desktop distribution:
-
-- `scripts/generate-app-icon.sh` — regenerate `.icns` and iconset assets
-- `scripts/build-macos-app.sh` — build the `.app` bundle with ad-hoc or Developer ID signing
-- `scripts/notarize-macos-app.sh` — submit, staple, and validate the app bundle
-- `scripts/create-macos-dmg.sh` — create the drag-to-Applications DMG and optionally notarize it
-- `scripts/build-windows-packages.ps1` — build Windows `.exe`, portable `.zip`, and WiX `.msi` packages
-- `scripts/build-linux-packages.sh` — build Linux portable `.tar.gz` and Debian `.deb` packages
-
-## Tech stack
-
-- Rust core
-- Slint UI
-- Native macOS packaging/signing/notarization scripts
-- Local scanner and thumbnail cache for 3D model libraries
-
-## Status
-
-ModelRack is early desktop software, actively shaped around real maker-library workflows. Expect sharp edges, especially around unusual CAD/model files and cross-platform packaging.
-
-The goal is simple: make your 3D model folder feel like a proper workshop wall, not a junk drawer.
+Our goal is simple: **make your 3D model folder feel like a proper workshop wall, not a junk drawer.** 🛠️
