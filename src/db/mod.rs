@@ -335,6 +335,7 @@ mod tests {
             filename: path.file_name().unwrap().to_string_lossy().into_owned(),
             size: 42,
             hash: [7u8; 32],
+            hash_is_content: true,
             stl_type: StlType::Binary,
             triangle_count: Some(12),
             dimensions: Some([1.0, 2.0, 3.0]),

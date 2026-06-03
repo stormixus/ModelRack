@@ -1433,11 +1433,15 @@ pub fn entry_matches_filter(
         LibraryFilter::Favorites => entry.meta.as_ref().is_some_and(|meta| meta.favorite),
         LibraryFilter::Printed => entry.meta.as_ref().is_some_and(|meta| meta.printed > 0),
         LibraryFilter::Duplicates => {
-            entries
-                .iter()
-                .filter(|candidate| candidate.hash == entry.hash)
-                .count()
-                > 1
+            // Only content-hashed entries have a real content identity; metadata-
+            // hashed (large) files carry a path-derived hash that can never match
+            // another file, so they are never duplicates.
+            entry.hash_is_content
+                && entries
+                    .iter()
+                    .filter(|candidate| candidate.hash_is_content && candidate.hash == entry.hash)
+                    .count()
+                    > 1
         }
         LibraryFilter::Ready => entry_is_ready_to_print(entries, entry),
         LibraryFilter::Errors => entry.stl_type == scanner::StlType::Unknown,
@@ -1487,13 +1491,15 @@ fn is_recent(modified: Option<std::time::SystemTime>) -> bool {
 }
 
 fn duplicate_count(entries: &[scanner::StlFileInfo]) -> usize {
+    // Count only over content-hashed entries: metadata-hashed (large) files have
+    // a path-derived hash that is not a content identity and must not be deduped.
     let mut counts: BTreeMap<[u8; 32], usize> = BTreeMap::new();
-    for entry in entries {
+    for entry in entries.iter().filter(|e| e.hash_is_content) {
         *counts.entry(entry.hash).or_insert(0) += 1;
     }
     entries
         .iter()
-        .filter(|entry| counts.get(&entry.hash).copied().unwrap_or(0) > 1)
+        .filter(|entry| entry.hash_is_content && counts.get(&entry.hash).copied().unwrap_or(0) > 1)
         .count()
 }
 
@@ -1617,8 +1623,9 @@ pub fn filtered_sorted_entries(
 
     let duplicate_members: Option<HashSet<[u8; 32]>> =
         if matches!(query.library_filter, LibraryFilter::Duplicates) {
+            // Only content-hashed entries can be duplicates; exclude metadata hashes.
             let mut counts: HashMap<[u8; 32], usize> = HashMap::new();
-            for entry in entries {
+            for entry in entries.iter().filter(|e| e.hash_is_content) {
                 *counts.entry(entry.hash).or_insert(0) += 1;
             }
             Some(
@@ -1640,9 +1647,12 @@ pub fn filtered_sorted_entries(
         .iter()
         .filter(|entry| {
             let passes_filter = match query.library_filter {
-                LibraryFilter::Duplicates => duplicate_members
-                    .as_ref()
-                    .is_some_and(|set| set.contains(&entry.hash)),
+                LibraryFilter::Duplicates => {
+                    entry.hash_is_content
+                        && duplicate_members
+                            .as_ref()
+                            .is_some_and(|set| set.contains(&entry.hash))
+                }
                 LibraryFilter::Ready => ready_uses_explicit
                     .is_some_and(|uses_explicit| entry_is_ready_with_mode(entry, uses_explicit)),
                 _ => entry_matches_filter(entries, query.library_filter, entry),
@@ -1842,6 +1852,7 @@ mod tests {
                 .to_string(),
             size: 1,
             hash: [hash_byte; 32],
+            hash_is_content: true,
             stl_type: StlType::Binary,
             triangle_count: Some(1),
             dimensions: Some([1.0, 1.0, 1.0]),
@@ -1850,6 +1861,21 @@ mod tests {
             thumbnail_path: None,
             meta: None,
         }
+    }
+
+    #[test]
+    fn metadata_hashed_entries_are_excluded_from_duplicate_detection() {
+        // Two CONTENT-hashed entries that share a hash are real duplicates.
+        let mut c1 = entry("/m/c1.stl", 9);
+        let mut c2 = entry("/m/c2.stl", 9); // identical hash bytes
+        assert!(c1.hash_is_content && c2.hash_is_content);
+        assert_eq!(duplicate_count(&[c1.clone(), c2.clone()]), 2);
+
+        // The same hash on metadata-hashed (large) files is NOT a content
+        // identity — those entries must never be reported as duplicates.
+        c1.hash_is_content = false;
+        c2.hash_is_content = false;
+        assert_eq!(duplicate_count(&[c1, c2]), 0);
     }
 
     #[test]

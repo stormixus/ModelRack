@@ -134,12 +134,27 @@ pub struct ThreeMfPlate {
     pub mesh: MeshData,
 }
 
+fn hash_is_content_default() -> bool {
+    // Entries from caches written before this field existed are assumed to be
+    // content-hashed (the common case). Metadata-hashed entries can never collide
+    // on `hash` anyway — their hash includes the unique path — so this default
+    // cannot cause a false duplicate match.
+    true
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct StlFileInfo {
     pub path: PathBuf,
     pub filename: String,
     pub size: u64,
     pub hash: [u8; 32],
+    /// Whether `hash` is a blake3 digest of the file *contents* (true) or a
+    /// metadata-derived digest of path+size+mtime (false). Large/oversized files
+    /// fall back to a metadata hash, which is NOT a content identity: such entries
+    /// must be excluded from content-dedup and treated as cache keys that change
+    /// with mtime, not as cross-file content fingerprints.
+    #[serde(default = "hash_is_content_default")]
+    pub hash_is_content: bool,
     pub stl_type: StlType,
     pub triangle_count: Option<usize>,
     pub dimensions: Option<[f32; 3]>,
@@ -282,6 +297,7 @@ pub fn scan_folder_stream(path: &Path, tx: crossbeam_channel::Sender<ScanEvent>)
                                 filename,
                                 size: 0,
                                 hash: [0; 32],
+                                hash_is_content: false,
                                 stl_type: StlType::Unknown,
                                 triangle_count: None,
                                 dimensions: None,
@@ -475,6 +491,7 @@ fn parse_three_mf_file(path: &Path) -> Result<(StlFileInfo, Option<MeshData>)> {
             filename,
             size,
             hash: hash_bytes,
+            hash_is_content: true,
             stl_type: StlType::ThreeMf,
             triangle_count,
             dimensions,
@@ -671,6 +688,7 @@ fn parse_obj_file(path: &Path) -> Result<(StlFileInfo, Option<MeshData>)> {
             filename,
             size,
             hash: hash_bytes,
+            hash_is_content: true,
             stl_type: StlType::Obj,
             triangle_count,
             dimensions,
@@ -694,24 +712,25 @@ fn parse_step_file(path: &Path) -> Result<(StlFileInfo, Option<MeshData>)> {
         .unwrap_or("unknown")
         .to_string();
 
-    let (hash, dimensions, triangle_count, mesh) = if size <= MAX_TEXT_PREVIEW_BYTES {
-        let data =
-            std::fs::read(path).with_context(|| format!("Failed to read {}", path.display()))?;
-        let hash: [u8; 32] = blake3::hash(&data).into();
-        let text = String::from_utf8_lossy(&data);
-        let brep_mesh = parse_step_brep_mesh(&text);
-        let triangle_count = brep_mesh.as_ref().map(|mesh| mesh.faces.len());
-        let mesh = brep_mesh.or_else(|| {
-            parse_step_bounds(&text).and_then(|(min, max)| bounding_box_mesh(min, max))
-        });
-        let dimensions = mesh.as_ref().and_then(mesh_dimensions).or_else(|| {
-            parse_step_bounds(&text)
-                .map(|(min, max)| [max[0] - min[0], max[1] - min[1], max[2] - min[2]])
-        });
-        (hash, dimensions, triangle_count, mesh)
-    } else {
-        (metadata_hash(path, size, modified), None, None, None)
-    };
+    let (hash, hash_is_content, dimensions, triangle_count, mesh) =
+        if size <= MAX_TEXT_PREVIEW_BYTES {
+            let data = std::fs::read(path)
+                .with_context(|| format!("Failed to read {}", path.display()))?;
+            let hash: [u8; 32] = blake3::hash(&data).into();
+            let text = String::from_utf8_lossy(&data);
+            let brep_mesh = parse_step_brep_mesh(&text);
+            let triangle_count = brep_mesh.as_ref().map(|mesh| mesh.faces.len());
+            let mesh = brep_mesh.or_else(|| {
+                parse_step_bounds(&text).and_then(|(min, max)| bounding_box_mesh(min, max))
+            });
+            let dimensions = mesh.as_ref().and_then(mesh_dimensions).or_else(|| {
+                parse_step_bounds(&text)
+                    .map(|(min, max)| [max[0] - min[0], max[1] - min[1], max[2] - min[2]])
+            });
+            (hash, true, dimensions, triangle_count, mesh)
+        } else {
+            (metadata_hash(path, size, modified), false, None, None, None)
+        };
 
     Ok((
         StlFileInfo {
@@ -719,6 +738,7 @@ fn parse_step_file(path: &Path) -> Result<(StlFileInfo, Option<MeshData>)> {
             filename,
             size,
             hash,
+            hash_is_content,
             stl_type: StlType::Step,
             triangle_count,
             dimensions,
@@ -742,7 +762,7 @@ fn parse_scad_file(path: &Path) -> Result<(StlFileInfo, Option<MeshData>)> {
         .unwrap_or("unknown")
         .to_string();
 
-    let (hash, mesh) = if size <= MAX_TEXT_PREVIEW_BYTES {
+    let (hash, hash_is_content, mesh) = if size <= MAX_TEXT_PREVIEW_BYTES {
         let data =
             std::fs::read(path).with_context(|| format!("Failed to read {}", path.display()))?;
         let hash: [u8; 32] = blake3::hash(&data).into();
@@ -756,13 +776,13 @@ fn parse_scad_file(path: &Path) -> Result<(StlFileInfo, Option<MeshData>)> {
             mesh = parse_scad_dimensions(&text)
                 .and_then(|dims| bounding_box_mesh([0.0, 0.0, 0.0], dims));
         }
-        (hash, mesh)
+        (hash, true, mesh)
     } else if size <= MAX_STL_PREVIEW_BYTES {
         let hash = metadata_hash(path, size, modified);
         let mesh = try_scad_mesh_via_openscad(path);
-        (hash, mesh)
+        (hash, false, mesh)
     } else {
-        (metadata_hash(path, size, modified), None)
+        (metadata_hash(path, size, modified), false, None)
     };
 
     let triangle_count = mesh.as_ref().map(|m| m.faces.len());
@@ -774,6 +794,7 @@ fn parse_scad_file(path: &Path) -> Result<(StlFileInfo, Option<MeshData>)> {
             filename,
             size,
             hash,
+            hash_is_content,
             stl_type: StlType::Scad,
             triangle_count,
             dimensions,
@@ -1573,6 +1594,7 @@ pub(crate) fn parse_stl_file(path: &Path) -> Result<(StlFileInfo, Option<MeshDat
             filename,
             size,
             hash: hash_bytes,
+            hash_is_content: true,
             stl_type,
             triangle_count,
             dimensions,
@@ -1601,6 +1623,7 @@ fn metadata_only_file(path: &Path, stl_type: StlType) -> Result<StlFileInfo> {
         filename,
         size,
         hash: metadata_hash(path, size, modified),
+        hash_is_content: false,
         stl_type,
         triangle_count: None,
         dimensions: None,
