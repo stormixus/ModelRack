@@ -37,7 +37,10 @@ const SCAN_ENTRY_BATCH_INTERVAL: Duration = Duration::from_millis(120);
 const PREVIEW_ORBIT_FRAME_INTERVAL: Duration = Duration::from_millis(16);
 const PREVIEW_ORBIT_SETTLE_DELAY: Duration = Duration::from_millis(120);
 
-const DEMO_ROOT: &str = "/Users/hwankishin/Library/3d";
+// Synthetic base path for the built-in sample library. Never touches disk (demo
+// entries are fabricated); it exists only so the parent-label code can strip it to
+// "Sample library/…". Keep it a neutral placeholder — not a real user home path.
+const DEMO_ROOT: &str = "/ModelRack/Sample Library";
 
 thread_local! {
     static IGNORED_PATHS: std::cell::RefCell<HashSet<PathBuf>> = std::cell::RefCell::new(HashSet::new());
@@ -3066,6 +3069,8 @@ fn apply_scan_entry_batches(
         .apply_scan_entry_batches(batches, progress);
     if let Some(snapshot) = snapshot {
         apply_snapshot(ui, &snapshot);
+        // A new scan generation clears the selection; keep the UI count in sync.
+        ui.set_selection_count(state.borrow().selected_indices.len() as i32);
         apply_detail_rc(ui, state);
         apply_settings(ui, &state.borrow());
     }
@@ -3116,6 +3121,7 @@ fn remove_sidebar_folder_from_library(
         if is_library_root {
             state.remove_library_root(folder);
             state.selected_index = None;
+            state.selected_indices.clear();
             if matches!(&state.filter, LibraryFilter::Folder(active) if active.starts_with(folder))
             {
                 state.filter = LibraryFilter::All;
@@ -3132,6 +3138,7 @@ fn remove_sidebar_folder_from_library(
                 .entries
                 .retain(|entry| !entry.path.starts_with(folder));
             state.selected_index = None;
+            state.selected_indices.clear();
             if matches!(&state.filter, LibraryFilter::Folder(active) if active.starts_with(folder))
             {
                 state.filter = LibraryFilter::All;
@@ -3140,6 +3147,7 @@ fn remove_sidebar_folder_from_library(
         }
     };
     apply_snapshot(ui, &snapshot);
+    ui.set_selection_count(state.borrow().selected_indices.len() as i32);
     apply_detail_rc(ui, state);
     apply_settings(ui, &state.borrow());
     save_prefs_status(ui, &state.borrow());
@@ -3417,6 +3425,7 @@ fn apply_scan_result(
     };
     if let Some(snapshot) = snapshot {
         apply_snapshot(ui, &snapshot);
+        ui.set_selection_count(state.borrow().selected_indices.len() as i32);
         apply_detail_rc(ui, state);
         apply_settings(ui, &state.borrow());
         save_prefs_status(ui, &state.borrow());
@@ -4192,13 +4201,7 @@ fn try_sync_entry_to_db(prefs: &AppPrefs, entries: &[scanner::StlFileInfo], path
     let Some(entry) = entries.iter().find(|entry| entry.path == path) else {
         return;
     };
-    if let Err(err) = crate::db::upsert_entries_for_library(&root, std::slice::from_ref(entry)) {
-        eprintln!(
-            "Warning: library DB sync failed for {}: {:#}",
-            path.display(),
-            err
-        );
-    }
+    enqueue_db_upsert(root, vec![entry.clone()]);
 }
 
 fn persist_favorite_toggle(
@@ -4371,6 +4374,13 @@ fn persist_tag_reparent(
 ) -> anyhow::Result<usize> {
     let leaf = src_tag.split('/').last().unwrap_or(src_tag);
     let prefix = format!("{}/", src_tag);
+
+    // Refuse to reparent a tag onto itself or onto one of its own descendants:
+    // doing so rewrites the tag (and its subtree) into a self-referential path
+    // like "a/b/a", silently corrupting the taxonomy (and any sidecars on disk).
+    if dest_tag == src_tag || dest_tag.starts_with(&prefix) {
+        return Ok(0);
+    }
 
     let mut matching_paths = Vec::new();
     for entry in entries.iter() {
@@ -5598,16 +5608,15 @@ impl ShellState {
                 self.displayed.clear();
                 self.skipped = 0;
                 self.selected_index = None;
+                // `displayed` is rebuilt below; positional multi-selection indices
+                // into the old list are now stale and must be dropped.
+                self.selected_indices.clear();
                 self.streaming_scan_generation = Some(batch.generation);
             }
 
             let batch_had_entries = !batch.entries.is_empty();
             let entries = filter_excluded_entries(batch.entries, &self.prefs.excluded_folders);
-            if !entries.is_empty() {
-                if let Err(err) = crate::db::upsert_entries_for_library(&batch.folder, &entries) {
-                    eprintln!("Warning: library DB upsert failed: {err:#}");
-                }
-            }
+            enqueue_db_upsert(batch.folder.clone(), entries.clone());
             updated |= batch_had_entries;
             self.entries.extend(entries);
         }
@@ -5698,11 +5707,7 @@ impl ShellState {
         skipped: usize,
     ) -> AppViewSnapshot {
         let cleaned = filter_excluded_entries(entries, &self.prefs.excluded_folders);
-        if !cleaned.is_empty() {
-            if let Err(err) = crate::db::upsert_entries_for_library(&folder, &cleaned) {
-                eprintln!("Warning: library DB upsert failed: {err:#}");
-            }
-        }
+        enqueue_db_upsert(folder.clone(), cleaned.clone());
         Self::merge_library_folder_into_prefs(&mut self.prefs, &folder);
         self.entries.retain(|entry| {
             !crate::view_model::entry_under_library_root(&entry.path, folder.as_path())
@@ -5715,6 +5720,9 @@ impl ShellState {
         self.skipped = skipped;
         self.sidecar_writes_enabled = true;
         self.streaming_scan_generation = None;
+        // `displayed` is rebuilt by snapshot_done(); drop stale positional
+        // multi-selection so bulk operations can't act on the wrong models.
+        self.selected_indices.clear();
         self.selected_index = if self.entries.is_empty() {
             None
         } else {
@@ -5929,6 +5937,7 @@ impl ShellState {
         self.skipped = 0;
         self.sidecar_writes_enabled = false;
         self.selected_index = None;
+        self.selected_indices.clear();
         self.filter = LibraryFilter::All;
     }
 
@@ -8249,6 +8258,50 @@ struct CachedUiImage {
     last_attempt: std::time::Instant,
 }
 
+// ─── Background SQLite writer ───────────────────────────────
+//
+// SQLite upserts used to run synchronously on the Slint event loop during scans,
+// stalling rendering/input proportionally to batch size and disk latency. They
+// are now funneled to a single dedicated writer thread: one consumer keeps writes
+// serialized (so no SQLITE_BUSY contention is introduced) and FIFO-ordered, while
+// the event loop only enqueues. Nothing reads the DB back synchronously, so
+// fire-and-forget is safe; errors are logged.
+struct DbUpsertJob {
+    library_root: PathBuf,
+    entries: Vec<scanner::StlFileInfo>,
+}
+
+static DB_WRITER_SENDER: OnceLock<std::sync::mpsc::Sender<DbUpsertJob>> = OnceLock::new();
+
+fn get_db_writer_sender() -> std::sync::mpsc::Sender<DbUpsertJob> {
+    DB_WRITER_SENDER
+        .get_or_init(|| {
+            let (tx, rx) = std::sync::mpsc::channel::<DbUpsertJob>();
+            std::thread::spawn(move || {
+                while let Ok(job) = rx.recv() {
+                    if let Err(err) =
+                        crate::db::upsert_entries_for_library(&job.library_root, &job.entries)
+                    {
+                        eprintln!("Warning: background library DB upsert failed: {err:#}");
+                    }
+                }
+            });
+            tx
+        })
+        .clone()
+}
+
+/// Enqueue a library upsert to run off the UI thread. No-op when `entries` is empty.
+fn enqueue_db_upsert(library_root: PathBuf, entries: Vec<scanner::StlFileInfo>) {
+    if entries.is_empty() {
+        return;
+    }
+    let _ = get_db_writer_sender().send(DbUpsertJob {
+        library_root,
+        entries,
+    });
+}
+
 enum ImageLoadRequest {
     UiImage {
         path: PathBuf,
@@ -8531,6 +8584,41 @@ fn print_history_row(record: &scanner::PrintRecord) -> PrintHistoryRow {
 static UPDATE_DOWNLOAD_URL: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 static UPDATE_VERSION: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
+/// Hard ceilings for the self-update download and extraction, to bound disk usage
+/// against an oversized or decompression-bomb release asset.
+const MAX_UPDATE_DOWNLOAD_BYTES: u64 = 500 * 1024 * 1024;
+const MAX_UPDATE_EXTRACT_BYTES: u64 = 1024 * 1024 * 1024;
+
+/// Validate a GitHub release `tag_name` before it is ever used to build
+/// filesystem paths or shell commands.
+///
+/// The tag flows into temp file/dir names and (historically) into a bash
+/// installer script, so an unsanitized tag is a path-traversal and shell
+/// command-injection vector. Accept only version-like slugs: a leading
+/// alphanumeric (e.g. `v` or a digit) followed by ASCII alphanumerics, `.`,
+/// `-`, or `_`, with no `..` sequence. Everything else (quotes, spaces, `$`,
+/// backticks, slashes, leading dashes) is rejected so the update is refused
+/// rather than executed.
+fn sanitize_release_tag(tag: &str) -> Option<String> {
+    let tag = tag.trim();
+    if tag.is_empty() || tag.len() > 64 || tag.contains("..") {
+        return None;
+    }
+    let mut chars = tag.chars();
+    let first = chars.next()?;
+    if !first.is_ascii_alphanumeric() {
+        return None;
+    }
+    if tag
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
+    {
+        Some(tag.to_string())
+    } else {
+        None
+    }
+}
+
 fn is_newer_version(current: &str, latest: &str) -> bool {
     let parse = |s: &str| -> Vec<u32> {
         s.split('.')
@@ -8565,9 +8653,14 @@ fn check_for_updates(current_version: &str) -> Result<Option<(String, String)>, 
     let release: serde_json::Value = serde_json::from_str(&body_str)
         .map_err(|e| format!("Failed to parse release JSON: {}", e))?;
 
-    let tag_name = release["tag_name"]
+    let raw_tag = release["tag_name"]
         .as_str()
         .ok_or_else(|| "Missing tag_name in release info".to_string())?;
+
+    // Refuse to act on a tag that could escape temp paths or inject shell
+    // commands; the tag is later used to build filesystem paths.
+    let tag_name = sanitize_release_tag(raw_tag)
+        .ok_or_else(|| format!("Refusing update: unsafe release tag {raw_tag:?}"))?;
 
     let latest_ver = tag_name.trim_start_matches('v');
     if is_newer_version(current_version, latest_ver) {
@@ -8661,7 +8754,10 @@ fn perform_self_update(weak_ui: slint::Weak<ModelRackWindow>) {
     };
 
     let tag_name = match UPDATE_VERSION.lock() {
-        Ok(guard) => guard.clone().unwrap_or_else(|| "latest".to_string()),
+        Ok(guard) => guard
+            .clone()
+            .and_then(|t| sanitize_release_tag(&t))
+            .unwrap_or_else(|| "latest".to_string()),
         Err(_) => "latest".to_string(),
     };
 
@@ -8705,6 +8801,12 @@ fn perform_self_update(weak_ui: slint::Weak<ModelRackWindow>) {
                     .map_err(|e| format!("Error writing download file: {}", e))?;
 
                 downloaded += bytes_read as u64;
+                if downloaded > MAX_UPDATE_DOWNLOAD_BYTES {
+                    return Err(format!(
+                        "Update download exceeded {} bytes; aborting",
+                        MAX_UPDATE_DOWNLOAD_BYTES
+                    ));
+                }
 
                 if total_size > 0 {
                     let progress = ((downloaded * 100) / total_size) as i32;
@@ -8740,9 +8842,24 @@ fn perform_self_update(weak_ui: slint::Weak<ModelRackWindow>) {
             let mut archive = zip::ZipArchive::new(zip_file)
                 .map_err(|e| format!("Invalid zip archive: {}", e))?;
 
+            // Reject decompression bombs before writing anything to disk.
+            if let Some(total) = archive.decompressed_size() {
+                if total > MAX_UPDATE_EXTRACT_BYTES as u128 {
+                    return Err(format!(
+                        "Update archive expands to {total} bytes (cap {}); aborting",
+                        MAX_UPDATE_EXTRACT_BYTES
+                    ));
+                }
+            }
+
+            // zip 6 `extract` resolves entries via `enclosed_name`, so it is
+            // zip-slip safe; the size guard above bounds disk usage.
             archive
                 .extract(&temp_extract_dir)
                 .map_err(|e| format!("Failed to extract zip: {}", e))?;
+
+            // Verify the replacement is trustworthy before we stage it for install.
+            verify_extracted_app_signature(&temp_extract_dir)?;
 
             // 4. Update UI to "Ready"
             let weak = weak_ui_clone.clone();
@@ -8775,13 +8892,81 @@ fn show_update_error(weak_ui: &slint::Weak<ModelRackWindow>, msg: &str) {
     });
 }
 
+/// Verify a freshly-extracted update before it replaces the installed app.
+///
+/// macOS release builds are Developer ID signed and notarized, so Gatekeeper can
+/// cryptographically attest the replacement — far stronger than any checksum
+/// fetched from the same release. We use a *match-trust* rule: only enforce the
+/// assessment when the currently-running app is itself Gatekeeper-valid (a real
+/// signed release). Unsigned/ad-hoc dev or CI builds (which can't be assessed)
+/// fall through unchanged, so this never blocks an update that the previous
+/// (no-verification) code would have allowed — it only refuses a tampered payload
+/// when we have positive evidence the running app was trustworthy to begin with.
+#[cfg(target_os = "macos")]
+fn verify_extracted_app_signature(extracted_dir: &std::path::Path) -> Result<(), String> {
+    let app_path = extracted_dir.join("ModelRack.app");
+    if !app_path.exists() {
+        // Bare-binary payload; nothing app-bundle-signed to assess here.
+        return Ok(());
+    }
+    if !current_app_is_gatekeeper_valid() {
+        log::warn!(
+            "Skipping update signature check: running app is not Gatekeeper-validated (likely an unsigned build)"
+        );
+        return Ok(());
+    }
+    match std::process::Command::new("/usr/sbin/spctl")
+        .args(["--assess", "--type", "execute", "--ignore-cache"])
+        .arg(&app_path)
+        .output()
+    {
+        Ok(out) if out.status.success() => Ok(()),
+        Ok(out) => Err(format!(
+            "Refusing update: downloaded app failed Gatekeeper assessment ({})",
+            String::from_utf8_lossy(&out.stderr).trim()
+        )),
+        // If spctl cannot be run we fail open (log only) rather than block updates.
+        Err(e) => {
+            log::warn!("Could not run spctl to verify update ({e}); proceeding without assessment");
+            Ok(())
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn verify_extracted_app_signature(_extracted_dir: &std::path::Path) -> Result<(), String> {
+    Ok(())
+}
+
+/// True only if the currently-running `.app` bundle passes Gatekeeper assessment.
+#[cfg(target_os = "macos")]
+fn current_app_is_gatekeeper_valid() -> bool {
+    let Ok(exe) = std::env::current_exe() else {
+        return false;
+    };
+    let exe_str = exe.to_string_lossy();
+    let Some(idx) = exe_str.find(".app/Contents/MacOS/") else {
+        return false;
+    };
+    let app_path = &exe_str[..idx + ".app".len()];
+    std::process::Command::new("/usr/sbin/spctl")
+        .args(["--assess", "--type", "execute"])
+        .arg(app_path)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
 fn execute_restart_and_install() -> Result<(), String> {
     let current_pid = std::process::id();
     let exe_path = std::env::current_exe()
         .map_err(|e| format!("Failed to get current executable path: {}", e))?;
 
     let tag_name = match UPDATE_VERSION.lock() {
-        Ok(guard) => guard.clone().unwrap_or_else(|| "latest".to_string()),
+        Ok(guard) => guard
+            .clone()
+            .and_then(|t| sanitize_release_tag(&t))
+            .unwrap_or_else(|| "latest".to_string()),
         Err(_) => "latest".to_string(),
     };
 
@@ -8793,53 +8978,57 @@ fn execute_restart_and_install() -> Result<(), String> {
 
     let script_path = temp_dir.join("modelrack_installer.sh");
 
-    let script_content = if is_mac_app {
+    // The script body is a FIXED template; the PID and the (arbitrary-length)
+    // paths are passed as positional arguments and only ever expanded through
+    // quoted "$1"/"$2"/"$3", so nothing is re-parsed as shell syntax — safe even
+    // if a path contains spaces or shell metacharacters.
+    let (script_content, old_path, new_path) = if is_mac_app {
         let mut app_path = exe_path.clone();
         app_path.pop(); // MacOS
         app_path.pop(); // Contents
         app_path.pop(); // ModelRack.app
 
-        let old_app_str = app_path.to_string_lossy().into_owned();
-        let new_app_str = temp_extract_dir
-            .join("ModelRack.app")
-            .to_string_lossy()
-            .into_owned();
-
-        format!(
-            r#"#!/bin/bash
-while kill -0 {pid} 2>/dev/null; do
+        let new_app = temp_extract_dir.join("ModelRack.app");
+        let script = r#"#!/bin/bash
+pid="$1"
+old_app="$2"
+new_app="$3"
+while kill -0 "$pid" 2>/dev/null; do
     sleep 0.1
 done
-rm -rf "{old_app}"
-mv "{new_app}" "{old_app}"
-open "{old_app}"
-"#,
-            pid = current_pid,
-            old_app = old_app_str,
-            new_app = new_app_str
+rm -rf "$old_app"
+mv "$new_app" "$old_app"
+open "$old_app"
+"#
+        .to_string();
+        (
+            script,
+            app_path.to_string_lossy().into_owned(),
+            new_app.to_string_lossy().into_owned(),
         )
     } else {
-        let old_bin_str = exe_path.to_string_lossy().into_owned();
         let new_bin_path = if temp_extract_dir.join("ModelRack.app").exists() {
             temp_extract_dir.join("ModelRack.app/Contents/MacOS/modelrack")
         } else {
             temp_extract_dir.join("modelrack")
         };
-        let new_bin_str = new_bin_path.to_string_lossy().into_owned();
-
-        format!(
-            r#"#!/bin/bash
-while kill -0 {pid} 2>/dev/null; do
+        let script = r#"#!/bin/bash
+pid="$1"
+old_bin="$2"
+new_bin="$3"
+while kill -0 "$pid" 2>/dev/null; do
     sleep 0.1
 done
-rm -f "{old_bin}"
-mv "{new_bin}" "{old_bin}"
-chmod +x "{old_bin}"
-"{old_bin}" &
-"#,
-            pid = current_pid,
-            old_bin = old_bin_str,
-            new_bin = new_bin_str
+rm -f "$old_bin"
+mv "$new_bin" "$old_bin"
+chmod +x "$old_bin"
+"$old_bin" &
+"#
+        .to_string();
+        (
+            script,
+            exe_path.to_string_lossy().into_owned(),
+            new_bin_path.to_string_lossy().into_owned(),
         )
     };
 
@@ -8859,6 +9048,9 @@ chmod +x "{old_bin}"
 
     std::process::Command::new("bash")
         .arg(&script_path)
+        .arg(current_pid.to_string())
+        .arg(&old_path)
+        .arg(&new_path)
         .spawn()
         .map_err(|e| format!("Failed to execute installer script: {}", e))?;
 
@@ -10554,6 +10746,92 @@ mod tests {
         assert_eq!(browser_count_label(9, 36, "ko"), "9 / 36개 항목");
         assert_eq!(browser_count_label(36, 36, "ja"), "36 件");
         assert_eq!(browser_count_label(9, 36, "ja"), "9 / 36 件");
+    }
+
+    #[test]
+    fn rescan_clears_stale_multi_selection() {
+        let dir = temp_path("rescan-selection");
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut state = ShellState::default();
+        state.selected_indices.insert(3);
+        state.selected_indices.insert(7);
+        state.selected_index = Some(3);
+
+        // A rescan rebuilds `displayed`; positional indices into the OLD list
+        // must not survive, or bulk operations (clear-tags, add-tag, move) that
+        // resolve selected_indices -> displayed would hit the wrong models.
+        let _ = state.apply_scan_parts(dir.clone(), Vec::new(), 0);
+
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            state.selected_indices.is_empty(),
+            "stale multi-selection must be cleared on rescan"
+        );
+    }
+
+    #[test]
+    fn clear_library_state_clears_multi_selection() {
+        let mut state = ShellState::default();
+        state.selected_indices.insert(1);
+        state.clear_library_state();
+        assert!(state.selected_indices.is_empty());
+    }
+
+    #[test]
+    fn persist_tag_reparent_rejects_dropping_a_tag_onto_its_own_descendant() {
+        let dir = temp_path("reparent-guard");
+        std::fs::create_dir_all(&dir).unwrap();
+        let model = dir.join("m.stl");
+        std::fs::write(&model, b"x").unwrap();
+
+        let mut entry = test_entry(&model);
+        entry.meta = Some(scanner::SidecarMeta {
+            tags: vec!["a".into()],
+            ..Default::default()
+        });
+        let mut entries = vec![entry];
+        let prefs = prefs_with_root(&dir);
+
+        // Dropping "a" onto its own descendant "a/b" must be a rejected no-op,
+        // not a rewrite that corrupts the tag into "a/b/a".
+        let changed = persist_tag_reparent(&prefs, &mut entries, false, "a", "a/b").unwrap();
+        // Dropping a tag onto itself is likewise a no-op.
+        let changed_self = persist_tag_reparent(&prefs, &mut entries, false, "a", "a").unwrap();
+
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(changed, 0, "self/descendant reparent must be a no-op");
+        assert_eq!(changed_self, 0, "reparent onto self must be a no-op");
+        assert_eq!(
+            entries[0].meta.as_ref().unwrap().tags,
+            vec!["a".to_string()],
+            "tag must be left unchanged"
+        );
+    }
+
+    #[test]
+    fn sanitize_release_tag_accepts_version_slugs_and_rejects_injection() {
+        // Legitimate release tags pass through unchanged.
+        assert_eq!(sanitize_release_tag("v0.2.0").as_deref(), Some("v0.2.0"));
+        assert_eq!(sanitize_release_tag("0.2.0").as_deref(), Some("0.2.0"));
+        assert_eq!(
+            sanitize_release_tag("v1.0.0-alpha.1").as_deref(),
+            Some("v1.0.0-alpha.1")
+        );
+        assert_eq!(
+            sanitize_release_tag("  v1.2.3  ").as_deref(),
+            Some("v1.2.3")
+        );
+
+        // Shell-injection / path-traversal payloads are refused outright.
+        assert_eq!(sanitize_release_tag(r#"1.0"; rm -rf $HOME; echo ""#), None);
+        assert_eq!(sanitize_release_tag("../../etc/passwd"), None);
+        assert_eq!(sanitize_release_tag("v1.0/../../x"), None);
+        assert_eq!(sanitize_release_tag("v1..0"), None);
+        assert_eq!(sanitize_release_tag("-rf"), None);
+        assert_eq!(sanitize_release_tag("$(whoami)"), None);
+        assert_eq!(sanitize_release_tag("v1 0"), None);
+        assert_eq!(sanitize_release_tag(""), None);
+        assert_eq!(sanitize_release_tag("   "), None);
     }
 
     #[cfg(target_os = "macos")]

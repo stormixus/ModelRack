@@ -771,10 +771,14 @@ pub fn sidebar_summary(entries: &[scanner::StlFileInfo]) -> SidebarSummary {
             .filter(|entry| entry.meta.as_ref().is_some_and(|meta| meta.printed > 0))
             .count(),
         duplicates: duplicate_count(entries),
-        ready: entries
-            .iter()
-            .filter(|entry| entry_is_ready_to_print(entries, entry))
-            .count(),
+        ready: {
+            // Compute the library-wide ready mode once → O(n) instead of O(n²).
+            let uses_explicit = library_uses_explicit_ready_status(entries);
+            entries
+                .iter()
+                .filter(|entry| entry_is_ready_with_mode(entry, uses_explicit))
+                .count()
+        },
         errors: entries
             .iter()
             .filter(|entry| entry.stl_type == scanner::StlType::Unknown)
@@ -1627,6 +1631,11 @@ pub fn filtered_sorted_entries(
             None
         };
 
+    // Precompute the library-wide ready mode once for the Ready filter so the
+    // per-entry check is O(1) instead of re-scanning every entry (O(n²)).
+    let ready_uses_explicit: Option<bool> = matches!(query.library_filter, LibraryFilter::Ready)
+        .then(|| library_uses_explicit_ready_status(entries));
+
     let mut sorted: Vec<&scanner::StlFileInfo> = entries
         .iter()
         .filter(|entry| {
@@ -1634,6 +1643,8 @@ pub fn filtered_sorted_entries(
                 LibraryFilter::Duplicates => duplicate_members
                     .as_ref()
                     .is_some_and(|set| set.contains(&entry.hash)),
+                LibraryFilter::Ready => ready_uses_explicit
+                    .is_some_and(|uses_explicit| entry_is_ready_with_mode(entry, uses_explicit)),
                 _ => entry_matches_filter(entries, query.library_filter, entry),
             };
             passes_filter
@@ -1745,13 +1756,25 @@ fn volume_sort_value(dimensions: Option<[f32; 3]>) -> Option<u64> {
     dimensions.map(|[x, y, z]| (x.max(0.0) * y.max(0.0) * z.max(0.0)).round() as u64)
 }
 
-fn entry_is_ready_to_print(entries: &[scanner::StlFileInfo], entry: &scanner::StlFileInfo) -> bool {
-    let uses_explicit_ready_status = entries.iter().any(has_ready_status);
-    if uses_explicit_ready_status {
-        return has_ready_status(entry);
-    }
+/// Whether the library uses explicit ready-to-print tagging. This is a property
+/// of the whole library (entry-independent), so hot callers should compute it
+/// ONCE and pass it to [`entry_is_ready_with_mode`] rather than re-scanning all
+/// entries per entry (which makes the Ready facet O(n²)).
+fn library_uses_explicit_ready_status(entries: &[scanner::StlFileInfo]) -> bool {
+    entries.iter().any(has_ready_status)
+}
 
-    entry.stl_type != scanner::StlType::Unknown
+/// Per-entry ready check given the precomputed library-wide mode flag. O(1).
+fn entry_is_ready_with_mode(entry: &scanner::StlFileInfo, uses_explicit_ready: bool) -> bool {
+    if uses_explicit_ready {
+        has_ready_status(entry)
+    } else {
+        entry.stl_type != scanner::StlType::Unknown
+    }
+}
+
+fn entry_is_ready_to_print(entries: &[scanner::StlFileInfo], entry: &scanner::StlFileInfo) -> bool {
+    entry_is_ready_with_mode(entry, library_uses_explicit_ready_status(entries))
 }
 
 fn has_ready_status(entry: &scanner::StlFileInfo) -> bool {
@@ -1827,6 +1850,45 @@ mod tests {
             thumbnail_path: None,
             meta: None,
         }
+    }
+
+    #[test]
+    fn ready_facet_counts_consistently_in_both_modes() {
+        // Fallback mode: no entry carries an explicit ready status, so "ready"
+        // means any entry whose mesh parsed (stl_type != Unknown).
+        let mut a2 = entry("/m/a2.stl", 2);
+        a2.stl_type = StlType::Unknown;
+        let mode_fallback = vec![entry("/m/a1.stl", 1), a2];
+        assert_eq!(sidebar_summary(&mode_fallback).ready, 1);
+
+        // Explicit mode: once any entry is tagged ready-to-print/queued, "ready"
+        // counts only the explicitly-tagged entries.
+        let mut b1 = entry("/m/b1.stl", 1);
+        b1.meta = Some(SidecarMeta {
+            tags: vec!["ready-to-print".into()],
+            ..Default::default()
+        });
+        let b2 = entry("/m/b2.stl", 2);
+        let mut b3 = entry("/m/b3.stl", 3);
+        b3.meta = Some(SidecarMeta {
+            tags: vec!["queued".into()],
+            ..Default::default()
+        });
+        let mode_explicit = vec![b1, b2, b3];
+        assert_eq!(sidebar_summary(&mode_explicit).ready, 2);
+
+        // The filtered Ready view must agree with the sidebar count.
+        let filtered = filtered_sorted_entries(
+            &mode_explicit,
+            DisplayQuery {
+                search_query: "",
+                library_filter: &LibraryFilter::Ready,
+                sort_by: SortBy::Name,
+                sort_ascending: true,
+                preserve_order: false,
+            },
+        );
+        assert_eq!(filtered.len(), 2);
     }
 
     #[test]

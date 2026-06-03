@@ -101,6 +101,13 @@ pub fn open_library_db(library_root: &Path) -> Result<Connection> {
     let path = library_db_path(library_root);
     let conn = Connection::open(&path).with_context(|| format!("open {}", path.display()))?;
     conn.pragma_update(None, "foreign_keys", true)?;
+    // The DB lives beside the model tree on potentially shared/removable media,
+    // and writes may come from a background thread. Wait-and-retry instead of
+    // failing immediately with SQLITE_BUSY, and prefer WAL so a reader can run
+    // concurrently with a writer. WAL can be unavailable on some network mounts,
+    // so its failure is non-fatal.
+    conn.busy_timeout(std::time::Duration::from_secs(5))?;
+    let _ = conn.pragma_update(None, "journal_mode", "WAL");
     run_migrations(&conn)?;
     Ok(conn)
 }
@@ -267,10 +274,14 @@ fn upsert_one_file(tx: &rusqlite::Transaction<'_>, entry: &StlFileInfo) -> Resul
         |row| row.get(0),
     )?;
 
-    tx.execute("DELETE FROM file_tags WHERE file_id = ?1", params![id])?;
-    tx.execute("DELETE FROM print_history WHERE file_id = ?1", params![id])?;
-
     if let Some(meta) = &entry.meta {
+        // Only re-derive tags/history when we actually have sidecar metadata.
+        // A None meta means the sidecar was absent OR failed to parse; deleting
+        // here (as before) would silently wipe an existing file's indexed tags
+        // and print history on a transient read error.
+        tx.execute("DELETE FROM file_tags WHERE file_id = ?1", params![id])?;
+        tx.execute("DELETE FROM print_history WHERE file_id = ?1", params![id])?;
+
         for tag_name in &meta.tags {
             let tag = tag_name.trim();
             if tag.is_empty() {
@@ -389,6 +400,39 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))
             .unwrap();
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn upsert_with_missing_sidecar_preserves_existing_tags_and_history() {
+        let tmp =
+            std::env::temp_dir().join(format!("modelrack-db-meta-none-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(tmp.join("models")).unwrap();
+        let stl = tmp.join("models").join("part.stl");
+        fs::write(&stl, b"x").unwrap();
+
+        // First scan: sidecar present, tags + print history get indexed.
+        upsert_entries_for_library(&tmp, &[sample_entry(stl.clone())]).unwrap();
+
+        // Rescan where the sidecar failed to read (meta = None). The previously
+        // indexed tags and print history must NOT be wiped by the rescan.
+        let mut without_meta = sample_entry(stl);
+        without_meta.meta = None;
+        upsert_entries_for_library(&tmp, &[without_meta]).unwrap();
+
+        let conn = open_library_db(&tmp).unwrap();
+        let tag_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM file_tags", [], |row| row.get(0))
+            .unwrap();
+        let history_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM print_history", [], |row| row.get(0))
+            .unwrap();
+        let _ = fs::remove_dir_all(&tmp);
+        assert_eq!(tag_count, 2, "tags must survive a meta=None rescan");
+        assert_eq!(
+            history_count, 1,
+            "print history must survive a meta=None rescan"
+        );
     }
 
     #[test]

@@ -30,6 +30,11 @@ const MAX_3MF_PREVIEW_VERTICES: usize = 64;
 const MAX_3MF_PREVIEW_FACES: usize = 2_000_000;
 #[cfg(test)]
 const MAX_3MF_PREVIEW_FACES: usize = 64;
+/// Aggregate cap on the total decompressed `.model`/settings XML the 3MF parser
+/// materializes from a single archive. Bounds memory against an archive that packs
+/// many individually-capped entries (a zip bomb spread across many entries rather
+/// than one oversized entry).
+const MAX_3MF_TOTAL_TEXT_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_3MF_BUILD_ITEMS: usize = 128;
 const MAX_3MF_COMPONENT_REFS: usize = 512;
 type ParsedStl = (StlType, Option<usize>, Option<[f32; 3]>, Option<MeshData>);
@@ -401,10 +406,14 @@ pub(crate) fn embedded_three_mf_preview_png(path: &Path) -> Option<Vec<u8>> {
             continue;
         }
 
-        let mut png = Vec::with_capacity(file.size() as usize);
-        file.read_to_end(&mut png).ok()?;
+        // `file.size()` is the (untrusted) declared uncompressed size used only
+        // for ranking; bound the actual decompressed read independently.
+        let declared_size = file.size();
+        let Some(png) = read_to_end_capped(&mut file, MAX_EMBEDDED_3MF_PREVIEW_PNG_BYTES) else {
+            continue;
+        };
         if png.starts_with(b"\x89PNG\r\n\x1a\n") {
-            best = Some((score, file.size(), png));
+            best = Some((score, declared_size, png));
         }
     }
 
@@ -444,7 +453,7 @@ fn parse_three_mf_file(path: &Path) -> Result<(StlFileInfo, Option<MeshData>)> {
         }
     };
 
-    let plates = parse_three_mf_plates_from_archive(&mut archive)?;
+    let plates = parse_three_mf_plates_from_archive(&mut archive, MAX_3MF_TOTAL_TEXT_BYTES)?;
 
     let mesh_data = plates.first().map(|plate| plate.mesh.clone());
     let dimensions = mesh_data.as_ref().and_then(mesh_dimensions);
@@ -478,6 +487,44 @@ fn parse_three_mf_file(path: &Path) -> Result<(StlFileInfo, Option<MeshData>)> {
     ))
 }
 
+/// Read up to `max` bytes from `reader` as a UTF-8 string, refusing the input if
+/// it yields more than `max` bytes.
+///
+/// ZIP entry sizes reported by [`zip::read::ZipFile::size`] come from an
+/// attacker-controlled header: a malicious `.3mf` can declare a tiny uncompressed
+/// size yet decompress to gigabytes (the `deflate-flate2` decoder does not bound
+/// its output by the declared size, and the CRC is only checked after the whole
+/// stream is read). Reading such an entry with `read_to_string` would materialize
+/// the full decompressed payload in memory before any size check. This helper
+/// bounds the read by the *actual* decompressed length, returning `None` when the
+/// cap is exceeded or the bytes are not valid UTF-8.
+fn read_to_string_capped<R: Read>(reader: &mut R, max: u64) -> Option<String> {
+    let mut buf = Vec::new();
+    reader
+        .take(max.saturating_add(1))
+        .read_to_end(&mut buf)
+        .ok()?;
+    if buf.len() as u64 > max {
+        return None;
+    }
+    String::from_utf8(buf).ok()
+}
+
+/// Byte-oriented counterpart to [`read_to_string_capped`] for binary entries
+/// (e.g. embedded preview PNGs). Returns `None` when the entry yields more than
+/// `max` bytes, bounding memory against a forged uncompressed-size header.
+fn read_to_end_capped<R: Read>(reader: &mut R, max: u64) -> Option<Vec<u8>> {
+    let mut buf = Vec::new();
+    reader
+        .take(max.saturating_add(1))
+        .read_to_end(&mut buf)
+        .ok()?;
+    if buf.len() as u64 > max {
+        return None;
+    }
+    Some(buf)
+}
+
 fn parse_three_mf_plates(path: &Path) -> Result<Option<Vec<ThreeMfPlate>>> {
     let metadata = std::fs::metadata(path)
         .with_context(|| format!("Failed to read metadata for {}", path.display()))?;
@@ -490,17 +537,19 @@ fn parse_three_mf_plates(path: &Path) -> Result<Option<Vec<ThreeMfPlate>>> {
         Err(_) => return Ok(None),
     };
 
-    let plates = parse_three_mf_plates_from_archive(&mut archive)?;
+    let plates = parse_three_mf_plates_from_archive(&mut archive, MAX_3MF_TOTAL_TEXT_BYTES)?;
 
     Ok((!plates.is_empty()).then_some(plates))
 }
 
 fn parse_three_mf_plates_from_archive<R: Read + Seek>(
     archive: &mut zip::ZipArchive<R>,
+    max_total_text_bytes: u64,
 ) -> Result<Vec<ThreeMfPlate>> {
     let mut model_texts = HashMap::<String, String>::new();
     let mut model_settings = None::<String>;
     let mut skipped_model_geometry = false;
+    let mut total_text_bytes: u64 = 0;
 
     for index in 0..archive.len() {
         let mut file = archive.by_index(index)?;
@@ -521,8 +570,30 @@ fn parse_three_mf_plates_from_archive<R: Read + Seek>(
             continue;
         }
 
-        let mut xml = String::new();
-        file.read_to_string(&mut xml)?;
+        // The size guard above trusts the ZIP header's declared uncompressed
+        // size; bound the *actual* decompressed read as well so a forged header
+        // (small declared size, huge deflate stream) cannot exhaust memory.
+        let Some(xml) = read_to_string_capped(&mut file, MAX_3MF_MODEL_XML_BYTES) else {
+            if lower.ends_with(".model") {
+                skipped_model_geometry = true;
+            }
+            eprintln!(
+                "Skipping 3MF XML entry exceeding decompressed cap: {}",
+                name
+            );
+            continue;
+        };
+        if total_text_bytes.saturating_add(xml.len() as u64) > max_total_text_bytes {
+            // A partial preview missing dropped geometry would be misleading, so
+            // signal skipped geometry and stop materializing further entries.
+            skipped_model_geometry = true;
+            eprintln!(
+                "Stopping 3MF parse: aggregate decompressed XML exceeds {} bytes",
+                max_total_text_bytes
+            );
+            break;
+        }
+        total_text_bytes = total_text_bytes.saturating_add(xml.len() as u64);
         if lower == "metadata/model_settings.config" {
             model_settings = Some(xml);
         } else {
@@ -2294,6 +2365,62 @@ mod tests {
     use std::io;
     use std::process::Command;
     use std::time::Duration;
+
+    #[test]
+    fn read_to_string_capped_refuses_oversized_input() {
+        // Zip-bomb defense: a 3MF entry whose decompressed stream is larger than
+        // the cap must be refused (None) rather than fully materialized, even if
+        // its (attacker-controlled) declared uncompressed size says it is small.
+        let max = 16u64;
+        let within = vec![b'a'; max as usize];
+        let over = vec![b'a'; max as usize + 1];
+
+        assert_eq!(
+            read_to_string_capped(&mut io::Cursor::new(within.clone()), max).as_deref(),
+            Some(std::str::from_utf8(&within).unwrap()),
+            "content exactly at the cap must be accepted"
+        );
+        assert_eq!(
+            read_to_string_capped(&mut io::Cursor::new(over), max),
+            None,
+            "content one byte over the cap must be refused"
+        );
+    }
+
+    #[test]
+    fn three_mf_archive_bounds_total_decompressed_text() {
+        // Even with a per-entry cap, a malicious .3mf can pack many entries whose
+        // decompressed text together exhausts memory. The archive parser must bound
+        // the aggregate it materializes, so a craft with far more entries than the
+        // total budget allows does not retain them all.
+        let mut buf = Vec::new();
+        {
+            let mut zip = zip::ZipWriter::new(Cursor::new(&mut buf));
+            for i in 0..6 {
+                zip.start_file(
+                    format!("Metadata/plate_{i}.model"),
+                    zip::write::SimpleFileOptions::default()
+                        .compression_method(zip::CompressionMethod::Stored),
+                )
+                .unwrap();
+                let xml = r#"<model><resources><object id="1"><mesh><vertices>
+                    <vertex x="0" y="0" z="0"/><vertex x="1" y="0" z="0"/><vertex x="0" y="1" z="0"/>
+                    </vertices><triangles><triangle v1="0" v2="1" v3="2"/></triangles></mesh></object></resources></model>"#;
+                std::io::Write::write_all(&mut zip, xml.as_bytes()).unwrap();
+            }
+            zip.finish().unwrap();
+        }
+        let mut archive = zip::ZipArchive::new(Cursor::new(buf)).unwrap();
+        // Tiny aggregate budget (~3 of the 6 entries) injected for the test.
+        let plates = parse_three_mf_plates_from_archive(&mut archive, 1024).unwrap();
+        // Without the aggregate cap all six entries parse into six plates; with it,
+        // the parser stops materializing once the total budget is exceeded.
+        assert!(
+            plates.len() < 6,
+            "aggregate text budget must bound how much the parser retains, got {} plates",
+            plates.len()
+        );
+    }
 
     #[test]
     fn openscad_export_timeout_reads_env() {
